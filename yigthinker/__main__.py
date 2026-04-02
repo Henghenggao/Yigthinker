@@ -38,58 +38,16 @@ def _hydrate_session_from_resume(ctx, resume: bool) -> None:
         console.print("[yellow]No previous session found. Starting fresh.[/]")
 
 
-def _build(settings: dict):
-    from yigthinker.agent import AgentLoop
-    from yigthinker.cli.ask_prompt import ask_user_permission
-    from yigthinker.hooks.executor import HookExecutor
-    from yigthinker.hooks.registry import HookRegistry
-    from yigthinker.mcp.loader import MCPLoader
-    from yigthinker.permissions import PermissionSystem
-    from yigthinker.providers.factory import provider_from_settings
-    from yigthinker.registry_factory import build_tool_registry
-    from yigthinker.tools.sql.connection import ConnectionPool
-
-    pool = ConnectionPool()
-    for name, cfg in settings.get("connections", {}).items():
-        pool.add_from_config(name, cfg)
-
-    tools = build_tool_registry(pool=pool)
-    mcp_config = Path.cwd() / ".mcp.json"
-    if mcp_config.exists():
-        try:
-            asyncio.run(MCPLoader(mcp_json_path=mcp_config, registry=tools).load())
-        except ModuleNotFoundError:
-            pass
-
-    hooks = HookExecutor(HookRegistry())
-    permissions = PermissionSystem(settings.get("permissions", {}))
-    provider = provider_from_settings(settings)
-    agent = AgentLoop(
-        provider=provider,
-        tools=tools,
-        hooks=hooks,
-        permissions=permissions,
-        ask_fn=ask_user_permission,
-    )
-    return agent, pool
-
-
-def _run_query(query: str, settings: dict, session) -> str:
-    loop, _pool = _build(settings)
-    return asyncio.run(loop.run(query, session))
-
-
-@app.command()
-def main(
-    query: Optional[str] = typer.Argument(default=None, help="Query (omit for REPL mode)"),
-    resume: bool = typer.Option(False, "--resume", help="Resume last session"),
+async def _async_main(
+    query: str | None,
+    resume: bool,
+    settings: dict,
 ) -> None:
+    from yigthinker.builder import build_app
     from yigthinker.cli.repl import Repl
     from yigthinker.plugins.loader import PluginLoader
     from yigthinker.session import SessionContext
-    from yigthinker.settings import load_settings
 
-    settings = load_settings()
     ctx = SessionContext(settings=settings)
     _hydrate_session_from_resume(ctx, resume)
 
@@ -98,14 +56,31 @@ def main(
         for command in PluginLoader().load_commands()
     }
 
+    app_ctx = await build_app(settings)
+
     if query:
-        result = _run_query(query, settings, ctx)
+        result = await app_ctx.agent_loop.run(query, ctx)
         console.print(result)
         return
 
-    agent, pool = _build(settings)
-    repl = Repl(agent_loop=agent, ctx=ctx, pool=pool, plugin_commands=plugin_commands)
-    asyncio.run(repl.run_interactive())
+    repl = Repl(
+        agent_loop=app_ctx.agent_loop,
+        ctx=ctx,
+        pool=app_ctx.pool,
+        plugin_commands=plugin_commands,
+    )
+    await repl.run_interactive()
+
+
+@app.command()
+def main(
+    query: Optional[str] = typer.Argument(default=None, help="Query (omit for REPL mode)"),
+    resume: bool = typer.Option(False, "--resume", help="Resume last session"),
+) -> None:
+    from yigthinker.settings import load_settings
+
+    settings = load_settings()
+    asyncio.run(_async_main(query, resume, settings))
 
 
 @app.command()
