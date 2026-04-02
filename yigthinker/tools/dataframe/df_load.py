@@ -1,0 +1,66 @@
+from __future__ import annotations
+from pathlib import Path
+import pandas as pd
+from pydantic import BaseModel
+from yigthinker.types import ToolResult
+from yigthinker.session import SessionContext
+from yigthinker.context_manager import ContextManager
+
+_LOADERS = {
+    ".csv": pd.read_csv,
+    ".parquet": pd.read_parquet,
+    ".json": pd.read_json,
+    ".xlsx": pd.read_excel,
+    ".xls": pd.read_excel,
+}
+
+
+class DfLoadInput(BaseModel):
+    source: str
+    var_name: str = "df1"
+    sheet_name: str | None = None
+
+
+class DfLoadTool:
+    name = "df_load"
+    description = (
+        "Load data from a file (CSV, Excel, Parquet, JSON) into a named DataFrame "
+        "in the variable registry. Reference it in later tool calls by var_name."
+    )
+    input_schema = DfLoadInput
+
+    async def execute(self, input: DfLoadInput, ctx: SessionContext) -> ToolResult:
+        try:
+            path = Path(input.source)
+            suffix = path.suffix.lower()
+            loader = _LOADERS.get(suffix)
+            if loader is None:
+                return ToolResult(
+                    tool_use_id="",
+                    content=f"Unsupported file format '{suffix}'. Supported: {list(_LOADERS)}",
+                    is_error=True,
+                )
+
+            kwargs = {}
+            if suffix in (".xlsx", ".xls") and input.sheet_name:
+                kwargs["sheet_name"] = input.sheet_name
+
+            df = loader(path, **kwargs)
+            ctx.vars.set(input.var_name, df)
+
+            cm = ContextManager()
+            return ToolResult(
+                tool_use_id="",
+                content={
+                    "loaded": input.var_name,
+                    "preview": cm.summarize_dataframe_result(df),
+                },
+            )
+        except FileNotFoundError:
+            return ToolResult(
+                tool_use_id="",
+                content=f"File not found: {input.source}",
+                is_error=True,
+            )
+        except Exception as exc:
+            return ToolResult(tool_use_id="", content=str(exc), is_error=True)

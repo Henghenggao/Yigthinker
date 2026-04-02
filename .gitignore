@@ -1,0 +1,85 @@
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Logs
+*.log
+logs/
+
+# Yigthinker runtime (generated, not source)
+.yigthinker/sessions/
+.yigthinker/projects/
+*.jsonl
+
+# Local dev scripts
+run_dashboard.py
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+
+# Internal tooling / planning artifacts
+.claude/
+.fincode/
+.superpowers/
+.gstack/
+.planning/
+
+# Product plans, specs, design docs
+docs/
+plans/
+specs/
+design/
+roadmap/
+milestones/
+requirements/
+*-ROADMAP.md
+*-REQUIREMENTS.md
+*-MILESTONE*.md
+*-SPEC*.md
+*-PLAN*.md
+*-DESIGN*.md
