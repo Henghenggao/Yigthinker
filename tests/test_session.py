@@ -42,3 +42,58 @@ def test_session_context_vars_independent():
     s2 = SessionContext()
     s1.vars.set("df1", pd.DataFrame({"a": [1]}))
     assert "df1" not in s2.vars
+
+
+def test_var_registry_typed_set_and_get():
+    reg = VarRegistry()
+    reg.set("chart1", '{"data": []}', var_type="chart")
+    assert reg.get("chart1") == '{"data": []}'
+
+
+def test_var_registry_list_includes_all_types():
+    reg = VarRegistry()
+    df = pd.DataFrame({"a": [1]})
+    reg.set("my_df", df)
+    reg.set("my_chart", '{"data": []}', var_type="chart")
+    infos = reg.list()
+    assert len(infos) == 2
+    names = {i.name for i in infos}
+    assert names == {"my_df", "my_chart"}
+
+
+def test_var_info_dataframe_has_type():
+    reg = VarRegistry()
+    df = pd.DataFrame({"x": [1], "y": [2]})
+    reg.set("df1", df)
+    info = reg.list()[0]
+    assert info.var_type == "dataframe"
+    assert info.shape == (1, 2)
+    assert "x" in info.dtypes
+
+
+def test_var_info_chart_has_type():
+    reg = VarRegistry()
+    reg.set("c1", '{"data": []}', var_type="chart")
+    info = reg.list()[0]
+    assert info.var_type == "chart"
+    assert info.shape == (0, 0)
+
+
+def test_var_registry_default_type_is_dataframe():
+    reg = VarRegistry()
+    df = pd.DataFrame({"a": [1]})
+    reg.set("df1", df)
+    infos = reg.list()
+    assert infos[0].var_type == "dataframe"
+
+
+def test_session_context_has_context_manager():
+    from yigthinker.context_manager import ContextManager
+    ctx = SessionContext()
+    assert isinstance(ctx.context_manager, ContextManager)
+
+
+def test_session_context_independent_context_managers():
+    s1 = SessionContext()
+    s2 = SessionContext()
+    assert s1.context_manager is not s2.context_manager
