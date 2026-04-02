@@ -117,7 +117,7 @@ class AgentLoop:
                 is_error=True,
             )
 
-        decision = self._permissions.check(tool_name, tool_input)
+        decision = self._permissions.check(tool_name, tool_input, session_id=ctx.session_id)
         if decision == "deny":
             return ToolResult(
                 tool_use_id=tool_use_id,
@@ -135,7 +135,7 @@ class AgentLoop:
                     is_error=True,
                 )
             if answer == PermissionAnswer.ALLOW_ALL:
-                self._permissions._allow.append(tool_name)
+                self._permissions.allow_for_session(tool_name, ctx.session_id)
 
         try:
             tool = self._tools.get(tool_name)
