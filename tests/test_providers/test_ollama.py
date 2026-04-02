@@ -1,7 +1,25 @@
 from unittest.mock import AsyncMock, patch
 
+import httpx
+import pytest
+
 from yigthinker.providers.ollama import OllamaProvider
 from yigthinker.types import Message
+
+
+def _ollama_available() -> bool:
+    """Check if Ollama is reachable at localhost:11434."""
+    try:
+        httpx.get("http://localhost:11434/api/tags", timeout=2)
+        return True
+    except (httpx.ConnectError, httpx.TimeoutException):
+        return False
+
+
+skip_no_ollama = pytest.mark.skipif(
+    not _ollama_available(),
+    reason="Ollama not reachable at localhost:11434",
+)
 
 
 async def test_chat_end_turn():
