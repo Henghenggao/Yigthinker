@@ -17,8 +17,8 @@ class ReportScheduleTool:
     name = "report_schedule"
     description = (
         "Register a report for scheduled generation. "
-        "Stores a cron schedule entry in settings. "
-        "APScheduler (Phase 5, enterprise) executes these entries."
+        "(Status: LIMITED -- schedules are stored in memory only and do not persist. "
+        "APScheduler integration is not yet available.)"
     )
     input_schema = ReportScheduleInput
 
