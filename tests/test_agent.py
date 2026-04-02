@@ -27,6 +27,8 @@ class EchoTool:
 def make_loop(
     responses: list[LLMResponse],
     allow_all: bool = True,
+    max_iterations: int = 50,
+    timeout_seconds: float = 300.0,
 ) -> tuple[AgentLoop, SessionContext]:
     mock_provider = AsyncMock()
     mock_provider.chat = AsyncMock(side_effect=responses)
@@ -36,7 +38,10 @@ def make_loop(
 
     hooks = HookExecutor(HookRegistry())
     perms = PermissionSystem({"allow": ["echo"]} if allow_all else {})
-    loop = AgentLoop(provider=mock_provider, tools=tools, hooks=hooks, permissions=perms)
+    loop = AgentLoop(
+        provider=mock_provider, tools=tools, hooks=hooks, permissions=perms,
+        max_iterations=max_iterations, timeout_seconds=timeout_seconds,
+    )
     ctx = SessionContext()
     return loop, ctx
 
@@ -116,3 +121,90 @@ async def test_session_messages_persist_across_turns():
 
     second_call_messages = mock_provider.chat.await_args_list[1].args[0]
     assert any(message.content == "First reply" for message in second_call_messages)
+
+
+async def test_iteration_limit_graceful_stop():
+    """When max_iterations is exceeded, LLM is asked to summarize with no tools."""
+    # Create 4 tool_use responses (exceeding limit of 3) + 1 final summary
+    tool_responses = [
+        LLMResponse(
+            stop_reason="tool_use",
+            tool_uses=[ToolUse(id=f"tu{i}", name="echo", input={"message": "hi"})],
+        )
+        for i in range(4)
+    ]
+    summary = LLMResponse(stop_reason="end_turn", text="Here is my summary")
+    all_responses = tool_responses + [summary]
+
+    loop, ctx = make_loop(all_responses, max_iterations=3)
+    result = await loop.run("do lots of stuff", ctx)
+    assert result == "Here is my summary"
+
+    # The summary call should have been made with empty tools list
+    last_call = loop._provider.chat.await_args_list[-1]
+    assert last_call.args[1] == []  # tools param is empty
+
+
+async def test_timeout_returns_partial():
+    """When timeout is hit, a timeout message is returned."""
+    import asyncio
+
+    async def slow_chat(messages, tools, **kwargs):
+        await asyncio.sleep(10)  # way past timeout
+        return LLMResponse(stop_reason="end_turn", text="should not reach")
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = slow_chat
+
+    tools = ToolRegistry()
+    tools.register(EchoTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["echo"]})
+    loop = AgentLoop(
+        provider=mock_provider, tools=tools, hooks=hooks, permissions=perms,
+        max_iterations=50, timeout_seconds=0.1,
+    )
+    ctx = SessionContext()
+    result = await loop.run("hello", ctx)
+    assert "timed out" in result.lower()
+
+
+async def test_tool_exception_reported_to_llm():
+    """When a tool raises, error is reported as tool_result with is_error=True."""
+    class FailInput(BaseModel):
+        message: str
+
+    class FailTool:
+        name = "fail"
+        description = "Always fails"
+        input_schema = FailInput
+        async def execute(self, input, ctx):
+            raise RuntimeError("tool exploded")
+
+    tool_response = LLMResponse(
+        stop_reason="tool_use",
+        tool_uses=[ToolUse(id="tu1", name="fail", input={"message": "boom"})],
+    )
+    final_response = LLMResponse(stop_reason="end_turn", text="Handled the error")
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = AsyncMock(side_effect=[tool_response, final_response])
+    tools = ToolRegistry()
+    tools.register(FailTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["fail"]})
+    loop = AgentLoop(
+        provider=mock_provider, tools=tools, hooks=hooks, permissions=perms,
+    )
+    ctx = SessionContext()
+    result = await loop.run("do it", ctx)
+    assert result == "Handled the error"
+
+    # Verify the error was passed in tool_results
+    second_call_messages = mock_provider.chat.await_args_list[1].args[0]
+    tool_result_msg = second_call_messages[-1]  # last message is tool_results
+    assert any(
+        "tool exploded" in str(item.get("content", ""))
+        for item in tool_result_msg.content
+        if isinstance(item, dict)
+    )
