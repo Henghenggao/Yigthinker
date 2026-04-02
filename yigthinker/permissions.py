@@ -19,11 +19,21 @@ class PermissionSystem:
         self._allow: list[str] = permissions.get("allow", [])
         self._ask: list[str] = permissions.get("ask", [])
         self._deny: list[str] = permissions.get("deny", [])
+        self._session_overrides: dict[str, list[str]] = {}
+
+    def allow_for_session(self, tool_name: str, session_id: str) -> None:
+        """Grant session-scoped permission that doesn't affect other sessions."""
+        self._session_overrides.setdefault(session_id, []).append(tool_name)
+
+    def clear_session(self, session_id: str) -> None:
+        """Clean up when session ends."""
+        self._session_overrides.pop(session_id, None)
 
     def check(
         self,
         tool_name: str,
         tool_input: dict | None = None,
+        session_id: str | None = None,
     ) -> PermissionDecision:
         call_repr = self._call_repr(tool_name, tool_input or {})
 
@@ -33,6 +43,11 @@ class PermissionSystem:
 
         for pattern in self._allow:
             if self._matches(pattern, call_repr):
+                return "allow"
+
+        # Check session-scoped overrides (after deny, after global allow, before ask)
+        if session_id and session_id in self._session_overrides:
+            if tool_name in self._session_overrides[session_id]:
                 return "allow"
 
         for pattern in self._ask:
