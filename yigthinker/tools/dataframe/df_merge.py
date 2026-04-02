@@ -4,7 +4,6 @@ import pandas as pd
 from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
-from yigthinker.context_manager import ContextManager
 
 
 class DfMergeInput(BaseModel):
@@ -46,7 +45,7 @@ class DfMergeTool:
             merged = pd.merge(left, right, on=join_keys, how=input.how)
             ctx.vars.set(input.output_var, merged)
 
-            cm = ContextManager()
+            cm = ctx.context_manager
             return ToolResult(
                 tool_use_id="",
                 content={

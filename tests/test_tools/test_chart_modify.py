@@ -24,7 +24,7 @@ async def test_modify_title(ctx_with_chart):
     input_obj = tool.input_schema(chart_name="last_chart", title="New Title")
     result = await tool.execute(input_obj, ctx_with_chart)
     assert not result.is_error
-    chart_json = json.loads(ctx_with_chart.vars._vars["last_chart"])
+    chart_json = json.loads(ctx_with_chart.vars.get("last_chart"))
     assert chart_json["layout"]["title"]["text"] == "New Title"
 
 

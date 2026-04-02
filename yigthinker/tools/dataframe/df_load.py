@@ -4,7 +4,6 @@ import pandas as pd
 from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
-from yigthinker.context_manager import ContextManager
 
 _LOADERS = {
     ".csv": pd.read_csv,
@@ -48,7 +47,7 @@ class DfLoadTool:
             df = loader(path, **kwargs)
             ctx.vars.set(input.var_name, df)
 
-            cm = ContextManager()
+            cm = ctx.context_manager
             return ToolResult(
                 tool_use_id="",
                 content={

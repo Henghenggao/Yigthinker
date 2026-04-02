@@ -71,8 +71,8 @@ class ChartCreateTool:
             fig = builder(**kwargs)
             chart_json = fig.to_json()
 
-            # Store chart JSON in var registry (as a special dict, not DataFrame)
-            ctx.vars._vars[input.chart_name] = chart_json  # type: ignore[attr-defined]
+            # Store chart JSON in var registry with chart type tag
+            ctx.vars.set(input.chart_name, chart_json, var_type="chart")
 
             return ToolResult(
                 tool_use_id="",

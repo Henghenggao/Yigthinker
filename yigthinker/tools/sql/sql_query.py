@@ -53,8 +53,7 @@ class SqlQueryTool:
             df = pd.DataFrame(rows, columns=columns)
             ctx.vars.set("last_query", df)
 
-            from yigthinker.context_manager import ContextManager
-            cm = ContextManager()
+            cm = ctx.context_manager
             return ToolResult(
                 tool_use_id="",
                 content=cm.summarize_dataframe_result(df),

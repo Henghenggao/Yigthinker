@@ -25,7 +25,10 @@ class ChartModifyTool:
     input_schema = ChartModifyInput
 
     async def execute(self, input: ChartModifyInput, ctx: SessionContext) -> ToolResult:
-        chart_json = ctx.vars._vars.get(input.chart_name)  # type: ignore[attr-defined]
+        try:
+            chart_json = ctx.vars.get(input.chart_name)
+        except KeyError:
+            chart_json = None
         if chart_json is None:
             return ToolResult(
                 tool_use_id="",
@@ -47,7 +50,7 @@ class ChartModifyTool:
                     trace.update(marker_color=input.color_sequence[i % len(input.color_sequence)])
 
             updated_json = fig.to_json()
-            ctx.vars._vars[input.chart_name] = updated_json  # type: ignore[attr-defined]
+            ctx.vars.set(input.chart_name, updated_json, var_type="chart")
             return ToolResult(
                 tool_use_id="",
                 content={"chart_name": input.chart_name, "chart_json": updated_json},

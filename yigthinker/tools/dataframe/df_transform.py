@@ -4,7 +4,6 @@ import builtins
 from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
-from yigthinker.context_manager import ContextManager
 
 _SAFE_BUILTINS = {
     name: getattr(builtins, name)
@@ -13,7 +12,7 @@ _SAFE_BUILTINS = {
         "enumerate", "filter", "float", "format", "frozenset", "int",
         "isinstance", "issubclass", "iter", "len", "list", "map", "max",
         "min", "next", "print", "range", "reversed", "round", "set",
-        "slice", "sorted", "str", "sum", "tuple", "type", "zip",
+        "slice", "sorted", "str", "sum", "tuple", "zip",
     )
 }
 
@@ -124,7 +123,7 @@ class DfTransformTool:
         result_df = namespace["result"]
         ctx.vars.set(input.output_var, result_df)
 
-        cm = ContextManager()
+        cm = ctx.context_manager
         return ToolResult(
             tool_use_id="",
             content={

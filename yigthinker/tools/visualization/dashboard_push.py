@@ -21,7 +21,10 @@ class DashboardPushTool:
     input_schema = DashboardPushInput
 
     async def execute(self, input: DashboardPushInput, ctx: SessionContext) -> ToolResult:
-        chart_json = ctx.vars._vars.get(input.chart_name)  # type: ignore[attr-defined]
+        try:
+            chart_json = ctx.vars.get(input.chart_name)
+        except KeyError:
+            chart_json = None
         if chart_json is None:
             return ToolResult(
                 tool_use_id="",

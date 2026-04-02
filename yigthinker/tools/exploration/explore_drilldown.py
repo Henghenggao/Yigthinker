@@ -3,7 +3,6 @@ import pandas as pd
 from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
-from yigthinker.context_manager import ContextManager
 
 
 class ExploreDrilldownInput(BaseModel):
@@ -34,7 +33,7 @@ class ExploreDrilldownTool:
                 filtered = filtered.groupby(input.group_by).sum(numeric_only=True).reset_index()
 
             ctx.vars.set(input.output_var, filtered)
-            cm = ContextManager()
+            cm = ctx.context_manager
             return ToolResult(
                 tool_use_id="",
                 content={
