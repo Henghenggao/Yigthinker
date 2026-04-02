@@ -125,13 +125,13 @@ async def test_session_messages_persist_across_turns():
 
 async def test_iteration_limit_graceful_stop():
     """When max_iterations is exceeded, LLM is asked to summarize with no tools."""
-    # Create 4 tool_use responses (exceeding limit of 3) + 1 final summary
+    # Create 3 tool_use responses (consuming the limit of 3) + 1 summary for graceful stop
     tool_responses = [
         LLMResponse(
             stop_reason="tool_use",
             tool_uses=[ToolUse(id=f"tu{i}", name="echo", input={"message": "hi"})],
         )
-        for i in range(4)
+        for i in range(3)
     ]
     summary = LLMResponse(stop_reason="end_turn", text="Here is my summary")
     all_responses = tool_responses + [summary]
@@ -201,10 +201,17 @@ async def test_tool_exception_reported_to_llm():
     assert result == "Handled the error"
 
     # Verify the error was passed in tool_results
+    # The second chat call receives messages ending with: [... assistant(tool_use), user(tool_results)]
     second_call_messages = mock_provider.chat.await_args_list[1].args[0]
-    tool_result_msg = second_call_messages[-1]  # last message is tool_results
+    # Find the tool_results message (user message with list content containing tool_result dicts)
+    tool_result_msgs = [
+        m for m in second_call_messages
+        if m.role == "user" and isinstance(m.content, list)
+    ]
+    assert len(tool_result_msgs) > 0
+    tool_result_msg = tool_result_msgs[-1]
     assert any(
         "tool exploded" in str(item.get("content", ""))
         for item in tool_result_msg.content
-        if isinstance(item, dict)
+        if isinstance(item, dict) and item.get("type") == "tool_result"
     )
