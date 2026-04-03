@@ -46,6 +46,8 @@ class YigthinkerTUI(App):
         self._session_key = session_key or f"tui:{uuid.uuid4().hex[:8]}"
         self._show_thinking = False
         self._tools_collapsed = False
+        self._sessions: list[dict[str, Any]] = []
+        self._vars_data: list[dict[str, Any]] = []
         self._ws_client = GatewayWSClient(
             url=gateway_url,
             token=token,
@@ -99,7 +101,10 @@ class YigthinkerTUI(App):
                 is_error=data.get("is_error", False),
             )
         elif msg_type == "vars_update":
-            self._vars_panel.update_vars(data.get("vars", []))
+            self._vars_data = data.get("vars", [])
+            self._vars_panel.update_vars(self._vars_data)
+        elif msg_type == "session_list":
+            self._sessions = data.get("sessions", [])
         elif msg_type == "error":
             self._chat_log.append_error(data.get("message", ""))
         elif msg_type == "auth_result" and data.get("ok"):
@@ -108,17 +113,37 @@ class YigthinkerTUI(App):
     def _on_state_change(self, state: str) -> None:
         try:
             self._status_bar.set_status(session=self._session_key, state=state)
+            input_bar = self.query_one("#input-bar", InputBar)
+            input_bar.disabled = state != "connected"
         except Exception:
-            pass
+            pass  # Widget not yet mounted during early state changes
 
     def action_show_session_picker(self) -> None:
-        self.push_screen(SessionPickerScreen())
+        def on_session_selected(key: str | None) -> None:
+            if key is not None and key != self._session_key:
+                self._session_key = key
+                self._chat_log.append_response(f"Switched to session: {key}")
+                self.run_worker(self._ws_client.attach_session(key))
+        self.push_screen(SessionPickerScreen(sessions=self._sessions), callback=on_session_selected)
 
     def action_show_model_picker(self) -> None:
-        self.push_screen(ModelPickerScreen())
+        def on_model_selected(model: str | None) -> None:
+            if model is not None:
+                self._chat_log.append_response(f"Model set to: {model}")
+                # Model switching will be wired when Gateway supports it
+        self.push_screen(ModelPickerScreen(), callback=on_model_selected)
 
     def action_preview_dataframe(self) -> None:
-        self._chat_log.append_response("[dim](DataFrame preview from vars panel is not wired yet)[/]")
+        if not self._vars_data:
+            self._chat_log.append_error("No variables available for preview")
+            return
+        # Preview the first variable
+        first_var = self._vars_data[0]
+        name = first_var.get("name", "unknown")
+        # For Phase 3, show metadata as preview since we don't have row data from Gateway
+        preview_rows = [first_var.get("dtypes", {})] if first_var.get("dtypes") else []
+        from yigthinker.tui.screens.dataframe_preview import DataFramePreviewScreen
+        self.push_screen(DataFramePreviewScreen(name=name, data=preview_rows))
 
     def action_toggle_thinking(self) -> None:
         self._show_thinking = not self._show_thinking
