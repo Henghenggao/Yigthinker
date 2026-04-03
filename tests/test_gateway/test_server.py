@@ -52,6 +52,19 @@ def test_session_api_requires_auth(server):
     assert response.status_code == 401
 
 
+def test_health_endpoint(server):
+    """GW-01: /health returns status ok with session count and uptime."""
+    with TestClient(server.app) as client:
+        response = client.get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert "active_sessions" in body
+    assert "uptime_seconds" in body
+    assert isinstance(body["active_sessions"], int)
+    assert isinstance(body["uptime_seconds"], (int, float))
+
+
 def test_create_session_via_api(server):
     with TestClient(server.app) as client:
         response = client.post(
@@ -100,3 +113,34 @@ async def test_handle_message_restores_hibernated_session(server):
     server._agent_loop = RestoringAgent()
     result = await server.handle_message("tui:user1", "resume", channel="tui")
     assert result == "restored:resume"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_messages_serialized(server):
+    """GW-04: Per-session lock serializes concurrent messages."""
+    import asyncio
+
+    call_order: list[str] = []
+
+    class SlowAgentLoop:
+        async def run(self, user_input: str, ctx) -> str:
+            call_order.append(f"start:{user_input}")
+            await asyncio.sleep(0.05)
+            call_order.append(f"end:{user_input}")
+            return f"echo:{user_input}"
+
+    server._agent_loop = SlowAgentLoop()
+
+    # Fire two concurrent messages to the SAME session key
+    task1 = asyncio.create_task(server.handle_message("test:serial", "msg1", channel="test"))
+    task2 = asyncio.create_task(server.handle_message("test:serial", "msg2", channel="test"))
+    results = await asyncio.gather(task1, task2)
+
+    assert set(results) == {"echo:msg1", "echo:msg2"}
+
+    # If serialized, we should see start:X end:X start:Y end:Y (not interleaved)
+    # The first two entries should be start then end of the same message
+    assert call_order[0].startswith("start:")
+    assert call_order[1].startswith("end:")
+    first_msg = call_order[0].split(":")[1]
+    assert call_order[1] == f"end:{first_msg}"
