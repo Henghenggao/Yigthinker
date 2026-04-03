@@ -101,5 +101,27 @@ def dashboard(
     uvicorn.run(api, host=host, port=port)
 
 
+@app.command("gateway")
+def gateway_start(
+    host: str = typer.Option("127.0.0.1", help="Gateway host"),
+    port: int = typer.Option(8766, help="Gateway port"),
+) -> None:
+    """Start the Yigthinker Gateway (foreground)."""
+    import uvicorn
+
+    from yigthinker.gateway.server import GatewayServer
+    from yigthinker.settings import load_settings
+
+    settings = load_settings()
+    gw_cfg = settings.get("gateway", {})
+    resolved_host = gw_cfg.get("host") or host
+    resolved_port = gw_cfg.get("port") or port
+
+    gateway = GatewayServer(settings)
+    console.print(f"[bold blue]Yigthinker Gateway[/] starting at http://{resolved_host}:{resolved_port}")
+    console.print(f"Health check: http://{resolved_host}:{resolved_port}/health")
+    uvicorn.run(gateway.app, host=resolved_host, port=resolved_port)
+
+
 if __name__ == "__main__":
     app()
