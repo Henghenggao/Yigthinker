@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from yigthinker.agent import AgentLoop
 from yigthinker.tools.sql.connection import ConnectionPool
+
+_SENTINEL = object()
 
 
 @dataclass
@@ -16,13 +18,24 @@ class AppContext:
     pool: ConnectionPool
 
 
-async def build_app(settings: dict[str, Any]) -> AppContext:
+async def build_app(
+    settings: dict[str, Any],
+    ask_fn: Callable | None = _SENTINEL,
+) -> AppContext:
     """Build the full application stack. Must be called from async context.
 
     Replaces the old synchronous _build() from __main__.py.
     MCP loading is awaited directly -- no nested asyncio.run().
+
+    Parameters
+    ----------
+    settings : dict
+        Merged settings from load_settings().
+    ask_fn : Callable | None
+        Permission prompt function.  Default (sentinel) lazily imports
+        the CLI prompt.  Pass ``None`` for daemon/gateway mode where
+        stdin is unavailable.
     """
-    from yigthinker.cli.ask_prompt import ask_user_permission
     from yigthinker.hooks.executor import HookExecutor
     from yigthinker.hooks.registry import HookRegistry
     from yigthinker.mcp.loader import MCPLoader
@@ -51,6 +64,12 @@ async def build_app(settings: dict[str, Any]) -> AppContext:
     permissions = PermissionSystem(settings.get("permissions", {}))
     provider = provider_from_settings(settings)
 
+    if ask_fn is _SENTINEL:
+        from yigthinker.cli.ask_prompt import ask_user_permission
+        resolved_ask_fn = ask_user_permission
+    else:
+        resolved_ask_fn = ask_fn
+
     agent_settings = settings.get("agent", {})
     max_iterations = agent_settings.get("max_iterations", 50)
     timeout_seconds = agent_settings.get("timeout_seconds", 300.0)
@@ -60,7 +79,7 @@ async def build_app(settings: dict[str, Any]) -> AppContext:
         tools=tools,
         hooks=hooks,
         permissions=permissions,
-        ask_fn=ask_user_permission,
+        ask_fn=resolved_ask_fn,
         max_iterations=max_iterations,
         timeout_seconds=timeout_seconds,
     )
