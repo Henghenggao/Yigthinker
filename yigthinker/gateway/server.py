@@ -25,6 +25,8 @@ from yigthinker.gateway.protocol import (
     ErrorMsg,
     ResponseDoneMsg,
     SessionListMsg,
+    ToolCallMsg,
+    ToolResultMsg,
     VarsUpdateMsg,
     parse_client_msg,
     to_json_dict,
@@ -32,6 +34,14 @@ from yigthinker.gateway.protocol import (
 from yigthinker.gateway.session_registry import ManagedSession, SessionRegistry
 
 logger = logging.getLogger(__name__)
+
+
+async def _safe_send(coro):
+    """Wrapper for fire-and-forget sends that logs exceptions instead of swallowing them."""
+    try:
+        await coro
+    except Exception:
+        logger.debug("Failed to send tool event to WS client", exc_info=True)
 
 
 class GatewayServer:
@@ -140,7 +150,32 @@ class GatewayServer:
 
         async with session.lock:
             session.touch()
-            result = await self._agent_loop.run(user_input, session.ctx)
+
+            def _on_tool_event(event_type: str, data: dict) -> None:
+                """Broadcast tool events to attached WS clients (fire-and-forget)."""
+                if event_type == "tool_call":
+                    msg = to_json_dict(ToolCallMsg(
+                        tool_name=data["tool_name"],
+                        tool_input=data.get("tool_input", {}),
+                        tool_id=data.get("tool_id", ""),
+                    ))
+                elif event_type == "tool_result":
+                    msg = to_json_dict(ToolResultMsg(
+                        tool_id=data.get("tool_id", ""),
+                        content=data.get("content", ""),
+                        is_error=data.get("is_error", False),
+                    ))
+                else:
+                    return
+                # Fire-and-forget broadcast to all WS clients attached to this session
+                for client in self._ws_clients:
+                    if client.session_key == session_key:
+                        try:
+                            asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
+                        except Exception:
+                            pass
+
+            result = await self._agent_loop.run(user_input, session.ctx, on_tool_event=_on_tool_event)
             await self._broadcast_vars_update(session)
             return result
 

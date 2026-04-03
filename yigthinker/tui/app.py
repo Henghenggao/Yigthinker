@@ -17,6 +17,7 @@ from yigthinker.tui.screens.session_picker import SessionPickerScreen
 from yigthinker.tui.widgets.chat_log import ChatLog
 from yigthinker.tui.widgets.input_bar import InputBar
 from yigthinker.tui.widgets.status_bar import StatusBar
+from yigthinker.tui.widgets.tool_card import ToolCard
 from yigthinker.tui.widgets.vars_panel import VarsPanel
 from yigthinker.tui.ws_client import GatewayWSClient
 
@@ -45,7 +46,8 @@ class YigthinkerTUI(App):
         self._token = token
         self._session_key = session_key or f"tui:{uuid.uuid4().hex[:8]}"
         self._show_thinking = False
-        self._tools_collapsed = False
+        self._tools_collapsed = True
+        self._tool_cards: list[ToolCard] = []
         self._sessions: list[dict[str, Any]] = []
         self._vars_data: list[dict[str, Any]] = []
         self._ws_client = GatewayWSClient(
@@ -91,15 +93,26 @@ class YigthinkerTUI(App):
         if msg_type == "response_done":
             self._chat_log.append_response(data.get("full_text", ""))
         elif msg_type == "tool_call":
-            self._chat_log.append_tool_call(
-                data.get("tool_name", ""),
-                tool_input=data.get("tool_input"),
+            tool_name = data.get("tool_name", "")
+            tool_input = data.get("tool_input", {})
+            card = ToolCard(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                collapsed=self._tools_collapsed,
             )
+            self._tool_cards.append(card)
+            # Mount the ToolCard as a real widget in the chat-panel, before the InputBar
+            try:
+                chat_panel = self.query_one("#chat-panel")
+                chat_panel.mount(card, before=self.query_one("#input-bar"))
+            except Exception:
+                pass  # Widget not yet mounted during early messages
         elif msg_type == "tool_result":
-            self._chat_log.append_tool_result(
-                data.get("content", ""),
-                is_error=data.get("is_error", False),
-            )
+            content = data.get("content", "")
+            is_error = data.get("is_error", False)
+            # Update the most recent tool card with the result
+            if self._tool_cards:
+                self._tool_cards[-1].set_result(content, is_error=is_error)
         elif msg_type == "vars_update":
             self._vars_data = data.get("vars", [])
             self._vars_panel.update_vars(self._vars_data)
@@ -152,5 +165,5 @@ class YigthinkerTUI(App):
 
     def action_toggle_tools(self) -> None:
         self._tools_collapsed = not self._tools_collapsed
-        state = "collapsed" if self._tools_collapsed else "expanded"
-        self._chat_log.append_response(f"[dim](tool cards {state})[/]")
+        for card in self._tool_cards:
+            card.collapsed = self._tools_collapsed

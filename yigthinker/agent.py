@@ -36,7 +36,12 @@ class AgentLoop:
         self._max_iterations = max_iterations
         self._timeout_seconds = timeout_seconds
 
-    async def run(self, user_input: str, ctx: SessionContext) -> str:
+    async def run(
+        self,
+        user_input: str,
+        ctx: SessionContext,
+        on_tool_event: Callable[[str, dict], None] | None = None,
+    ) -> str:
         messages: list[Message] = list(ctx.messages)
         messages.append(Message(role="user", content=user_input))
         tool_schemas = self._tools.export_schemas()
@@ -80,7 +85,7 @@ class AgentLoop:
 
                     tool_results: list[dict] = []
                     for tool_use in response.tool_uses:
-                        result = await self._execute_tool(tool_use.name, tool_use.input, tool_use.id, ctx)
+                        result = await self._execute_tool(tool_use.name, tool_use.input, tool_use.id, ctx, on_tool_event)
                         tool_results.append(
                             {
                                 "type": "tool_result",
@@ -100,6 +105,7 @@ class AgentLoop:
         tool_input: dict,
         tool_use_id: str,
         ctx: SessionContext,
+        on_tool_event: Callable[[str, dict], None] | None = None,
     ) -> ToolResult:
         pre_event = HookEvent(
             event_type="PreToolUse",
@@ -137,6 +143,13 @@ class AgentLoop:
             if answer == PermissionAnswer.ALLOW_ALL:
                 self._permissions.allow_for_session(tool_name, ctx.session_id)
 
+        if on_tool_event is not None:
+            on_tool_event("tool_call", {
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "tool_id": tool_use_id,
+            })
+
         try:
             tool = self._tools.get(tool_name)
             input_obj = tool.input_schema(**tool_input)
@@ -154,4 +167,12 @@ class AgentLoop:
             tool_result=result,
         )
         await self._hooks.run(post_event)
+
+        if on_tool_event is not None:
+            on_tool_event("tool_result", {
+                "tool_id": tool_use_id,
+                "content": str(result.content)[:500],
+                "is_error": result.is_error,
+            })
+
         return result

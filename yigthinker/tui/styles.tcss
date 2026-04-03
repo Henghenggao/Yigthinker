@@ -59,3 +59,9 @@ DataFramePreviewScreen > #preview-log {
 SessionPickerScreen, ModelPickerScreen {
     align: center middle;
 }
+
+ToolCard {
+    height: auto;
+    padding: 0 1;
+    margin: 0 0 0 2;
+}
