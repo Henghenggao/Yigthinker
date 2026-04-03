@@ -144,3 +144,55 @@ async def test_concurrent_messages_serialized(server):
     assert call_order[1].startswith("end:")
     first_msg = call_order[0].split(":")[1]
     assert call_order[1] == f"end:{first_msg}"
+
+
+def test_websocket_e2e_full_flow(server):
+    """D-05 / GW-02: Full WebSocket flow - auth, attach, input, response, vars."""
+    with TestClient(server.app) as client:
+        with client.websocket_connect("/ws") as ws:
+            # Step 1: Authenticate
+            ws.send_json({"type": "auth", "token": server.auth.token})
+            auth_result = ws.receive_json()
+            assert auth_result["type"] == "auth_result"
+            assert auth_result["ok"] is True
+
+            # Step 2: Attach to session
+            ws.send_json({"type": "attach", "session_key": "tui:e2e-test"})
+            # Attach sends session_list (no vars_update since new session has no vars)
+            session_list_msg = ws.receive_json()
+            assert session_list_msg["type"] == "session_list"
+            assert isinstance(session_list_msg["sessions"], list)
+
+            # Step 3: Send user input
+            ws.send_json({"type": "user_input", "text": "analyze revenue", "request_id": "req-001"})
+
+            # Step 4: Receive response_done and vars_update (order may vary)
+            msg_a = ws.receive_json()
+            msg_b = ws.receive_json()
+            types = {msg_a["type"], msg_b["type"]}
+            assert types == {"response_done", "vars_update"}
+
+            response_msg = msg_a if msg_a["type"] == "response_done" else msg_b
+            vars_msg = msg_a if msg_a["type"] == "vars_update" else msg_b
+
+            # Step 5: Verify response content
+            assert response_msg["full_text"] == "echo:analyze revenue"
+            assert response_msg["request_id"] == "req-001"
+
+            # Step 6: Verify vars update includes var_type
+            assert len(vars_msg["vars"]) >= 1
+            revenue_var = vars_msg["vars"][0]
+            assert revenue_var["name"] == "revenue"
+            assert "shape" in revenue_var
+            assert "dtypes" in revenue_var
+            assert "var_type" in revenue_var  # Verifies Plan 01's VarsUpdate fix
+
+
+def test_websocket_bad_auth_rejected(server):
+    """GW-02: WebSocket rejects invalid token."""
+    with TestClient(server.app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "auth", "token": "wrong-token"})
+            auth_result = ws.receive_json()
+            assert auth_result["type"] == "auth_result"
+            assert auth_result["ok"] is False
