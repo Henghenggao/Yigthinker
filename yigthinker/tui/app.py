@@ -60,7 +60,10 @@ class YigthinkerTUI(App):
     async def on_mount(self) -> None:
         self.push_screen(ChatScreen(session_key=self._session_key))
         self.run_worker(self._ws_client.connect_loop(), exclusive=True)
-        self._status_bar.set_status(session=self._session_key, state="connecting")
+        try:
+            self._status_bar.set_status(session=self._session_key, state="connecting")
+        except Exception:
+            pass  # Widget not yet mounted during early state changes
 
     async def on_input_submitted(self, event: InputBar.Submitted) -> None:
         text = event.value.strip()
@@ -77,15 +80,15 @@ class YigthinkerTUI(App):
 
     @property
     def _chat_log(self) -> ChatLog:
-        return self.query_one("#chat-log", ChatLog)
+        return self.screen.query_one("#chat-log", ChatLog)
 
     @property
     def _vars_panel(self) -> VarsPanel:
-        return self.query_one("#vars-panel", VarsPanel)
+        return self.screen.query_one("#vars-panel", VarsPanel)
 
     @property
     def _status_bar(self) -> StatusBar:
-        return self.query_one("#status-bar", StatusBar)
+        return self.screen.query_one("#status-bar", StatusBar)
 
     def _on_ws_message(self, data: dict[str, Any]) -> None:
         msg_type = data.get("type", "")
@@ -103,8 +106,8 @@ class YigthinkerTUI(App):
             self._tool_cards.append(card)
             # Mount the ToolCard as a real widget in the chat-panel, before the InputBar
             try:
-                chat_panel = self.query_one("#chat-panel")
-                chat_panel.mount(card, before=self.query_one("#input-bar"))
+                chat_panel = self.screen.query_one("#chat-panel")
+                chat_panel.mount(card, before=self.screen.query_one("#input-bar"))
             except Exception:
                 pass  # Widget not yet mounted during early messages
         elif msg_type == "tool_result":
@@ -126,7 +129,7 @@ class YigthinkerTUI(App):
     def _on_state_change(self, state: str) -> None:
         try:
             self._status_bar.set_status(session=self._session_key, state=state)
-            input_bar = self.query_one("#input-bar", InputBar)
+            input_bar = self.screen.query_one("#input-bar", InputBar)
             input_bar.disabled = state != "connected"
         except Exception:
             pass  # Widget not yet mounted during early state changes
