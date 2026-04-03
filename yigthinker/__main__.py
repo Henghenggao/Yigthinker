@@ -123,5 +123,34 @@ def gateway_start(
     uvicorn.run(gateway.app, host=resolved_host, port=resolved_port)
 
 
+@app.command("tui")
+def tui_command(
+    host: str = typer.Option("", help="Gateway host (default: from settings)"),
+    port: int = typer.Option(0, help="Gateway port (default: from settings)"),
+) -> None:
+    """Launch the Yigthinker TUI client."""
+    from yigthinker.settings import load_settings
+
+    settings = load_settings()
+    gw_cfg = settings.get("gateway", {})
+    resolved_host = host or gw_cfg.get("host", "127.0.0.1")
+    resolved_port = port or gw_cfg.get("port", 8766)
+
+    token_path = Path.home() / ".yigthinker" / "gateway.token"
+    if token_path.exists():
+        token = token_path.read_text(encoding="utf-8").strip()
+    else:
+        token = ""
+        console.print("[yellow]Warning: Gateway token not found. Start gateway first: yigthinker gateway[/]")
+
+    from yigthinker.tui import YigthinkerTUI
+
+    tui = YigthinkerTUI(
+        gateway_url=f"ws://{resolved_host}:{resolved_port}/ws",
+        token=token,
+    )
+    tui.run()
+
+
 if __name__ == "__main__":
     app()
