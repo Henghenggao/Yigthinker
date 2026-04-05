@@ -140,35 +140,9 @@ class YigthinkerTUI(App):
         elif msg_type == "tool_call":
             # Per D-11: if streaming, finalize current text block before showing ToolCard
             if self._stream is not None:
-                try:
-                    if self._stream is not None:
-                        asyncio.ensure_future(self._stream.stop())
-                    # D-12: Remove cursor on mid-stream tool call
-                    if self._stream_cursor is not None:
-                        asyncio.ensure_future(self._stream_cursor.remove())
-                except Exception:
-                    pass
-                # D-12: Stop cursor blink timer
-                if self._cursor_timer is not None:
-                    self._cursor_timer.stop()
-                    self._cursor_timer = None
-                self._stream = None
-                self._stream_widget = None
-                self._stream_cursor = None
-            tool_name = data.get("tool_name", "")
-            tool_input = data.get("tool_input", {})
-            card = ToolCard(
-                tool_name=tool_name,
-                tool_input=tool_input,
-                collapsed=self._tools_collapsed,
-            )
-            self._tool_cards.append(card)
-            # Mount the ToolCard as a real widget in the chat-panel, before the InputBar
-            try:
-                chat_panel = self.screen.query_one("#chat-panel")
-                chat_panel.mount(card, before=self.screen.query_one("#input-bar"))
-            except Exception:
-                pass  # Widget not yet mounted during early messages
+                asyncio.ensure_future(self._handle_tool_call_midstream(data))
+            else:
+                self._mount_tool_card(data)
         elif msg_type == "tool_result":
             content = data.get("content", "")
             is_error = data.get("is_error", False)
@@ -184,6 +158,42 @@ class YigthinkerTUI(App):
             self._chat_log.append_error(data.get("message", ""))
         elif msg_type == "auth_result" and data.get("ok"):
             self.run_worker(self._ws_client.attach_session(self._session_key))
+
+    def _mount_tool_card(self, data: dict[str, Any]) -> None:
+        """Mount a ToolCard widget in the chat-panel."""
+        tool_name = data.get("tool_name", "")
+        tool_input = data.get("tool_input", {})
+        card = ToolCard(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            collapsed=self._tools_collapsed,
+        )
+        self._tool_cards.append(card)
+        try:
+            chat_panel = self.screen.query_one("#chat-panel")
+            chat_panel.mount(card, before=self.screen.query_one("#input-bar"))
+        except Exception:
+            pass  # Widget not yet mounted during early messages
+
+    async def _handle_tool_call_midstream(self, data: dict[str, Any]) -> None:
+        """Stop streaming, remove cursor, then mount ToolCard (D-11, D-12)."""
+        try:
+            if self._stream is not None:
+                await self._stream.stop()
+            # D-12: Stop cursor blink timer
+            if self._cursor_timer is not None:
+                self._cursor_timer.stop()
+                self._cursor_timer = None
+            # D-12: Remove cursor on mid-stream tool call
+            if self._stream_cursor is not None:
+                await self._stream_cursor.remove()
+        except Exception:
+            pass
+        finally:
+            self._stream = None
+            self._stream_widget = None
+            self._stream_cursor = None
+        self._mount_tool_card(data)
 
     async def _finalize_stream(self, full_text: str) -> None:
         """Stop the MarkdownStream, remove cursor and temp widget, write final text to ChatLog."""

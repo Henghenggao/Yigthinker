@@ -20,26 +20,24 @@ class ToolCard(Static):
         collapsed: bool = True,
         **kwargs: Any,
     ) -> None:
-        super().__init__(**kwargs)
         self._tool_name = tool_name
         self._tool_input = tool_input or {}
         self._result_content: str = ""
         self._is_error: bool = False
         self._collapsed = collapsed
         self._has_result = False
-
-    def on_mount(self) -> None:
-        self._render()
+        initial_content = f"  [bold dim]> {self._tool_name}[/]  [dim]running...[/]"
+        super().__init__(initial_content, **kwargs)
 
     def set_result(self, content: str, is_error: bool = False) -> None:
         self._result_content = content
         self._is_error = is_error
         self._has_result = True
-        self._render()
+        self._refresh_content()
 
     def toggle_collapsed(self) -> None:
         self._collapsed = not self._collapsed
-        self._render()
+        self._refresh_content()
 
     @property
     def collapsed(self) -> bool:
@@ -48,9 +46,10 @@ class ToolCard(Static):
     @collapsed.setter
     def collapsed(self, value: bool) -> None:
         self._collapsed = value
-        self._render()
+        self._refresh_content()
 
-    def _render(self) -> None:
+    def _refresh_content(self) -> None:
+        """Update the Static content based on collapsed state and result status."""
         if self._collapsed:
             status = "[dim]running...[/]" if not self._has_result else (
                 "[red]error[/]" if self._is_error else "[green]done[/]"

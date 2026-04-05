@@ -196,3 +196,43 @@ def test_websocket_bad_auth_rejected(server):
             auth_result = ws.receive_json()
             assert auth_result["type"] == "auth_result"
             assert auth_result["ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_streaming_broadcast_sends_token_msgs(server):
+    """STRM-03: Gateway broadcasts TokenStreamMsg to attached WS clients during streaming."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    sent_messages: list[dict] = []
+
+    class StreamingAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs):
+            on_token = kwargs.get("on_token")
+            assert on_token is not None, "on_token callback must be passed to AgentLoop.run()"
+            on_token("Hello")
+            on_token(" world")
+            return "Hello world"
+
+    server._agent_loop = StreamingAgentLoop()
+
+    # Create a mock WS client attached to our session
+    mock_ws = MagicMock()
+    mock_ws.send_json = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
+
+    from yigthinker.gateway.server import _WSClient
+    client = _WSClient(ws=mock_ws)
+    client.session_key = "tui:stream-test"
+    server._ws_clients.append(client)
+
+    result = await server.handle_message("tui:stream-test", "hello", channel="tui")
+    assert result == "Hello world"
+
+    # Allow fire-and-forget tasks to complete
+    import asyncio
+    await asyncio.sleep(0.1)
+
+    # Filter for token messages only (vars_update also sent)
+    token_msgs = [m for m in sent_messages if m.get("type") == "token"]
+    assert len(token_msgs) == 2
+    assert token_msgs[0]["text"] == "Hello"
+    assert token_msgs[1]["text"] == " world"

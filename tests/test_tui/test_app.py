@@ -1,6 +1,8 @@
 """Integration tests for YigthinkerTUI using Textual Pilot."""
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -155,3 +157,114 @@ async def test_status_bar_reflects_state():
             await pilot.pause()
             rendered = str(status_bar.render())
             assert "connected" in rendered
+
+
+# STRM-04: TUI streaming creates Markdown widget on first token message
+@pytest.mark.asyncio
+async def test_token_streaming_creates_markdown_widget():
+    """TUI creates a Markdown widget on first token message (STRM-04)."""
+    from yigthinker.tui.app import YigthinkerTUI
+
+    with patch(
+        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        new_callable=AsyncMock,
+    ):
+        app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
+        async with app.run_test(size=_TEST_SIZE) as pilot:
+            await pilot.pause()
+
+            # Simulate token messages
+            app._on_ws_message({"type": "token", "text": "Hello "})
+            await pilot.pause()
+
+            # Verify streaming state is active
+            assert app._stream is not None
+            assert app._stream_widget is not None
+
+            # D-12: Verify blinking cursor is mounted
+            assert app._stream_cursor is not None
+
+            # Simulate response_done to finalize
+            app._on_ws_message({"type": "response_done", "full_text": "Hello world"})
+            await pilot.pause()
+            await pilot.pause()  # Extra pause for async finalization
+            await pilot.pause()
+
+            # Stream should be cleaned up
+            assert app._stream is None
+            assert app._stream_widget is None
+            # D-12: Cursor should be removed
+            assert app._stream_cursor is None
+
+
+# D-11: TUI stops stream and shows ToolCard when tool_call arrives mid-stream
+@pytest.mark.asyncio
+async def test_token_streaming_handles_tool_call_midstream():
+    """TUI stops stream, removes cursor, and shows ToolCard when tool_call arrives mid-stream (D-11, D-12)."""
+    from yigthinker.tui.app import YigthinkerTUI
+
+    with patch(
+        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        new_callable=AsyncMock,
+    ):
+        app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
+        async with app.run_test(size=_TEST_SIZE) as pilot:
+            await pilot.pause()
+
+            # Start streaming
+            app._on_ws_message({"type": "token", "text": "Let me check"})
+            await pilot.pause()
+            assert app._stream is not None
+            assert app._stream_cursor is not None  # D-12: cursor present
+
+            # Tool call mid-stream -- should stop the stream and remove cursor
+            app._on_ws_message({
+                "type": "tool_call",
+                "tool_name": "sql_query",
+                "tool_input": {"query": "SELECT 1"},
+                "tool_id": "tc1",
+            })
+            await pilot.pause()
+            await pilot.pause()
+
+            # Stream should be stopped
+            assert app._stream is None
+            # D-12: Cursor should be removed
+            assert app._stream_cursor is None
+            # ToolCard should be mounted
+            assert len(app._tool_cards) == 1
+
+
+# D-12: Blinking cursor lifecycle
+@pytest.mark.asyncio
+async def test_blinking_cursor_lifecycle():
+    """D-12: Blinking cursor appears on stream start, blinks, and disappears on done."""
+    from yigthinker.tui.app import YigthinkerTUI
+
+    with patch(
+        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        new_callable=AsyncMock,
+    ):
+        app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
+        async with app.run_test(size=_TEST_SIZE) as pilot:
+            await pilot.pause()
+
+            # No cursor before streaming starts
+            assert app._stream_cursor is None
+
+            # Start streaming -- cursor should appear
+            app._on_ws_message({"type": "token", "text": "Start"})
+            await pilot.pause()
+            assert app._stream_cursor is not None
+
+            # Verify cursor timer is running (blink mechanism)
+            assert app._cursor_timer is not None
+
+            # Finalize -- cursor should be removed and timer stopped
+            app._on_ws_message({"type": "response_done", "full_text": "Start complete"})
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.pause()
+            assert app._stream_cursor is None
+            # Timer should be stopped
+            assert app._cursor_timer is None
