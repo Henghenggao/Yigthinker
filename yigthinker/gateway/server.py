@@ -25,6 +25,7 @@ from yigthinker.gateway.protocol import (
     ErrorMsg,
     ResponseDoneMsg,
     SessionListMsg,
+    TokenStreamMsg,
     ToolCallMsg,
     ToolResultMsg,
     VarsUpdateMsg,
@@ -175,7 +176,21 @@ class GatewayServer:
                         except Exception:
                             pass
 
-            result = await self._agent_loop.run(user_input, session.ctx, on_tool_event=_on_tool_event)
+            def _on_token(text: str) -> None:
+                """Broadcast token stream to all WS clients attached to this session (fire-and-forget per D-04)."""
+                msg = to_json_dict(TokenStreamMsg(text=text))
+                for client in self._ws_clients:
+                    if client.session_key == session_key:
+                        try:
+                            asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
+                        except Exception:
+                            pass
+
+            result = await self._agent_loop.run(
+                user_input, session.ctx,
+                on_tool_event=_on_tool_event,
+                on_token=_on_token,
+            )
             await self._broadcast_vars_update(session)
             return result
 

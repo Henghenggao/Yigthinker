@@ -1,6 +1,7 @@
 """Yigthinker TUI: Textual-based terminal client for the Gateway."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -50,6 +51,12 @@ class YigthinkerTUI(App):
         self._tool_cards: list[ToolCard] = []
         self._sessions: list[dict[str, Any]] = []
         self._vars_data: list[dict[str, Any]] = []
+        self._stream: Any = None  # MarkdownStream handle, set during active streaming
+        self._stream_widget: Any = None  # Markdown widget mounted for streaming
+        self._stream_cursor: Any = None  # Static widget with blinking cursor (D-12)
+        self._cursor_visible: bool = True
+        self._cursor_timer: Any = None
+
         self._ws_client = GatewayWSClient(
             url=gateway_url,
             token=token,
@@ -93,9 +100,61 @@ class YigthinkerTUI(App):
     def _on_ws_message(self, data: dict[str, Any]) -> None:
         msg_type = data.get("type", "")
 
+        if msg_type == "token":
+            text = data.get("text", "")
+            if text:
+                try:
+                    if self._stream is None:
+                        # Start new streaming response per amended D-10:
+                        # Mount a temporary Markdown widget, use MarkdownStream for incremental rendering
+                        from textual.widgets import Markdown as MdWidget, Static
+                        self._stream_widget = MdWidget("", id="streaming-md")
+                        chat_panel = self.screen.query_one("#chat-panel")
+                        input_bar = self.screen.query_one("#input-bar")
+                        chat_panel.mount(self._stream_widget, before=input_bar)
+                        self._stream = MdWidget.get_stream(self._stream_widget)
+
+                        # D-12: Mount blinking cursor after the streaming widget
+                        self._stream_cursor = Static("\u258c", id="stream-cursor")
+                        chat_panel.mount(self._stream_cursor, before=input_bar)
+
+                        # D-12: Start blink timer
+                        self._cursor_visible = True
+                        self._cursor_timer = self.set_interval(0.5, self._blink_cursor)
+
+                    asyncio.ensure_future(self._stream.write(text))
+                except Exception:
+                    pass
+            return
+
         if msg_type == "response_done":
-            self._chat_log.append_response(data.get("full_text", ""))
+            if self._stream is not None:
+                # Finalize streaming -- stop the stream, remove temp widget, render final Markdown
+                try:
+                    asyncio.ensure_future(self._finalize_stream(data.get("full_text", "")))
+                except Exception:
+                    pass
+            else:
+                # Non-streaming path (unchanged)
+                self._chat_log.append_response(data.get("full_text", ""))
         elif msg_type == "tool_call":
+            # Per D-11: if streaming, finalize current text block before showing ToolCard
+            if self._stream is not None:
+                try:
+                    if self._stream is not None:
+                        asyncio.ensure_future(self._stream.stop())
+                    # D-12: Remove cursor on mid-stream tool call
+                    if self._stream_cursor is not None:
+                        asyncio.ensure_future(self._stream_cursor.remove())
+                except Exception:
+                    pass
+                # D-12: Stop cursor blink timer
+                if self._cursor_timer is not None:
+                    self._cursor_timer.stop()
+                    self._cursor_timer = None
+                self._stream = None
+                self._stream_widget = None
+                self._stream_cursor = None
             tool_name = data.get("tool_name", "")
             tool_input = data.get("tool_input", {})
             card = ToolCard(
@@ -125,6 +184,40 @@ class YigthinkerTUI(App):
             self._chat_log.append_error(data.get("message", ""))
         elif msg_type == "auth_result" and data.get("ok"):
             self.run_worker(self._ws_client.attach_session(self._session_key))
+
+    async def _finalize_stream(self, full_text: str) -> None:
+        """Stop the MarkdownStream, remove cursor and temp widget, write final text to ChatLog."""
+        try:
+            if self._stream is not None:
+                await self._stream.stop()
+            # D-12: Stop cursor blink timer
+            if self._cursor_timer is not None:
+                self._cursor_timer.stop()
+                self._cursor_timer = None
+            # D-12: Remove the blinking cursor
+            if self._stream_cursor is not None:
+                await self._stream_cursor.remove()
+            if self._stream_widget is not None:
+                await self._stream_widget.remove()
+        except Exception:
+            pass
+        finally:
+            self._stream = None
+            self._stream_widget = None
+            self._stream_cursor = None
+        # Write the final complete text to the ChatLog as rendered Markdown
+        self._chat_log.append_response(full_text)
+
+    def _blink_cursor(self) -> None:
+        """Toggle cursor visibility for blinking effect (D-12)."""
+        if self._stream_cursor is not None:
+            self._cursor_visible = not self._cursor_visible
+            self._stream_cursor.display = self._cursor_visible
+        else:
+            # Cursor removed, stop timer
+            if self._cursor_timer is not None:
+                self._cursor_timer.stop()
+                self._cursor_timer = None
 
     def _on_state_change(self, state: str) -> None:
         try:

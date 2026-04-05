@@ -65,3 +65,16 @@ ToolCard {
     padding: 0 1;
     margin: 0 0 0 2;
 }
+
+#streaming-md {
+    margin: 0 1;
+    padding: 0;
+}
+
+#stream-cursor {
+    width: auto;
+    height: 1;
+    margin: 0 1;
+    padding: 0;
+    color: $text;
+}

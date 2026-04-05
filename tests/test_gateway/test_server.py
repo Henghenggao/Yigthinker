@@ -14,7 +14,7 @@ class DummyAuth:
 
 
 class FakeAgentLoop:
-    async def run(self, user_input: str, ctx) -> str:
+    async def run(self, user_input: str, ctx, **kwargs) -> str:
         ctx.vars.set("revenue", pd.DataFrame({"value": [1, 2, 3]}))
         ctx.messages.append(type("Msg", (), {"role": "assistant", "content": user_input})())
         return f"echo:{user_input}"
@@ -106,7 +106,7 @@ async def test_handle_message_restores_hibernated_session(server):
     await server.registry.hibernate("tui:user1")
 
     class RestoringAgent:
-        async def run(self, user_input: str, ctx) -> str:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
             assert "restored_df" in ctx.vars
             return f"restored:{user_input}"
 
@@ -123,7 +123,7 @@ async def test_concurrent_messages_serialized(server):
     call_order: list[str] = []
 
     class SlowAgentLoop:
-        async def run(self, user_input: str, ctx) -> str:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
             call_order.append(f"start:{user_input}")
             await asyncio.sleep(0.05)
             call_order.append(f"end:{user_input}")
