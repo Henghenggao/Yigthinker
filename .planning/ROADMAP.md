@@ -12,9 +12,9 @@ This milestone takes a heavily scaffolded but largely non-functional codebase an
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Agent Loop & Infrastructure** - Fix the core LLM-tool cycle so it runs end-to-end with all 4 providers
-- [ ] **Phase 2: Gateway & Sessions** - Stand up the daemon that routes messages and manages session lifecycle
-- [ ] **Phase 3: TUI Client** - Wire the terminal UI to the Gateway for interactive data analysis conversations
+- [x] **Phase 1: Agent Loop & Infrastructure** - Fix the core LLM-tool cycle so it runs end-to-end with all 4 providers
+- [x] **Phase 2: Gateway & Sessions** - Stand up the daemon that routes messages and manages session lifecycle
+- [x] **Phase 3: TUI Client** - Wire the terminal UI to the Gateway for interactive data analysis conversations
 - [ ] **Phase 4: Streaming & Teams Adapter** - Add token-by-token streaming and Teams channel integration
 - [ ] **Phase 5: Session Memory & Auto Dream** - Enable cross-session knowledge accumulation
 
@@ -69,7 +69,7 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md -- Core TUI wiring: CLI entry, ChatLog markdown, picker screens, InputBar autocomplete, DataFrame preview
-- [ ] 03-02-PLAN.md -- Gateway tool callback, ToolCard collapse/expand, TUI test suite
+- [x] 03-02-PLAN.md -- Gateway tool callback, ToolCard collapse/expand, TUI test suite
 
 ### Phase 4: Streaming & Teams Adapter
 **Goal**: Users see tokens appear incrementally in the TUI as the LLM generates them, and Teams users can interact with the agent via webhook
@@ -81,11 +81,12 @@ Plans:
   3. Teams adapter receives a webhook POST, verifies the HMAC-SHA256 signature, and rejects invalid signatures
   4. Teams adapter sends a response back via Graph API with Adaptive Cards formatting
   5. Teams adapter derives a session key from sender identity so each user gets their own session
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01-PLAN.md -- StreamEvent type, provider stream() methods, AgentLoop on_token callback integration
+- [ ] 04-02-PLAN.md -- Teams HMAC-SHA256 verification, Adaptive Cards webhook, session key derivation
+- [ ] 04-03-PLAN.md -- Gateway TokenStreamMsg broadcast, TUI MarkdownStream rendering, streaming tests
 
 ### Phase 5: Session Memory & Auto Dream
 **Goal**: The agent remembers key findings within a session (surviving context compaction) and accumulates domain knowledge across sessions
@@ -109,8 +110,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Agent Loop & Infrastructure | 0/4 | Planning complete | - |
-| 2. Gateway & Sessions | 0/2 | Planning complete | - |
-| 3. TUI Client | 0/2 | Planning complete | - |
-| 4. Streaming & Teams Adapter | 0/0 | Not started | - |
+| 1. Agent Loop & Infrastructure | 4/4 | Complete | 2026-04-02 |
+| 2. Gateway & Sessions | 2/2 | Complete | 2026-04-03 |
+| 3. TUI Client | 2/2 | Complete | 2026-04-03 |
+| 4. Streaming & Teams Adapter | 0/3 | Planning complete | - |
 | 5. Session Memory & Auto Dream | 0/0 | Not started | - |
