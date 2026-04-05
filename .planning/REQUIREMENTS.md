@@ -40,8 +40,8 @@ Requirements for stabilization milestone. Each maps to roadmap phases.
 
 ### Streaming
 
-- [ ] **STRM-01**: LLM providers expose stream() method returning AsyncIterator[StreamEvent]
-- [ ] **STRM-02**: AgentLoop propagates streaming events through callback or async generator
+- [x] **STRM-01**: LLM providers expose stream() method returning AsyncIterator[StreamEvent]
+- [x] **STRM-02**: AgentLoop propagates streaming events through callback or async generator
 - [ ] **STRM-03**: Gateway broadcasts token stream events to subscribed WebSocket clients
 - [ ] **STRM-04**: TUI renders tokens incrementally as they arrive in ChatLog widget
 
@@ -129,8 +129,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TUI-05 | Phase 3 | Complete |
 | TUI-06 | Phase 3 | Complete |
 | TUI-07 | Phase 3 | Complete |
-| STRM-01 | Phase 4 | Pending |
-| STRM-02 | Phase 4 | Pending |
+| STRM-01 | Phase 4 | Complete |
+| STRM-02 | Phase 4 | Complete |
 | STRM-03 | Phase 4 | Pending |
 | STRM-04 | Phase 4 | Pending |
 | TEAMS-01 | Phase 4 | Complete |
