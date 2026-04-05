@@ -8,7 +8,7 @@ from yigthinker.permissions import PermissionSystem
 from yigthinker.providers.base import LLMProvider
 from yigthinker.session import SessionContext
 from yigthinker.tools.registry import ToolRegistry
-from yigthinker.types import HookAction, HookEvent, Message, ToolResult
+from yigthinker.types import HookAction, HookEvent, LLMResponse, Message, StreamEvent, ToolResult, ToolUse
 
 _ITERATION_LIMIT_SYSTEM_MSG = (
     "[SYSTEM] You have reached the maximum number of tool call iterations. "
@@ -41,6 +41,7 @@ class AgentLoop:
         user_input: str,
         ctx: SessionContext,
         on_tool_event: Callable[[str, dict], None] | None = None,
+        on_token: Callable[[str], None] | None = None,
     ) -> str:
         messages: list[Message] = list(ctx.messages)
         messages.append(Message(role="user", content=user_input))
@@ -62,7 +63,32 @@ class AgentLoop:
                         ctx.messages = messages
                         return text
 
-                    response = await self._provider.chat(messages, tool_schemas)
+                    if on_token is not None:
+                        accumulated_text = ""
+                        tool_uses_from_stream: list[ToolUse] = []
+                        stop_reason = "end_turn"
+
+                        try:
+                            async for event in self._provider.stream(messages, tool_schemas):
+                                if event.type == "text":
+                                    accumulated_text += event.text
+                                    on_token(event.text)
+                                elif event.type == "tool_use" and event.tool_use is not None:
+                                    tool_uses_from_stream.append(event.tool_use)
+                                elif event.type == "done":
+                                    stop_reason = event.stop_reason or "end_turn"
+                                elif event.type == "error":
+                                    break
+                        except Exception:
+                            pass
+
+                        response = LLMResponse(
+                            stop_reason=stop_reason,
+                            text=accumulated_text,
+                            tool_uses=tool_uses_from_stream,
+                        )
+                    else:
+                        response = await self._provider.chat(messages, tool_schemas)
 
                     if response.stop_reason == "end_turn" or not response.tool_uses:
                         messages.append(Message(role="assistant", content=response.text))

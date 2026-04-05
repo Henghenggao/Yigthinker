@@ -1,8 +1,8 @@
 # tests/test_agent.py
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from pydantic import BaseModel
-from yigthinker.types import Message, LLMResponse, ToolResult, ToolUse, HookResult
+from yigthinker.types import Message, LLMResponse, StreamEvent, ToolResult, ToolUse, HookResult
 from yigthinker.session import SessionContext
 from yigthinker.permissions import PermissionSystem
 from yigthinker.tools.registry import ToolRegistry
@@ -215,3 +215,92 @@ async def test_tool_exception_reported_to_llm():
         for item in tool_result_msg.content
         if isinstance(item, dict) and item.get("type") == "tool_result"
     )
+
+
+# ---------------------------------------------------------------------------
+# Streaming Tests
+# ---------------------------------------------------------------------------
+
+async def _mock_stream(*events):
+    """Helper: create an async generator that yields StreamEvent objects."""
+    for e in events:
+        yield e
+
+
+async def test_streaming_callback_fires_per_token():
+    """When on_token is provided, AgentLoop uses stream() and fires callback per chunk."""
+    mock_provider = AsyncMock()
+    mock_provider.stream = MagicMock(return_value=_mock_stream(
+        StreamEvent(type="text", text="Hello"),
+        StreamEvent(type="text", text=" world"),
+        StreamEvent(type="done", stop_reason="end_turn"),
+    ))
+    # chat should not be called in the streaming path
+    mock_provider.chat = AsyncMock(side_effect=AssertionError("chat should not be called"))
+
+    tools = ToolRegistry()
+    tools.register(EchoTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["echo"]})
+    loop = AgentLoop(provider=mock_provider, tools=tools, hooks=hooks, permissions=perms)
+    ctx = SessionContext()
+
+    on_token_calls: list[str] = []
+    result = await loop.run("hi", ctx, on_token=lambda t: on_token_calls.append(t))
+
+    assert on_token_calls == ["Hello", " world"]
+    assert result == "Hello world"
+
+
+async def test_streaming_with_tool_use():
+    """Streaming path handles tool_use: stream -> tool exec -> stream again."""
+    # First turn: text + tool_use
+    first_stream = _mock_stream(
+        StreamEvent(type="text", text="Let me check"),
+        StreamEvent(type="tool_use", tool_use=ToolUse(id="tu1", name="echo", input={"message": "hi"})),
+        StreamEvent(type="done", stop_reason="tool_use"),
+    )
+    # Second turn: final text
+    second_stream = _mock_stream(
+        StreamEvent(type="text", text="Done"),
+        StreamEvent(type="done", stop_reason="end_turn"),
+    )
+
+    mock_provider = AsyncMock()
+    mock_provider.stream = MagicMock(side_effect=[first_stream, second_stream])
+    mock_provider.chat = AsyncMock(side_effect=AssertionError("chat should not be called"))
+
+    tools = ToolRegistry()
+    tools.register(EchoTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["echo"]})
+    loop = AgentLoop(provider=mock_provider, tools=tools, hooks=hooks, permissions=perms)
+    ctx = SessionContext()
+
+    on_token_calls: list[str] = []
+    result = await loop.run("echo hi", ctx, on_token=lambda t: on_token_calls.append(t))
+
+    assert result == "Done"
+    assert "Let me check" in on_token_calls
+    assert "Done" in on_token_calls
+
+
+async def test_no_streaming_when_on_token_none():
+    """When on_token is None, AgentLoop uses chat() and never calls stream()."""
+    mock_provider = AsyncMock()
+    mock_provider.chat = AsyncMock(return_value=LLMResponse(stop_reason="end_turn", text="Result"))
+
+    def fail_stream(*args, **kwargs):
+        raise AssertionError("stream should not be called")
+
+    mock_provider.stream = fail_stream
+
+    tools = ToolRegistry()
+    tools.register(EchoTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["echo"]})
+    loop = AgentLoop(provider=mock_provider, tools=tools, hooks=hooks, permissions=perms)
+    ctx = SessionContext()
+
+    result = await loop.run("hello", ctx)
+    assert result == "Result"
