@@ -78,3 +78,12 @@ class LLMResponse:
     stop_reason: Literal["tool_use", "end_turn", "max_tokens"]
     text: str = ""
     tool_uses: list[ToolUse] = field(default_factory=list)
+
+
+@dataclass
+class StreamEvent:
+    type: Literal["text", "tool_use", "done", "error"]
+    text: str = ""
+    tool_use: ToolUse | None = None
+    stop_reason: str = ""
+    error: str = ""

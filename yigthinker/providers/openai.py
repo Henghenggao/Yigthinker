@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 
 import openai
 
-from yigthinker.types import LLMResponse, Message, ToolUse
+from yigthinker.types import LLMResponse, Message, StreamEvent, ToolUse
 
 
 class OpenAIProvider:
@@ -38,6 +39,79 @@ class OpenAIProvider:
 
         response = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
         return self._parse(response)
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict],
+        system: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        converted = self._convert_messages(messages)
+        if system:
+            converted = [{"role": "system", "content": system}] + converted
+        kwargs: dict = {
+            "model": self._model,
+            "messages": converted,
+            "stream": True,
+        }
+        if tools:
+            kwargs["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool["description"],
+                        "parameters": tool["input_schema"],
+                    },
+                }
+                for tool in tools
+            ]
+            kwargs["tool_choice"] = "auto"
+
+        try:
+            response = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+            tool_call_accum: dict[int, dict] = {}
+
+            async for chunk in response:
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
+
+                if delta and delta.content:
+                    yield StreamEvent(type="text", text=delta.content)
+
+                if delta and delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_call_accum:
+                            tool_call_accum[idx] = {"id": "", "name": "", "args": ""}
+                        if tc.id:
+                            tool_call_accum[idx]["id"] = tc.id
+                        if tc.function and tc.function.name:
+                            tool_call_accum[idx]["name"] = tc.function.name
+                        if tc.function and tc.function.arguments:
+                            tool_call_accum[idx]["args"] += tc.function.arguments
+
+                if choice.finish_reason == "tool_calls":
+                    for tc_data in tool_call_accum.values():
+                        yield StreamEvent(
+                            type="tool_use",
+                            tool_use=ToolUse(
+                                id=tc_data["id"],
+                                name=tc_data["name"],
+                                input=json.loads(tc_data["args"]) if tc_data["args"] else {},
+                            ),
+                        )
+                    tool_call_accum.clear()
+
+                if choice.finish_reason in ("stop", "tool_calls"):
+                    yield StreamEvent(
+                        type="done",
+                        stop_reason="end_turn" if choice.finish_reason == "stop" else "tool_use",
+                    )
+        except Exception as e:
+            yield StreamEvent(type="error", error=str(e))
 
     def _convert_messages(self, messages: list[Message]) -> list[dict]:
         converted: list[dict] = []

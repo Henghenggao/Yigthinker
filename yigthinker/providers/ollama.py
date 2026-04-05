@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 import uuid
 
 import httpx
 
-from yigthinker.types import LLMResponse, Message, ToolUse
+from yigthinker.types import LLMResponse, Message, StreamEvent, ToolUse
 
 
 async def _http_post(url: str, payload: dict) -> dict[str, Any]:
@@ -46,6 +48,67 @@ class OllamaProvider:
 
         response = await _http_post(f"{self._base_url}/api/chat", payload)
         return self._parse(response)
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict],
+        system: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        converted = self._convert_messages(messages)
+        if system:
+            converted = [{"role": "system", "content": system}] + converted
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": converted,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool["description"],
+                        "parameters": tool["input_schema"],
+                    },
+                }
+                for tool in tools
+            ]
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream(
+                    "POST", f"{self._base_url}/api/chat", json=payload
+                ) as response:
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        chunk = json.loads(line)
+                        msg = chunk.get("message", {})
+
+                        if msg.get("content"):
+                            yield StreamEvent(type="text", text=msg["content"])
+
+                        if msg.get("tool_calls"):
+                            for tc in msg["tool_calls"]:
+                                fn = tc.get("function", {})
+                                yield StreamEvent(
+                                    type="tool_use",
+                                    tool_use=ToolUse(
+                                        id=uuid.uuid4().hex[:8],
+                                        name=fn.get("name", ""),
+                                        input=fn.get("arguments", {}),
+                                    ),
+                                )
+
+                        if chunk.get("done"):
+                            yield StreamEvent(
+                                type="done",
+                                stop_reason="tool_use" if msg.get("tool_calls") else "end_turn",
+                            )
+        except Exception as e:
+            yield StreamEvent(type="error", error=str(e))
 
     def _convert_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         converted: list[dict[str, Any]] = []
