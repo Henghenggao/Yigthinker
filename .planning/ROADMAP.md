@@ -86,7 +86,7 @@ Plans:
 Plans:
 - [x] 04-01-PLAN.md -- StreamEvent type, provider stream() methods, AgentLoop on_token callback integration
 - [x] 04-02-PLAN.md -- Teams HMAC-SHA256 verification, Adaptive Cards webhook, session key derivation
-- [ ] 04-03-PLAN.md -- Gateway TokenStreamMsg broadcast, TUI MarkdownStream rendering, streaming tests
+- [x] 04-03-PLAN.md -- Gateway TokenStreamMsg broadcast, TUI MarkdownStream rendering, streaming tests
 
 ### Phase 5: Session Memory & Auto Dream
 **Goal**: The agent remembers key findings within a session (surviving context compaction) and accumulates domain knowledge across sessions
