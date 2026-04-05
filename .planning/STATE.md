@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready to execute
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-04-03T13:05:56.683Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-04-05T19:20:54.134Z"
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 8
-  completed_plans: 7
+  completed_phases: 3
+  total_plans: 11
+  completed_plans: 9
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-02)
 
 **Core value:** A user can start the Gateway, open the TUI, have an AI-assisted data analysis conversation with tool calls, and see results -- with the same experience accessible from messaging platforms.
-**Current focus:** Phase 03 — tui-client
+**Current focus:** Phase 04 — streaming-teams-adapter
 
 ## Current Position
 
-Phase: 03 (tui-client) — EXECUTING
-Plan: 2 of 2
+Phase: 04 (streaming-teams-adapter) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -53,6 +53,8 @@ Plan: 2 of 2
 | Phase 02 P01 | 5min | 2 tasks | 8 files |
 | Phase 02 P02 | 2min | 2 tasks | 1 files |
 | Phase 03 P01 | 3min | 2 tasks | 9 files |
+| Phase 03 P02 | 15min | 2 tasks | 13 files |
+| Phase 04 P02 | 3min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -82,6 +84,11 @@ Recent decisions affecting current work:
 - [Phase 03]: Text objects used instead of Rich markup strings to prevent LLM output injection
 - [Phase 03]: SessionPickerScreen uses stored _sessions data rather than separate Gateway API call
 - [Phase 03]: DataFramePreviewScreen shows dtypes metadata only; row-level preview deferred to Gateway API
+- [Phase 03]: ToolCard mounted as real widget in chat-panel Vertical, NOT written to RichLog
+- [Phase 03]: app.screen.query_one() required for pushed-screen DOM scoping in Textual 8.x
+- [Phase 03]: Textual Pilot tests require explicit size=(80, 24) for reliable screen composition
+- [Phase 04]: Use Bot Framework REST API (serviceUrl/v3/conversations) for Teams outgoing webhook responses instead of Graph API directly
+- [Phase 04]: MSAL scope uses api.botframework.com/.default for Bot Framework API token; raw body bytes for HMAC before JSON parsing
 
 ### Pending Todos
 
@@ -94,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-03T13:05:56.681Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-04-05T19:20:54.131Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

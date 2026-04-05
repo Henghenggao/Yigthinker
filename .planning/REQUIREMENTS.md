@@ -31,11 +31,11 @@ Requirements for stabilization milestone. Each maps to roadmap phases.
 ### TUI Client
 
 - [x] **TUI-01**: TUI connects to Gateway via WebSocket and displays chat log with markdown rendering
-- [ ] **TUI-02**: VarsPanel shows current session's DataFrame variables with name, shape, and dtypes
+- [x] **TUI-02**: VarsPanel shows current session's DataFrame variables with name, shape, and dtypes
 - [x] **TUI-03**: Keyboard shortcuts work: Ctrl+G (sessions), Ctrl+L (models), Ctrl+D (preview), Ctrl+Q (quit)
 - [x] **TUI-04**: WebSocket reconnection with exponential backoff (1s base, 30s max)
 - [x] **TUI-05**: StatusBar shows connection state (green connected, yellow reconnecting, red disconnected)
-- [ ] **TUI-06**: ToolCard widgets display tool calls with collapsible detail (Ctrl+O toggle)
+- [x] **TUI-06**: ToolCard widgets display tool calls with collapsible detail (Ctrl+O toggle)
 - [x] **TUI-07**: InputBar supports slash command autocomplete with tab completion
 
 ### Streaming
@@ -47,9 +47,9 @@ Requirements for stabilization milestone. Each maps to roadmap phases.
 
 ### Teams Adapter
 
-- [ ] **TEAMS-01**: Teams adapter receives webhook POST with HMAC-SHA256 signature verification
-- [ ] **TEAMS-02**: Teams adapter sends response via Graph API with Adaptive Cards formatting
-- [ ] **TEAMS-03**: Teams adapter derives session key from sender identity using SessionKey pattern
+- [x] **TEAMS-01**: Teams adapter receives webhook POST with HMAC-SHA256 signature verification
+- [x] **TEAMS-02**: Teams adapter sends response via Graph API with Adaptive Cards formatting
+- [x] **TEAMS-03**: Teams adapter derives session key from sender identity using SessionKey pattern
 
 ### Memory
 
@@ -123,19 +123,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GW-05 | Phase 2 | Complete |
 | GW-06 | Phase 2 | Complete |
 | TUI-01 | Phase 3 | Complete |
-| TUI-02 | Phase 3 | Pending |
+| TUI-02 | Phase 3 | Complete |
 | TUI-03 | Phase 3 | Complete |
 | TUI-04 | Phase 3 | Complete |
 | TUI-05 | Phase 3 | Complete |
-| TUI-06 | Phase 3 | Pending |
+| TUI-06 | Phase 3 | Complete |
 | TUI-07 | Phase 3 | Complete |
 | STRM-01 | Phase 4 | Pending |
 | STRM-02 | Phase 4 | Pending |
 | STRM-03 | Phase 4 | Pending |
 | STRM-04 | Phase 4 | Pending |
-| TEAMS-01 | Phase 4 | Pending |
-| TEAMS-02 | Phase 4 | Pending |
-| TEAMS-03 | Phase 4 | Pending |
+| TEAMS-01 | Phase 4 | Complete |
+| TEAMS-02 | Phase 4 | Complete |
+| TEAMS-03 | Phase 4 | Complete |
 | MEM-01 | Phase 5 | Pending |
 | MEM-02 | Phase 5 | Pending |
 | MEM-03 | Phase 5 | Pending |

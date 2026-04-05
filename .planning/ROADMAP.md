@@ -85,7 +85,7 @@ Plans:
 
 Plans:
 - [ ] 04-01-PLAN.md -- StreamEvent type, provider stream() methods, AgentLoop on_token callback integration
-- [ ] 04-02-PLAN.md -- Teams HMAC-SHA256 verification, Adaptive Cards webhook, session key derivation
+- [x] 04-02-PLAN.md -- Teams HMAC-SHA256 verification, Adaptive Cards webhook, session key derivation
 - [ ] 04-03-PLAN.md -- Gateway TokenStreamMsg broadcast, TUI MarkdownStream rendering, streaming tests
 
 ### Phase 5: Session Memory & Auto Dream
@@ -113,5 +113,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 1. Agent Loop & Infrastructure | 4/4 | Complete | 2026-04-02 |
 | 2. Gateway & Sessions | 2/2 | Complete | 2026-04-03 |
 | 3. TUI Client | 2/2 | Complete | 2026-04-03 |
-| 4. Streaming & Teams Adapter | 0/3 | Planning complete | - |
+| 4. Streaming & Teams Adapter | 1/3 | In Progress|  |
 | 5. Session Memory & Auto Dream | 0/0 | Not started | - |
