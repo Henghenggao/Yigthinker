@@ -1,6 +1,13 @@
 from __future__ import annotations
 import hashlib
+import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from yigthinker.providers.base import LLMProvider
+
+from yigthinker.types import Message
 
 MEMORY_TEMPLATE = """\
 # Data Source Knowledge
@@ -17,6 +24,28 @@ _Important analytical conclusions from this project. Referenced by finding ID fo
 
 # Analysis Log
 _Terse step-by-step record of analysis sessions. One line per significant action._
+"""
+
+EXTRACTION_PROMPT = """\
+Analyze the following conversation turns and extract any new knowledge into the categories below.
+Return ONLY new findings. Do not repeat information already in the existing memory.
+If there are no new findings for a category, omit that category entirely.
+Return plain Markdown with section headers matching the categories.
+
+Categories:
+- Data Source Knowledge: table structures, field semantics, data quality issues, join relationships
+- Business Rules & Patterns: financial cycles, seasonal patterns, customer behaviors
+- Errors & Corrections: failed approaches and their fixes
+- Key Findings: important analytical conclusions
+- Analysis Log: one-line record of significant actions taken
+
+Existing memory (for deduplication):
+{existing_memory}
+
+Recent conversation:
+{recent_turns}
+
+New findings only:
 """
 
 
@@ -87,3 +116,98 @@ class MemoryManager:
         if project_path.exists() and not self.is_template_only(project_path):
             parts.append("## Project Memory\n" + project_path.read_text(encoding="utf-8"))
         return "\n\n".join(parts)
+
+    async def extract_memories(
+        self, messages: list[Message], provider: LLMProvider,
+    ) -> str | None:
+        """Send recent turns to LLM and append extracted findings to MEMORY.md."""
+        self.start_extraction()
+        try:
+            # Take last freq*2 messages (approx N turns = 2N messages)
+            window = self._freq * 2
+            recent = messages[-window:]
+            formatted_turns = "\n".join(
+                f"{m.role}: {m.content if isinstance(m.content, str) else str(m.content)}"
+                for m in recent
+            )
+            existing = self.load_memory()
+            prompt = EXTRACTION_PROMPT.format(
+                existing_memory=existing or "(empty)",
+                recent_turns=formatted_turns,
+            )
+            response = await provider.chat(
+                [Message(role="user", content=prompt)], tools=[],
+            )
+            text = response.text.strip() if response.text else ""
+            if text:
+                self._append_to_memory(text)
+                return text
+            return None
+        finally:
+            self.finish_extraction()
+
+    def _append_to_memory(self, new_findings: str) -> None:
+        """Append new findings into the appropriate sections of MEMORY.md."""
+        path = self.ensure_memory_file()
+        existing = path.read_text(encoding="utf-8")
+        new_sections = self._parse_sections(new_findings)
+        for header, content in new_sections.items():
+            if not content.strip():
+                continue
+            existing = self._insert_after_header(existing, header, content)
+        path.write_text(existing, encoding="utf-8")
+
+    def _parse_sections(self, text: str) -> dict[str, str]:
+        """Split markdown text by H1 headers. Returns {header: content}."""
+        sections: dict[str, str] = {}
+        current_header = ""
+        current_lines: list[str] = []
+        for line in text.splitlines():
+            if line.startswith("# "):
+                if current_header and current_lines:
+                    sections[current_header] = "\n".join(current_lines)
+                current_header = line[2:].strip()
+                current_lines = []
+            elif current_header:
+                current_lines.append(line)
+        if current_header and current_lines:
+            sections[current_header] = "\n".join(current_lines)
+        return sections
+
+    def _insert_after_header(self, existing: str, header: str, new_content: str) -> str:
+        """Insert new_content into the existing text under the matching header section."""
+        lines = existing.splitlines(keepends=True)
+        result: list[str] = []
+        inserted = False
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            result.append(line)
+            # Check if this line is the target header
+            if not inserted and line.strip() == f"# {header}":
+                # Skip past the italic description line if present
+                i += 1
+                while i < len(lines):
+                    next_line = lines[i]
+                    result.append(next_line)
+                    # If next line is another header, insert before it
+                    if next_line.strip().startswith("# ") and i > 0:
+                        # Remove the header we just added, insert content, re-add header
+                        result.pop()
+                        content_with_newline = new_content.rstrip("\n") + "\n"
+                        result.append(content_with_newline)
+                        result.append(next_line)
+                        inserted = True
+                        break
+                    i += 1
+                else:
+                    # Reached end of file; insert content here
+                    content_with_newline = new_content.rstrip("\n") + "\n"
+                    result.append(content_with_newline)
+                    inserted = True
+                    continue
+            i += 1
+        if not inserted:
+            # Header not found; append as new section
+            result.append(f"\n# {header}\n{new_content.rstrip(chr(10))}\n")
+        return "".join(result)
