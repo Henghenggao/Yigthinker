@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Gateway & Sessions** - Stand up the daemon that routes messages and manages session lifecycle
 - [x] **Phase 3: TUI Client** - Wire the terminal UI to the Gateway for interactive data analysis conversations
 - [ ] **Phase 4: Streaming & Teams Adapter** - Add token-by-token streaming and Teams channel integration
-- [ ] **Phase 5: Session Memory & Auto Dream** - Enable cross-session knowledge accumulation
+- [x] **Phase 5: Session Memory & Auto Dream** - Enable cross-session knowledge accumulation (completed 2026-04-06)
 
 ## Phase Details
 
@@ -100,8 +100,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md -- LLM extraction in MemoryManager + LLM consolidation in AutoDream
-- [ ] 05-02-PLAN.md -- AgentLoop lifecycle wiring, builder hook registration, system prompt injection
+- [x] 05-01-PLAN.md -- LLM extraction in MemoryManager + LLM consolidation in AutoDream
+- [x] 05-02-PLAN.md -- AgentLoop lifecycle wiring, builder hook registration, system prompt injection
 
 ## Progress
 
@@ -114,4 +114,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 2. Gateway & Sessions | 2/2 | Complete | 2026-04-03 |
 | 3. TUI Client | 2/2 | Complete | 2026-04-03 |
 | 4. Streaming & Teams Adapter | 3/3 | Complete | 2026-04-05 |
-| 5. Session Memory & Auto Dream | 1/2 | In Progress |  |
+| 5. Session Memory & Auto Dream | 2/2 | Complete   | 2026-04-06 |

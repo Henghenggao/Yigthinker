@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-04-06T12:49:07.402Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-04-06T13:24:39.588Z"
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 13
 ---
 
 # Project State
@@ -58,6 +58,7 @@ Plan: 2 of 2
 | Phase 04 P01 | 4min | 2 tasks | 8 files |
 | Phase 04 P03 | 8min | 2 tasks | 6 files |
 | Phase 05 P01 | 3min | 2 tasks | 4 files |
+| Phase 05 P02 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,10 @@ Recent decisions affecting current work:
 - [Phase 04]: Rename ToolCard._render to _refresh_content to avoid shadowing Textual internal _render method
 - [Phase 05]: LLM extraction uses same provider as session (no dedicated extraction model)
 - [Phase 05]: AutoDream accepts memory_dirs list for testable memory scanning; removed asyncio.to_thread for fully async run_background
+- [Phase 05]: Memory extraction runs as asyncio.create_task (fire-and-forget, never surfaces errors)
+- [Phase 05]: SessionEnd fires in finally block to guarantee execution even on timeout
+- [Phase 05]: HookRegistry created separately from HookExecutor for explicit hook registration in builder
+- [Phase 05]: Memory content injected via system= parameter on provider calls each iteration
 
 ### Pending Todos
 
@@ -112,6 +117,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-06T12:49:07.400Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-04-06T13:24:39.585Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None

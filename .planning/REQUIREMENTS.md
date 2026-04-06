@@ -54,9 +54,9 @@ Requirements for stabilization milestone. Each maps to roadmap phases.
 ### Memory
 
 - [x] **MEM-01**: Session Memory records key findings after each tool call via MemoryManager.record_turn()
-- [ ] **MEM-02**: Session Memory survives context compaction via PreCompact hook injection
+- [x] **MEM-02**: Session Memory survives context compaction via PreCompact hook injection
 - [x] **MEM-03**: Auto Dream triggers at SessionEnd, extracts domain knowledge via LLM summarization
-- [ ] **MEM-04**: Auto Dream persists memories to ~/.yigthinker/memory/, loaded at SessionStart
+- [x] **MEM-04**: Auto Dream persists memories to ~/.yigthinker/memory/, loaded at SessionStart
 
 ## v2 Requirements
 
@@ -137,9 +137,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEAMS-02 | Phase 4 | Complete |
 | TEAMS-03 | Phase 4 | Complete |
 | MEM-01 | Phase 5 | Complete |
-| MEM-02 | Phase 5 | Pending |
+| MEM-02 | Phase 5 | Complete |
 | MEM-03 | Phase 5 | Complete |
-| MEM-04 | Phase 5 | Pending |
+| MEM-04 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 33 total
