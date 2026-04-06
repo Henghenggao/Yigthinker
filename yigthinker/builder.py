@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -16,6 +17,7 @@ class AppContext:
 
     agent_loop: AgentLoop
     pool: ConnectionPool
+    memory_manager: "MemoryManager | None" = None
 
 
 async def build_app(
@@ -36,12 +38,17 @@ async def build_app(
         the CLI prompt.  Pass ``None`` for daemon/gateway mode where
         stdin is unavailable.
     """
+    from yigthinker.gates import gate
     from yigthinker.hooks.executor import HookExecutor
     from yigthinker.hooks.registry import HookRegistry
     from yigthinker.mcp.loader import MCPLoader
+    from yigthinker.memory.auto_dream import AutoDream
+    from yigthinker.memory.compact import CompactConfig, SmartCompact
+    from yigthinker.memory.session_memory import MemoryManager
     from yigthinker.permissions import PermissionSystem
     from yigthinker.providers.factory import provider_from_settings
     from yigthinker.registry_factory import build_tool_registry
+    from yigthinker.types import HookEvent, HookResult
 
     pool = ConnectionPool()
     for name, cfg in settings.get("connections", {}).items():
@@ -60,7 +67,8 @@ async def build_app(
                 "Run: pip install mcp"
             ) from None
 
-    hooks = HookExecutor(HookRegistry())
+    hook_registry = HookRegistry()
+    hooks = HookExecutor(hook_registry)
     permissions = PermissionSystem(settings.get("permissions", {}))
     provider = provider_from_settings(settings)
 
@@ -83,4 +91,35 @@ async def build_app(
         max_iterations=max_iterations,
         timeout_seconds=timeout_seconds,
     )
-    return AppContext(agent_loop=agent, pool=pool)
+
+    # --- Memory subsystem ---
+    memory_manager: MemoryManager | None = None
+
+    if gate("session_memory", settings=settings):
+        memory_cfg = settings.get("memory", {})
+        memory_manager = MemoryManager(
+            extract_frequency=memory_cfg.get("extract_frequency", 5),
+            project_dir=Path.cwd(),
+        )
+        agent.set_memory_manager(memory_manager)
+
+        compact = SmartCompact(CompactConfig())
+        agent.set_compact(compact)
+
+    if gate("auto_dream", settings=settings) and memory_manager is not None:
+        auto_dream = AutoDream()
+
+        async def dream_hook(event: HookEvent) -> HookResult:
+            if auto_dream.should_run(event.session_id):
+                asyncio.create_task(
+                    auto_dream.run_background(
+                        memory_manager.global_memory_path(),
+                        event.session_id,
+                        provider,
+                    )
+                )
+            return HookResult.ALLOW
+
+        hook_registry.register("SessionEnd", "*", dream_hook)
+
+    return AppContext(agent_loop=agent, pool=pool, memory_manager=memory_manager)
