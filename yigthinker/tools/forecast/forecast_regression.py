@@ -2,8 +2,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
-from sklearn.linear_model import LinearRegression  # type: ignore[import]
-from sklearn.metrics import r2_score  # type: ignore[import]
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
 
@@ -29,6 +27,9 @@ class ForecastRegressionTool:
             return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
         try:
+            from sklearn.linear_model import LinearRegression  # type: ignore[import]
+            from sklearn.metrics import r2_score  # type: ignore[import]
+
             X = df[input.feature_cols].values
             y = df[input.target_col].values
 

@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase complete — ready for verification
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-04-05T20:19:17.120Z"
+status: Ready to execute
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-04-06T12:49:07.402Z"
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 11
+  total_plans: 13
   completed_plans: 11
 ---
 
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-02)
 
 **Core value:** A user can start the Gateway, open the TUI, have an AI-assisted data analysis conversation with tool calls, and see results -- with the same experience accessible from messaging platforms.
-**Current focus:** Phase 04 — streaming-teams-adapter
+**Current focus:** Phase 05 — session-memory-auto-dream
 
 ## Current Position
 
-Phase: 04 (streaming-teams-adapter) — EXECUTING
-Plan: 3 of 3
+Phase: 05 (session-memory-auto-dream) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Plan: 3 of 3
 | Phase 04 P02 | 3min | 2 tasks | 5 files |
 | Phase 04 P01 | 4min | 2 tasks | 8 files |
 | Phase 04 P03 | 8min | 2 tasks | 6 files |
+| Phase 05 P01 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Use asyncio.ensure_future for fire-and-forget stream writes in Gateway (consistent with tool event pattern)
 - [Phase 04]: Textual set_interval timer + display toggle for cursor blink (no @keyframes in Textual CSS)
 - [Phase 04]: Rename ToolCard._render to _refresh_content to avoid shadowing Textual internal _render method
+- [Phase 05]: LLM extraction uses same provider as session (no dedicated extraction model)
+- [Phase 05]: AutoDream accepts memory_dirs list for testable memory scanning; removed asyncio.to_thread for fully async run_background
 
 ### Pending Todos
 
@@ -109,6 +112,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-05T20:19:17.117Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-04-06T12:49:07.400Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None

@@ -1,5 +1,7 @@
 import pandas as pd
 import pytest
+pytest.importorskip("statsmodels")
+
 from yigthinker.tools.forecast.forecast_timeseries import ForecastTimeseriesTool
 from yigthinker.session import SessionContext
 

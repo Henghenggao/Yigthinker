@@ -1,5 +1,7 @@
 import pandas as pd
 import pytest
+pytest.importorskip("sklearn")
+
 from yigthinker.tools.forecast.forecast_evaluate import ForecastEvaluateTool
 from yigthinker.session import SessionContext
 

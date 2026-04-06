@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import pytest
+pytest.importorskip("sklearn")
+
 from yigthinker.tools.forecast.forecast_regression import ForecastRegressionTool
 from yigthinker.session import SessionContext
 

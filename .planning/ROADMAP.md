@@ -97,11 +97,11 @@ Plans:
   2. When context compaction occurs, session memories are injected into the compacted context via PreCompact hook -- the agent retains knowledge of earlier findings
   3. When a session ends, Auto Dream extracts domain knowledge via LLM summarization and persists it to ~/.yigthinker/memory/
   4. On the next session start, previously dreamed memories are loaded and available to the agent
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md -- LLM extraction in MemoryManager + LLM consolidation in AutoDream
+- [ ] 05-02-PLAN.md -- AgentLoop lifecycle wiring, builder hook registration, system prompt injection
 
 ## Progress
 

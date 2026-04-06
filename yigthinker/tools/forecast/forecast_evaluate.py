@@ -2,7 +2,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
-from sklearn.metrics import r2_score, mean_squared_error  # type: ignore[import]
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
 
@@ -28,6 +27,8 @@ class ForecastEvaluateTool:
             return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
         try:
+            from sklearn.metrics import mean_squared_error, r2_score  # type: ignore[import]
+
             actual = df[input.actual_col].astype(float).values
             predicted = df[input.predicted_col].astype(float).values
 

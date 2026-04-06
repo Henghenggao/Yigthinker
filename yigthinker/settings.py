@@ -27,6 +27,38 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "advisor": False,
         "voice": False,
     },
+    "gateway": {
+        "host": "127.0.0.1",
+        "port": 8766,
+        "idle_timeout_seconds": 3600,
+        "max_sessions": 100,
+        "hibernate_dir": "~/.yigthinker/hibernate",
+        "max_hibernate_size_mb": 500,
+        "session_scope": "per-sender",
+        "eviction_interval_seconds": 60,
+    },
+    "channels": {
+        "feishu": {
+            "enabled": False,
+            "app_id": "",
+            "app_secret": "",
+            "verification_token": "",
+            "session_scope": "per-sender",
+            "dedup_ttl_seconds": 3600,
+        },
+        "teams": {
+            "enabled": False,
+            "tenant_id": "",
+            "client_id": "",
+            "client_secret": "",
+            "session_scope": "per-sender",
+        },
+        "gchat": {
+            "enabled": False,
+            "service_account_key_path": "",
+            "session_scope": "per-sender",
+        },
+    },
     "sandbox": {
         "df_transform": {
             "allowed_imports": ["pandas", "numpy", "polars"],
@@ -40,6 +72,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 
 def load_settings(project_dir: Path | None = None) -> dict[str, Any]:
     """Load and merge settings: defaults → project → user → managed (managed wins)."""
+    import os
+
     settings = _deep_merge({}, DEFAULT_SETTINGS)
 
     # 1. Project level (.yigthinker/settings.json)
@@ -50,7 +84,13 @@ def load_settings(project_dir: Path | None = None) -> dict[str, Any]:
     # 2. User level (~/.yigthinker/settings.json)
     user_path = Path.home() / ".yigthinker" / "settings.json"
     if user_path.exists():
-        settings = _deep_merge(settings, json.loads(user_path.read_text(encoding="utf-8")))
+        user_data = json.loads(user_path.read_text(encoding="utf-8"))
+        settings = _deep_merge(settings, user_data)
+
+        # Promote saved API keys into environment so providers can pick them up.
+        for env_var in ("anthropic_api_key", "openai_api_key", "azure_openai_api_key"):
+            if env_var in user_data and not os.environ.get(env_var.upper()):
+                os.environ[env_var.upper()] = user_data[env_var]
 
     # 3. Managed level (highest priority — enterprise lockdown)
     managed_path = Path("/etc/yigthinker/settings.json")
@@ -58,6 +98,22 @@ def load_settings(project_dir: Path | None = None) -> dict[str, Any]:
         settings = _deep_merge(settings, json.loads(managed_path.read_text(encoding="utf-8")))
 
     return settings
+
+
+def has_api_key(settings: dict[str, Any]) -> bool:
+    """Return True if a usable API key is available for the configured model."""
+    import os
+
+    model = settings.get("model", "")
+    if model.startswith("claude"):
+        return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if model.startswith(("gpt-", "o1", "o3", "o4")):
+        return bool(os.environ.get("OPENAI_API_KEY"))
+    if model.startswith("azure/"):
+        return bool(os.environ.get("AZURE_OPENAI_API_KEY"))
+    if model.startswith("ollama/"):
+        return True  # no key needed
+    return False
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
