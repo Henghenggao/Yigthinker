@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from yigthinker.hooks.executor import HookExecutor
 from yigthinker.permissions import PermissionSystem
@@ -9,6 +9,10 @@ from yigthinker.providers.base import LLMProvider
 from yigthinker.session import SessionContext
 from yigthinker.tools.registry import ToolRegistry
 from yigthinker.types import HookAction, HookEvent, LLMResponse, Message, StreamEvent, ToolResult, ToolUse
+
+if TYPE_CHECKING:
+    from yigthinker.memory.compact import SmartCompact
+    from yigthinker.memory.session_memory import MemoryManager
 
 _ITERATION_LIMIT_SYSTEM_MSG = (
     "[SYSTEM] You have reached the maximum number of tool call iterations. "
@@ -35,6 +39,14 @@ class AgentLoop:
         self._ask_fn = ask_fn
         self._max_iterations = max_iterations
         self._timeout_seconds = timeout_seconds
+        self._memory_manager: MemoryManager | None = None
+        self._compact: SmartCompact | None = None
+
+    def set_memory_manager(self, mm: MemoryManager) -> None:
+        self._memory_manager = mm
+
+    def set_compact(self, compact: SmartCompact) -> None:
+        self._compact = compact
 
     async def run(
         self,
@@ -48,6 +60,15 @@ class AgentLoop:
         tool_schemas = self._tools.export_schemas()
         iteration = 0
 
+        # Fire SessionStart before the main loop
+        start_event = HookEvent(
+            event_type="SessionStart",
+            session_id=ctx.session_id,
+            transcript_path=ctx.transcript_path,
+        )
+        await self._hooks.run(start_event)
+
+        result_text = ""
         try:
             async with asyncio.timeout(self._timeout_seconds):
                 while True:
@@ -60,8 +81,28 @@ class AgentLoop:
                         response = await self._provider.chat(messages, [])
                         text = response.text or "(Agent loop reached iteration limit)"
                         messages.append(Message(role="assistant", content=text))
-                        ctx.messages = messages
-                        return text
+                        result_text = text
+                        break
+
+                    # Token budget check before LLM call — fire PreCompact if exceeded
+                    system_prompt: str | None = None
+                    if self._memory_manager is not None:
+                        loaded = self._memory_manager.load_memory()
+                        if loaded:
+                            system_prompt = ctx.context_manager.build_memory_section(loaded)
+
+                    if self._compact is not None:
+                        token_est = self._estimate_tokens(messages)
+                        if token_est > ctx.context_manager.history_budget:
+                            pre_compact_event = HookEvent(
+                                event_type="PreCompact",
+                                session_id=ctx.session_id,
+                                transcript_path=ctx.transcript_path,
+                            )
+                            await self._hooks.run(pre_compact_event)
+                            memory_content = self._memory_manager.load_memory() if self._memory_manager else ""
+                            vars_summary = self._format_vars_summary(ctx)
+                            messages = self._compact.run(messages, memory_content, token_est, vars_summary)
 
                     if on_token is not None:
                         accumulated_text = ""
@@ -69,7 +110,7 @@ class AgentLoop:
                         stop_reason = "end_turn"
 
                         try:
-                            async for event in self._provider.stream(messages, tool_schemas):
+                            async for event in self._provider.stream(messages, tool_schemas, system=system_prompt):
                                 if event.type == "text":
                                     accumulated_text += event.text
                                     on_token(event.text)
@@ -88,12 +129,12 @@ class AgentLoop:
                             tool_uses=tool_uses_from_stream,
                         )
                     else:
-                        response = await self._provider.chat(messages, tool_schemas)
+                        response = await self._provider.chat(messages, tool_schemas, system=system_prompt)
 
                     if response.stop_reason == "end_turn" or not response.tool_uses:
                         messages.append(Message(role="assistant", content=response.text))
-                        ctx.messages = messages
-                        return response.text
+                        result_text = response.text
+                        break
 
                     content_blocks: list[dict] = []
                     if response.text:
@@ -121,9 +162,49 @@ class AgentLoop:
                             }
                         )
                     messages.append(Message(role="user", content=tool_results))
+
+                    # Memory extraction after tool calls
+                    if self._memory_manager is not None:
+                        self._memory_manager.record_turn()
+                        if self._memory_manager.should_extract():
+                            messages_snapshot = list(messages)  # shallow copy per Pitfall 1
+                            asyncio.create_task(self._run_extraction(messages_snapshot))
+
         except TimeoutError:
+            result_text = "(Agent loop timed out. Partial results may be available in the variable registry.)"
+        finally:
             ctx.messages = messages
-            return "(Agent loop timed out. Partial results may be available in the variable registry.)"
+            end_event = HookEvent(
+                event_type="SessionEnd",
+                session_id=ctx.session_id,
+                transcript_path=ctx.transcript_path,
+            )
+            await self._hooks.run(end_event)
+
+        return result_text
+
+    async def _run_extraction(self, messages_snapshot: list[Message]) -> None:
+        """Fire-and-forget extraction. Errors are silently suppressed."""
+        try:
+            if self._memory_manager is not None:
+                await self._memory_manager.extract_memories(messages_snapshot, self._provider)
+        except Exception:
+            pass  # Never surface extraction errors to user
+
+    def _estimate_tokens(self, messages: list[Message]) -> int:
+        """Rough token estimate: ~4 chars per token."""
+        total_chars = sum(len(str(m.content)) for m in messages)
+        return total_chars // 4
+
+    def _format_vars_summary(self, ctx: SessionContext) -> str:
+        """Format VarRegistry contents for compaction context."""
+        infos = ctx.vars.list()
+        if not infos:
+            return ""
+        lines = []
+        for info in infos:
+            lines.append(f"{info.name}: {info.shape[0]}x{info.shape[1]} ({info.var_type})")
+        return "\n".join(lines)
 
     async def _execute_tool(
         self,

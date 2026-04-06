@@ -27,6 +27,29 @@ class ContextManager:
     def history_budget(self) -> int:
         return int(self._max_tokens * self.HISTORY_FRACTION)
 
+    @property
+    def system_budget(self) -> int:
+        """Token budget for system prompt content."""
+        return int(self._max_tokens * self.SYSTEM_FRACTION)
+
+    def build_memory_section(self, memory_content: str) -> str:
+        """Format loaded memory for system prompt injection.
+
+        Memory shares the 20% system prompt allocation.
+        Truncate if memory exceeds half the system budget (~20K tokens).
+        """
+        if not memory_content or not memory_content.strip():
+            return ""
+
+        max_memory_tokens = int(self._max_tokens * self.SYSTEM_FRACTION * 0.5)
+        max_memory_chars = max_memory_tokens * 4  # rough reverse estimate
+
+        content = memory_content
+        if len(content) > max_memory_chars:
+            content = content[:max_memory_chars] + "\n\n[Memory truncated -- run /compact to consolidate]"
+
+        return f"\n\n--- Accumulated Knowledge ---\n{content}\n--- End Knowledge ---\n"
+
     def summarize_dataframe_result(self, df: pd.DataFrame) -> dict[str, Any]:
         """Return full records for small DataFrames; summary for large ones.
 
