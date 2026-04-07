@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import subprocess
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -39,11 +41,21 @@ class GatewayAuth:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(token, encoding="utf-8")
 
-        # Best-effort chmod 600 (no-op on Windows)
-        try:
-            os.chmod(self._path, 0o600)
-        except OSError:
-            pass
+        # Best-effort file protection: icacls on Windows, chmod on Unix
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    ["icacls", str(self._path), "/inheritance:r",
+                     "/grant:r", f"{os.environ.get('USERNAME', '')}:F"],
+                    capture_output=True, check=False,
+                )
+            except FileNotFoundError:
+                pass  # icacls not available (shouldn't happen on Windows)
+        else:
+            try:
+                os.chmod(self._path, 0o600)
+            except OSError:
+                pass
 
         logger.info("Generated new gateway token at %s", self._path)
         return token

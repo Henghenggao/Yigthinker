@@ -41,6 +41,7 @@ class AgentLoop:
         self._timeout_seconds = timeout_seconds
         self._memory_manager: MemoryManager | None = None
         self._compact: SmartCompact | None = None
+        self._background_tasks: set[asyncio.Task] = set()
 
     def set_memory_manager(self, mm: MemoryManager) -> None:
         self._memory_manager = mm
@@ -102,7 +103,7 @@ class AgentLoop:
                             await self._hooks.run(pre_compact_event)
                             memory_content = self._memory_manager.load_memory() if self._memory_manager else ""
                             vars_summary = self._format_vars_summary(ctx)
-                            messages = self._compact.run(messages, memory_content, token_est, vars_summary)
+                            messages = await self._compact.run(messages, memory_content, token_est, vars_summary)
 
                     if on_token is not None:
                         accumulated_text = ""
@@ -168,7 +169,10 @@ class AgentLoop:
                         self._memory_manager.record_turn()
                         if self._memory_manager.should_extract():
                             messages_snapshot = list(messages)  # shallow copy per Pitfall 1
-                            asyncio.create_task(self._run_extraction(messages_snapshot))
+                            extraction_coro = self._run_extraction(messages_snapshot)
+                            task = asyncio.create_task(extraction_coro)
+                            self._background_tasks.add(task)
+                            task.add_done_callback(self._background_tasks.discard)
 
         except TimeoutError:
             result_text = "(Agent loop timed out. Partial results may be available in the variable registry.)"

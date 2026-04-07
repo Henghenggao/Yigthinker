@@ -14,7 +14,7 @@ class SmartCompact:
     def __init__(self, config: CompactConfig | None = None) -> None:
         self._cfg = config or CompactConfig()
 
-    def run(
+    async def run(
         self,
         messages: list[Message],
         memory_content: str,
