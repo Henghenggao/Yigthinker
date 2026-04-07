@@ -13,6 +13,14 @@ app = typer.Typer(help="Yigthinker - AI-powered financial analysis agent")
 console = Console()
 
 
+@app.command("install")
+def install_command() -> None:
+    """Interactive installer — configure usage mode and components."""
+    from yigthinker.cli.installer import run_install
+
+    run_install()
+
+
 def _default_transcript_path() -> Path:
     sessions_dir = Path.home() / ".yigthinker" / "sessions"
     sessions_dir.mkdir(parents=True, exist_ok=True)
