@@ -85,20 +85,120 @@ def main(
 
 @app.command()
 def dashboard(
-    host: str = typer.Option("127.0.0.1", help="Dashboard host"),
-    port: int = typer.Option(8765, help="Dashboard port"),
+    host: str = typer.Option("127.0.0.1", help="Gateway host"),
+    port: int = typer.Option(8766, help="Gateway port"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open browser"),
 ) -> None:
-    """Launch the Yigthinker Web Dashboard."""
+    """Launch the Yigthinker Web Dashboard (starts Gateway + opens browser)."""
     import uvicorn
 
-    from yigthinker.dashboard.layout import create_dash_app
-    from yigthinker.dashboard.server import create_app as create_api
+    from yigthinker.dashboard.sample_db import ensure_sample_db
+    from yigthinker.gateway.server import GatewayServer
+    from yigthinker.settings import load_settings
 
-    api = create_api()
-    create_dash_app()
+    settings = load_settings()
+    gw_cfg = settings.get("gateway", {})
+    resolved_host = gw_cfg.get("host") or host
+    resolved_port = gw_cfg.get("port") or port
 
-    console.print(f"[bold blue]Yigthinker Dashboard[/] starting at http://{host}:{port}/dashboard/")
-    uvicorn.run(api, host=host, port=port)
+    # Ensure sample DB exists for first-time experience
+    sample_path = ensure_sample_db()
+    console.print(f"[dim]Sample database: {sample_path}[/]")
+
+    gateway = GatewayServer(settings)
+    url = f"http://{resolved_host}:{resolved_port}/dashboard/"
+    console.print(f"[bold blue]Yigthinker Dashboard[/] starting at {url}")
+
+    if not no_browser:
+        import threading
+        import time
+        import webbrowser
+
+        def _open_browser():
+            time.sleep(1.5)
+            webbrowser.open(url)
+
+        threading.Thread(target=_open_browser, daemon=True).start()
+
+    uvicorn.run(gateway.app, host=resolved_host, port=resolved_port)
+
+
+@app.command()
+def quickstart(
+    port: int = typer.Option(8766, help="Port for the gateway + dashboard"),
+) -> None:
+    """First-time setup: configure API key, create sample data, launch dashboard."""
+    import os
+
+    from rich.panel import Panel
+
+    from yigthinker.settings import load_settings, has_api_key
+
+    console.print(Panel.fit(
+        "[bold blue]Yigthinker Quick Start[/]\n"
+        "Set up your AI data analyst in 3 steps.",
+        border_style="blue",
+    ))
+
+    # Step 1: Check if setup is needed
+    settings = load_settings()
+    need_setup = not has_api_key(settings)
+
+    if need_setup:
+        console.print("\n[bold]Step 1/3[/] — Configure your LLM provider\n")
+        from yigthinker.cli.setup_wizard import run_setup
+        run_setup()
+        # Reload settings after setup
+        settings = load_settings()
+        if not has_api_key(settings):
+            console.print("[red]Setup incomplete. Run [bold]yigthinker quickstart[/] again.[/]")
+            return
+    else:
+        model = settings.get("model", "unknown")
+        console.print(f"\n[bold]Step 1/3[/] — LLM provider [green]already configured[/] (model: [bold]{model}[/])")
+
+    # Step 2: Create sample database
+    console.print(f"\n[bold]Step 2/3[/] — Creating sample finance database")
+    from yigthinker.dashboard.sample_db import ensure_sample_db
+    sample_path = ensure_sample_db()
+    console.print(f"  [green]OK[/] Sample data at [cyan]{sample_path}[/]")
+    console.print("  [dim]3 tables: revenue (18 rows), accounts_payable (18 rows), expenses (300 rows)[/]")
+
+    # Step 3: Show token and start dashboard
+    console.print(f"\n[bold]Step 3/3[/] — Starting dashboard\n")
+
+    from yigthinker.gateway.auth import GatewayAuth
+    auth = GatewayAuth()
+    token = auth.token
+
+    console.print(Panel.fit(
+        f"[bold green]Your gateway token[/] (paste this into the dashboard):\n\n"
+        f"  [bold cyan]{token}[/]\n\n"
+        f"[dim]Token saved at: ~/.yigthinker/gateway.token\n"
+        f"The dashboard will remember it after first login.[/]",
+        border_style="green",
+    ))
+
+    import uvicorn
+
+    from yigthinker.gateway.server import GatewayServer
+
+    gateway = GatewayServer(settings)
+    url = f"http://127.0.0.1:{port}/dashboard/"
+    console.print(f"[bold blue]Dashboard[/] → [bold]{url}[/]")
+    console.print("[dim]Press Ctrl+C to stop.\n[/]")
+
+    import threading
+    import time
+    import webbrowser
+
+    def _open_browser():
+        time.sleep(1.5)
+        webbrowser.open(url)
+
+    threading.Thread(target=_open_browser, daemon=True).start()
+
+    uvicorn.run(gateway.app, host="127.0.0.1", port=port)
 
 
 @app.command("gateway")
