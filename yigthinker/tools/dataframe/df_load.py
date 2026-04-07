@@ -18,13 +18,18 @@ class DfLoadInput(BaseModel):
     source: str
     var_name: str = "df1"
     sheet_name: str | None = None
+    header: int | None = 0
+    skiprows: int | None = None
+    usecols: str | None = None
 
 
 class DfLoadTool:
     name = "df_load"
     description = (
         "Load data from a file (CSV, Excel, Parquet, JSON) into a named DataFrame "
-        "in the variable registry. Reference it in later tool calls by var_name."
+        "in the variable registry. Reference it in later tool calls by var_name. "
+        "Set header=null for files without a header row. Use skiprows to skip "
+        "metadata rows at the top. Use usecols to select specific columns (e.g. 'A:L')."
     )
     input_schema = DfLoadInput
 
@@ -43,6 +48,15 @@ class DfLoadTool:
             kwargs = {}
             if suffix in (".xlsx", ".xls") and input.sheet_name:
                 kwargs["sheet_name"] = input.sheet_name
+
+            # header, skiprows, usecols only supported by CSV and Excel loaders;
+            # JSON and Parquet do not accept these parameters.
+            if suffix in (".csv", ".xlsx", ".xls"):
+                kwargs["header"] = input.header  # int or None
+                if input.skiprows is not None:
+                    kwargs["skiprows"] = input.skiprows
+                if input.usecols is not None:
+                    kwargs["usecols"] = input.usecols
 
             df = loader(path, **kwargs)
             ctx.vars.set(input.var_name, df)

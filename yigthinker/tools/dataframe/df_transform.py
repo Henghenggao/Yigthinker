@@ -99,9 +99,9 @@ class DfTransformTool:
         except KeyError as exc:
             return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
+        sandbox_builtins = {**_SAFE_BUILTINS, "__import__": _safe_import}
         namespace = {
-            "__builtins__": _SAFE_BUILTINS,
-            "__import__": _safe_import,
+            "__builtins__": sandbox_builtins,
             "df": df,
             **_ALLOWED_IMPORT_MAP,
         }

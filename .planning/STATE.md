@@ -122,6 +122,12 @@ Recent decisions affecting current work:
 - Research flag: Teams adapter (Phase 4) may need research on Microsoft 365 Agents SDK Python GA status before implementation
 - Windows constraint: uvloop unavailable (gateway token file protection resolved via icacls in quick-260407-o9s)
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260407-o9s | Fix 4 TODO items: asyncio task leak, Windows token protection, async compact, design tokens | 2026-04-07 | 928cf98 | [260407-o9s-fix-5-independent-todo-items-origin-vali](./quick/260407-o9s-fix-5-independent-todo-items-origin-vali/) |
+
 ## Session Continuity
 
 Last session: 2026-04-07T15:37:28Z
