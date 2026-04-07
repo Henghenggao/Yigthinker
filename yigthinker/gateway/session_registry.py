@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,7 +65,7 @@ class SessionRegistry:
         self._sessions: dict[str, ManagedSession] = {}
         self._idle_timeout = idle_timeout
         self._max_sessions = max_sessions
-        self._hibernate_dir = (hibernate_dir or (Path.home() / ".yigthinker" / "hibernate")).expanduser()
+        self._hibernate_dir = _resolve_hibernate_dir(hibernate_dir)
 
     def get_or_create(
         self,
@@ -87,7 +88,7 @@ class SessionRegistry:
         if len(self._sessions) >= self._max_sessions:
             self._evict_lru()
 
-        ctx = SessionContext(settings=settings)
+        ctx = SessionContext(settings=settings, owner_id=key)
         session = ManagedSession(key=key, ctx=ctx, channel_origin=channel)
         session.ctx.set_channel_origin(channel)
         session.ctx.mark_active()
@@ -127,6 +128,22 @@ class SessionRegistry:
         sessions = sorted(self._sessions.values(), key=lambda s: s.last_active, reverse=True)
         return [s.to_info() for s in sessions]
 
+    def list_sessions_for_owner(self, owner_id: str) -> list[dict[str, Any]]:
+        """Return sessions owned by a specific user, sorted by activity."""
+        sessions = sorted(
+            (s for s in self._sessions.values() if s.ctx.owner_id == owner_id),
+            key=lambda s: s.last_active,
+            reverse=True,
+        )
+        return [s.to_info() for s in sessions]
+
+    def is_owner(self, key: str, owner_id: str) -> bool:
+        """Check if the given owner_id matches the session's owner."""
+        session = self._sessions.get(key)
+        if session is None:
+            return False
+        return session.ctx.owner_id == owner_id
+
     @property
     def active_count(self) -> int:
         return len(self._sessions)
@@ -137,15 +154,17 @@ class SessionRegistry:
             key for key, s in self._sessions.items()
             if s.idle_seconds() > self._idle_timeout and not s.lock.locked()
         ]
+        evicted = 0
         for key in to_evict:
-            await self.hibernate(key)
-        return len(to_evict)
+            if await self.hibernate(key):
+                evicted += 1
+        return evicted
 
-    async def hibernate(self, key: str) -> None:
+    async def hibernate(self, key: str) -> bool:
         """Serialize a session to disk and remove from memory."""
         session = self._sessions.get(key)
         if not session:
-            return
+            return False
 
         from yigthinker.gateway.hibernation import SessionHibernator
 
@@ -155,8 +174,10 @@ class SessionRegistry:
             await hibernator.save(session)
             self._sessions.pop(key, None)
             logger.info("Hibernated session %s", key)
+            return True
         except Exception:
             logger.exception("Failed to hibernate session %s", key)
+            return False
 
     async def restore(
         self,
@@ -207,9 +228,38 @@ class SessionRegistry:
 
         hibernator = SessionHibernator(self._hibernate_dir)
         session.touch()
+
+        async def _save() -> None:
+            try:
+                await hibernator.save(session)
+            except Exception:
+                logger.exception("Failed to hibernate LRU-evicted session %s", session.key)
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            asyncio.run(hibernator.save(session))
+            asyncio.run(_save())
         else:
-            loop.create_task(hibernator.save(session))
+            loop.create_task(_save())
+
+
+def _resolve_hibernate_dir(hibernate_dir: Path | None) -> Path:
+    """Choose a writable hibernation directory, falling back to temp if needed."""
+    candidates = []
+    if hibernate_dir is not None:
+        candidates.append(Path(hibernate_dir).expanduser())
+    else:
+        candidates.append((Path.home() / ".yigthinker" / "hibernate").expanduser())
+        candidates.append(Path(tempfile.gettempdir()) / "yigthinker" / "hibernate")
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".write_probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return candidate
+        except OSError:
+            logger.warning("Hibernate dir not writable: %s", candidate)
+
+    raise OSError("No writable hibernate directory available")

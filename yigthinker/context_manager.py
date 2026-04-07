@@ -1,8 +1,44 @@
 from __future__ import annotations
+import re
 from typing import Any
 import pandas as pd
 
 _SAMPLE_ROWS = 10  # rows to include in summarized result
+
+# Patterns that look like prompt injection attempts in memory content.
+# These get stripped before memory enters the system prompt.
+_INJECTION_PATTERNS = [
+    re.compile(r"ignore\s+(all\s+)?(prior|previous|above)\s+(instructions?|rules?|prompts?)", re.IGNORECASE),
+    re.compile(r"disregard\s+(all\s+)?(your\s+)?(prior|previous|above)?\s*(instructions?|rules?)", re.IGNORECASE),
+    re.compile(r"forget\s+(your|all|previous)\s+(instructions?|rules?|training)", re.IGNORECASE),
+    re.compile(r"you\s+are\s+now\s+", re.IGNORECASE),
+    re.compile(r"new\s+(system\s+)?directive:", re.IGNORECASE),
+    re.compile(r"system\s+override:", re.IGNORECASE),
+    re.compile(r"always\s+execute\s+.{0,30}without\s+permission", re.IGNORECASE),
+    re.compile(r"bypass\s+(all\s+)?(permission|security|safety)", re.IGNORECASE),
+]
+
+
+def _sanitize_memory_content(content: str) -> str:
+    """Remove lines containing prompt injection patterns from memory content.
+
+    Strips suspicious instruction-like patterns that could manipulate LLM
+    behavior when injected into the system prompt. Logs stripped lines
+    for audit purposes.
+    """
+    lines = content.split("\n")
+    clean_lines: list[str] = []
+    stripped_count = 0
+    for line in lines:
+        if any(pat.search(line) for pat in _INJECTION_PATTERNS):
+            stripped_count += 1
+            continue
+        clean_lines.append(line)
+    if stripped_count > 0:
+        clean_lines.append(
+            f"\n[{stripped_count} suspicious instruction(s) stripped from memory by security filter]"
+        )
+    return "\n".join(clean_lines)
 
 
 class ContextManager:
@@ -37,18 +73,22 @@ class ContextManager:
 
         Memory shares the 20% system prompt allocation.
         Truncate if memory exceeds half the system budget (~20K tokens).
+        Content is sanitized to strip prompt injection patterns before
+        entering the system prompt.
         """
         if not memory_content or not memory_content.strip():
             return ""
 
+        # Sanitize: strip lines that look like prompt injection attempts
+        content = _sanitize_memory_content(memory_content)
+
         max_memory_tokens = int(self._max_tokens * self.SYSTEM_FRACTION * 0.5)
         max_memory_chars = max_memory_tokens * 4  # rough reverse estimate
 
-        content = memory_content
         if len(content) > max_memory_chars:
             content = content[:max_memory_chars] + "\n\n[Memory truncated -- run /compact to consolidate]"
 
-        return f"\n\n--- Accumulated Knowledge ---\n{content}\n--- End Knowledge ---\n"
+        return f"\n\n--- Accumulated Knowledge (factual summaries only) ---\n{content}\n--- End Knowledge ---\n"
 
     def summarize_dataframe_result(self, df: pd.DataFrame) -> dict[str, Any]:
         """Return full records for small DataFrames; summary for large ones.

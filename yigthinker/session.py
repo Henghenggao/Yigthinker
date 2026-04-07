@@ -80,6 +80,7 @@ class SessionContext:
     created_at: float = field(default_factory=time.monotonic)
     last_active: float = field(default_factory=time.monotonic)
     channel_origin: str = "cli"
+    owner_id: str = ""  # identifies the user who owns this session (channel:sender_id)
     vars: VarRegistry = field(default_factory=VarRegistry)
     context_manager: ContextManager = field(default_factory=ContextManager)
     stats: StatsAccumulator = field(default_factory=StatsAccumulator)

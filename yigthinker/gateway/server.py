@@ -1,8 +1,9 @@
 """GatewayServer: long-running daemon managing multi-session agent access.
 
 Exposes:
-  - WebSocket at ``/ws`` for TUI clients
+  - WebSocket at ``/ws`` for TUI and dashboard clients
   - HTTP API at ``/api/sessions`` for session management
+  - Static dashboard SPA at ``/dashboard/``
   - Webhook endpoints registered by channel adapters
   - ``/health`` for liveness checks
 """
@@ -17,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from yigthinker.gateway.auth import GatewayAuth
 from yigthinker.gateway.protocol import (
@@ -54,6 +56,15 @@ class GatewayServer:
     startup.
     """
 
+    # Default origins allowed to connect via WebSocket. Prevents cross-origin
+    # browser-based prompt injection. Configurable via settings.gateway.allowed_origins.
+    _DEFAULT_ALLOWED_ORIGINS = frozenset({
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://localhost:8766",
+        "http://127.0.0.1:8766",
+    })
+
     def __init__(self, settings: dict[str, Any]) -> None:
         self._settings = settings
         gw_cfg = settings.get("gateway", {})
@@ -73,7 +84,12 @@ class GatewayServer:
         self._shutting_down = False
         self._adapters = self._build_adapters(settings.get("channels", {}))
 
+        # Build allowed origins set from defaults + settings
+        extra_origins = gw_cfg.get("allowed_origins", [])
+        self._allowed_origins = self._DEFAULT_ALLOWED_ORIGINS | frozenset(extra_origins)
+
         self._mount_routes()
+        self._mount_dashboard()
 
     @property
     def app(self) -> FastAPI:
@@ -212,6 +228,11 @@ class GatewayServer:
             token = _extract_token(request)
             if not self._auth.verify(token):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
+            # Filter by owner if X-Owner-Id header is provided;
+            # otherwise return all (admin/CLI usage).
+            owner = request.headers.get("x-owner-id", "")
+            if owner:
+                return self._registry.list_sessions_for_owner(owner)
             return self._registry.list_sessions()
 
         @app.post("/api/sessions")
@@ -240,6 +261,13 @@ class GatewayServer:
 
         @app.websocket("/ws")
         async def websocket_endpoint(ws: WebSocket):
+            # Validate Origin header to block cross-origin browser-based connections.
+            # TUI clients (non-browser WebSocket) typically don't send Origin headers.
+            origin = ws.headers.get("origin", "")
+            if origin and origin.rstrip("/") not in self._allowed_origins:
+                await ws.close(code=4403, reason="Cross-origin WebSocket connections not allowed")
+                return
+
             await ws.accept()
             client = _WSClient(ws=ws)
 
@@ -273,16 +301,26 @@ class GatewayServer:
             msg = parse_client_msg(data)
 
             if msg.type == "attach":
-                client.session_key = msg.session_key
+                # Ownership check: only allow attaching to sessions you own
+                # or sessions you're creating fresh. TUI clients create sessions
+                # with the key they attach to, so the owner_id matches the key.
                 session = self._registry.get(msg.session_key)
                 if session is None:
                     session = await self._registry.restore(msg.session_key, self._settings, channel="tui")
+                if session and session.ctx.owner_id and session.ctx.owner_id != msg.session_key:
+                    await client.ws.send_json(to_json_dict(
+                        ErrorMsg(message="Access denied: you do not own this session")
+                    ))
+                    continue
+                client.session_key = msg.session_key
                 if session:
                     await client.ws.send_json(to_json_dict(
                         VarsUpdateMsg(vars=[v.__dict__ for v in session.ctx.vars.list()])
                     ))
+                # Only list sessions owned by this client's attached key
+                owner_filter = msg.session_key
                 await client.ws.send_json(to_json_dict(
-                    SessionListMsg(sessions=self._registry.list_sessions())
+                    SessionListMsg(sessions=self._registry.list_sessions_for_owner(owner_filter))
                 ))
 
             elif msg.type == "detach":
@@ -342,6 +380,35 @@ class GatewayServer:
                     dead.append(client)
         for client in dead:
             self._ws_clients.remove(client)
+
+    def _mount_dashboard(self) -> None:
+        """Mount dashboard static files at /dashboard/ if the static dir exists."""
+        dashboard_dir = Path(__file__).resolve().parent.parent / "dashboard" / "static"
+        if not dashboard_dir.is_dir():
+            logger.debug("Dashboard static dir not found at %s, skipping mount", dashboard_dir)
+            return
+
+        assets_dir = dashboard_dir / "assets"
+        if assets_dir.is_dir():
+            self._app.mount(
+                "/dashboard/assets",
+                StaticFiles(directory=str(assets_dir)),
+                name="dashboard-assets",
+            )
+
+        index_html = dashboard_dir / "index.html"
+
+        @self._app.get("/dashboard/{path:path}")
+        async def dashboard_spa(path: str = ""):
+            if index_html.exists():
+                return FileResponse(str(index_html))
+            return JSONResponse({"error": "Dashboard not built"}, status_code=404)
+
+        @self._app.get("/dashboard")
+        async def dashboard_root():
+            if index_html.exists():
+                return FileResponse(str(index_html))
+            return JSONResponse({"error": "Dashboard not built"}, status_code=404)
 
     async def _eviction_loop(self, interval: int) -> None:
         """Background task: evict idle sessions periodically."""

@@ -56,6 +56,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "gchat": {
             "enabled": False,
             "service_account_key_path": "",
+            "project_number": "",
             "session_scope": "per-sender",
         },
     },
