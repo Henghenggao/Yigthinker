@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
-from yigthinker.cli.installer import STRINGS, detect_language
+from yigthinker.cli.installer import STRINGS, build_extras, detect_language
 
 
 def test_detect_language_returns_en_by_default():
@@ -43,3 +43,28 @@ def test_detect_language_en_overrides_system():
 
 def test_strings_have_same_keys():
     assert set(STRINGS["en"].keys()) == set(STRINGS["zh"].keys())
+
+
+def test_build_extras_local_no_platforms():
+    assert build_extras(mode="local", platforms=[]) == "forecast,dashboard"
+
+
+def test_build_extras_team_no_platforms():
+    assert build_extras(mode="team", platforms=[]) == "forecast,dashboard,gateway,tui"
+
+
+def test_build_extras_full_no_platforms():
+    assert build_extras(mode="full", platforms=[]) == "forecast,dashboard,gateway,tui,feishu,teams,gchat"
+
+
+def test_build_extras_local_with_feishu():
+    assert build_extras(mode="local", platforms=["feishu"]) == "forecast,dashboard,feishu"
+
+
+def test_build_extras_team_with_teams_and_gchat():
+    assert build_extras(mode="team", platforms=["teams", "gchat"]) == "forecast,dashboard,gateway,tui,teams,gchat"
+
+
+def test_build_extras_full_ignores_duplicate_platforms():
+    result = build_extras(mode="full", platforms=["feishu"])
+    assert result == "forecast,dashboard,gateway,tui,feishu,teams,gchat"

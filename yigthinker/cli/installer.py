@@ -85,3 +85,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "install_failed": "安装失败。请尝试手动安装：uv tool install yigthinker",
     },
 }
+
+_PRESETS: dict[str, list[str]] = {
+    "local": ["forecast", "dashboard"],
+    "team": ["forecast", "dashboard", "gateway", "tui"],
+    "full": ["forecast", "dashboard", "gateway", "tui", "feishu", "teams", "gchat"],
+}
+
+
+def build_extras(mode: str, platforms: list[str]) -> str:
+    """Assemble pip extras string from preset mode + selected platforms."""
+    parts = list(_PRESETS[mode])
+    for p in platforms:
+        if p not in parts:
+            parts.append(p)
+    return ",".join(parts)
