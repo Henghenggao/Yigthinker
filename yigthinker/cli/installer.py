@@ -3,6 +3,14 @@ from __future__ import annotations
 import locale
 import os
 import platform
+import shutil
+import subprocess
+import sys
+
+from rich.console import Console
+from rich.panel import Panel
+
+console = Console()
 
 
 def detect_language() -> str:
@@ -100,3 +108,102 @@ def build_extras(mode: str, platforms: list[str]) -> str:
         if p not in parts:
             parts.append(p)
     return ",".join(parts)
+
+
+def _is_yigthinker_installed() -> bool:
+    """Check if yigthinker is already installed as a uv tool."""
+    result = subprocess.run(
+        ["uv", "tool", "list"],
+        capture_output=True, text=True,
+    )
+    return "yigthinker" in result.stdout
+
+
+def _pick_mode(s: dict[str, str]) -> str:
+    """Ask user to pick a usage mode. Returns 'local', 'team', or 'full'."""
+    console.print(f"\n[bold]{s['step1_title']}[/]\n")
+    console.print(f"  [bold cyan]>[/] [bold]1[/]  {s['local']}  [bold green]{s['local_rec']}[/]")
+    console.print(f"      [dim]{s['local_desc']}[/]")
+    console.print(f"    [bold]2[/]  {s['team']}")
+    console.print(f"      [dim]{s['team_desc']}[/]")
+    console.print(f"    [bold]3[/]  {s['full']}")
+    console.print(f"      [dim]{s['full_desc']}[/]")
+    console.print()
+
+    modes = {"1": "local", "2": "team", "3": "full"}
+    while True:
+        raw = console.input(f"[dim]{s['prompt_mode']}:[/] ").strip()
+        if raw == "":
+            return "local"
+        if raw in modes:
+            return modes[raw]
+        console.print("[red]Invalid choice.[/]")
+
+
+def _pick_platforms(s: dict[str, str]) -> list[str]:
+    """Ask user to pick messaging platforms. Returns list of extra names."""
+    console.print(f"\n[bold]{s['step2_title']}[/]\n")
+    console.print(f"    [bold]1[/]  {s['feishu']}")
+    console.print(f"    [bold]2[/]  {s['teams']}")
+    console.print(f"    [bold]3[/]  {s['gchat']}")
+    console.print()
+
+    platform_map = {"1": "feishu", "2": "teams", "3": "gchat"}
+    raw = console.input(f"[dim]{s['prompt_platforms']}:[/] ").strip()
+    if not raw:
+        return []
+    selected = []
+    for token in raw.replace(" ", "").split(","):
+        if token in platform_map and platform_map[token] not in selected:
+            selected.append(platform_map[token])
+    return selected
+
+
+def run_install() -> None:
+    """Main install wizard entry point."""
+    lang = detect_language()
+    s = STRINGS[lang]
+
+    # Header
+    console.print()
+    console.print(Panel.fit(
+        f"[bold blue]{s['title']}[/]\n{s['subtitle']}",
+        border_style="blue",
+    ))
+
+    # Check if uv is available
+    if not shutil.which("uv"):
+        console.print(f"\n[red]{s['uv_missing']}[/]")
+        sys.exit(1)
+
+    # Check if already installed
+    if _is_yigthinker_installed():
+        console.print(f"\n{s['already_installed']} {s['yes_no']}", end=" ")
+        answer = console.input("").strip().lower()
+        if answer not in ("", "y", "yes"):
+            console.print(f"\n{s['abort']}")
+            return
+
+    # Step 1: Usage mode
+    mode = _pick_mode(s)
+
+    # Step 2: Messaging platforms (skip if mode is 'full')
+    if mode == "full":
+        platforms: list[str] = []
+    else:
+        platforms = _pick_platforms(s)
+
+    # Build extras and install
+    extras = build_extras(mode, platforms)
+    console.print(f"\n[bold]{s['installing']}[/] [dim]({extras})[/]\n")
+
+    result = subprocess.run(
+        ["uv", "tool", "install", f"yigthinker[{extras}]"],
+        capture_output=False,
+    )
+
+    if result.returncode != 0:
+        console.print(f"\n[red]{s['install_failed']}[/]")
+        sys.exit(1)
+
+    console.print(f"\n{s['done']}")
