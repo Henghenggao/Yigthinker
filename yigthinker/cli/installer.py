@@ -3,14 +3,6 @@ from __future__ import annotations
 import locale
 import os
 import platform
-import shutil
-import subprocess
-import sys
-
-from rich.console import Console
-from rich.panel import Panel
-
-console = Console()
 
 
 def detect_language() -> str:
