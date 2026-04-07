@@ -133,11 +133,14 @@ async def test_memory_extraction_after_tool_call():
         memory_manager=mm,
     )
 
-    with patch("asyncio.create_task") as mock_create_task:
+    mock_task = MagicMock(spec=asyncio.Task)
+    with patch("asyncio.create_task", return_value=mock_task) as mock_create_task:
         await loop.run("echo hi", ctx)
 
     mm.record_turn.assert_called()
     mock_create_task.assert_called()
+    # Verify the task was stored (add_done_callback was called)
+    mock_task.add_done_callback.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

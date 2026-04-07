@@ -1,5 +1,6 @@
 """Tests for gateway authentication."""
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 from yigthinker.gateway.auth import GatewayAuth
 
@@ -32,3 +33,16 @@ def test_token_persistence(tmp_path):
     auth1 = GatewayAuth(token_path=token_path)
     auth2 = GatewayAuth(token_path=token_path)
     assert auth1.token == auth2.token
+
+
+def test_windows_uses_icacls(tmp_path):
+    """On Windows, _load_or_create uses icacls instead of chmod."""
+    token_path = tmp_path / "gateway.token"
+    with patch("yigthinker.gateway.auth.sys") as mock_sys, \
+         patch("yigthinker.gateway.auth.subprocess") as mock_subprocess:
+        mock_sys.platform = "win32"
+        mock_subprocess.run = MagicMock()
+        auth = GatewayAuth(token_path=token_path)
+    mock_subprocess.run.assert_called_once()
+    args = mock_subprocess.run.call_args
+    assert args[0][0][0] == "icacls"
