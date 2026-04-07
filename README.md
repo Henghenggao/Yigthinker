@@ -1,255 +1,260 @@
 # Yigthinker
 
-**AI-powered financial and data analysis agent for enterprise teams.**
+Yigthinker is a Python agent for data analysis workflows across CLI, Gateway, TUI, dashboard, and messaging channels.
 
-Query your databases in plain language, generate charts and reports, run forecasts, detect anomalies — all from a CLI or web dashboard.
+It combines:
 
-```bash
-yigthinker "分析应收账款账龄并生成Excel报告"
-# → queries DB → classifies aging → forecasts collection → charts + Excel report
-```
+- an LLM-driven agent loop with tool calling
+- session-scoped DataFrame storage
+- a FastAPI Gateway for multi-session access
+- a Textual TUI client
+- optional dashboard, forecasting, and channel integrations
 
-## Features
+The current `master` branch has completed the v1 stabilization milestone and the full local test suite is green.
 
-- **Natural language SQL** — query PostgreSQL, MySQL, Snowflake, and more in plain English or Chinese
-- **DataFrame analysis** — load, transform, merge, and profile data with Pandas/Polars
-- **Interactive charts** — Plotly visualizations in CLI (ASCII) or Web Dashboard
-- **Financial reports** — Excel/PDF/Word from templates (balance sheet, income statement, cash flow)
-- **Forecasting** — time series (Prophet/statsmodels) and multi-factor regression
-- **Anomaly detection** — statistical outlier detection with root cause dimension analysis
-- **Multi-model** — Claude, GPT-4, Ollama (local), Azure OpenAI
-- **MCP connectors** — connect SAP, Yonyou, Kingdee, Bloomberg, Wind via the [Model Context Protocol](https://modelcontextprotocol.io)
-- **Enterprise** — RBAC, audit logging, data masking, approval workflows, SSO (commercial)
+## What It Can Do
 
-## Architecture
+- Query configured databases with `sql_query`, `sql_explain`, and `schema_inspect`
+- Load, transform, merge, and profile DataFrames in-session
+- Create and modify charts, and push entries to the dashboard queue
+- Run exploration helpers for overview, drilldown, and anomaly detection
+- Start a Gateway and connect a TUI client over WebSocket
+- Stream token output through the Gateway/TUI path
+- Persist session state and hibernate idle Gateway sessions
+- Accumulate session memory and run background "auto dream" consolidation
+- Expose experimental adapters for Teams, Feishu, and Google Chat
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  CLI (Typer/Rich)  │  Web Dashboard (FastAPI + Plotly Dash)     │
-├─────────────────────────────────────────────────────────────────┤
-│  Agent Loop — tool_use cycle │ LLM Provider │ Context Manager   │
-├─────────────────────────────────────────────────────────────────┤
-│  Tool Registry (21 tools, flat)                                  │
-│  sql_query · df_transform · chart_create · report_generate · …  │
-├─────────────────────────────────────────────────────────────────┤
-│  Hook System (PreToolUse / PostToolUse / Stop / SessionStart)    │
-│  MCP Servers (ERP connectors, market data, internal APIs)        │
-│  Plugins (commands/*.md · hooks/ · .mcp.json)                   │
-├─────────────────────────────────────────────────────────────────┤
-│  Settings (.yigthinker/settings.json)                           │
-│  managed > user > project · allow/ask/deny permissions          │
-└─────────────────────────────────────────────────────────────────┘
-```
+## Honest Status Notes
 
-The core design principle is **tools over abstractions**: every capability is a flat, independently testable tool registered directly in the agent loop. Cross-cutting concerns (permissions, audit, masking) live in the hook system — not baked into tools or the loop itself.
-
-The one domain-specific addition: a **DataFrame Variable Registry** in `SessionContext` keeps in-memory DataFrames alive across tool calls within a session, since DataFrames — unlike files — don't persist naturally.
+- `spawn_agent` is registered but intentionally returns a "not implemented" error.
+- `report_schedule` stores schedules in session memory only; it is not a persistent scheduler.
+- Forecast tools are optional and only register when their scientific dependencies are installed.
+- Channel adapters are present, but should still be treated as integration-level features rather than polished product surfaces.
 
 ## Installation
+
+Requirements:
+
+- Python 3.11+
+
+Base install:
 
 ```bash
 pip install yigthinker
 ```
 
-**Requirements:** Python 3.11+
-
-**Optional dependencies:**
+Useful extras:
 
 ```bash
-pip install yigthinker[forecast]    # Prophet, statsmodels, scikit-learn
-pip install yigthinker[dashboard]   # FastAPI, Plotly Dash
-pip install yigthinker[voice]       # sounddevice, openai (Whisper)
-pip install yigthinker[enterprise]  # Commercial features (requires license)
+pip install "yigthinker[forecast]"      # statsmodels / scikit-learn / prophet
+pip install "yigthinker[dashboard]"     # FastAPI / Dash / Plotly / Uvicorn
+pip install "yigthinker[gateway]"       # FastAPI / websockets / pyarrow / Uvicorn
+pip install "yigthinker[tui]"           # Textual / websockets
+pip install "yigthinker[teams]"         # httpx / msal
+pip install "yigthinker[feishu]"        # lark-oapi
+pip install "yigthinker[gchat]"         # google-api-python-client / google-auth
+pip install "yigthinker[all-channels]"  # all channel extras
 ```
+
+For contributors who want to run the full suite from this repo:
+
+```bash
+pip install -e ".[test]"
+```
+
+## Entry Points
+
+The current Typer app exposes these top-level commands:
+
+```bash
+yigthinker
+yigthinker "show me revenue by region for Q1"
+yigthinker --resume
+yigthinker dashboard
+yigthinker gateway
+yigthinker tui
+```
+
+Notes:
+
+- `yigthinker` without arguments starts the interactive REPL.
+- `yigthinker gateway` runs in the foreground and creates `~/.yigthinker/gateway.token` on first start.
+- `yigthinker tui` expects that gateway token file to exist, so start the Gateway first.
 
 ## Quick Start
 
-```bash
-# Interactive REPL
-yigthinker
+### 1. Configure a model
 
-# Single query
-yigthinker "show me revenue by region for Q1"
+Create either:
 
-# Connect to a database
-yigthinker connect production_db
+- project settings at `.yigthinker/settings.json`
+- user settings at `~/.yigthinker/settings.json`
 
-# View connected schema
-yigthinker schema
-
-# Launch web dashboard
-yigthinker dashboard
-
-# Resume last session
-yigthinker --resume
-```
-
-## Configuration
-
-Create `.yigthinker/settings.json` in your project root:
+Minimal example:
 
 ```json
 {
   "model": "claude-sonnet-4-20250514",
-  "fallback_model": "gpt-4o",
-
-  "connections": {
-    "production_db": {
-      "type": "postgresql",
-      "host": "db.company.com",
-      "database": "finance",
-      "credentials": "vault://finance/readonly",
-      "read_only": true,
-      "max_rows": 100000,
-      "timeout_seconds": 30
-    },
-    "local_data": {
-      "type": "file",
-      "path": "./data/",
-      "watch": true
-    }
-  },
-
   "permissions": {
-    "allow": ["schema_inspect", "chart_create", "chart_recommend", "df_profile"],
-    "ask": ["sql_query", "df_transform", "report_generate", "forecast_timeseries"],
+    "allow": ["schema_inspect", "df_profile", "chart_recommend"],
+    "ask": ["sql_query", "df_transform", "report_generate"],
     "deny": ["sql_query(DELETE:*)", "sql_query(DROP:*)", "sql_query(UPDATE:*)"]
   },
-
-  "theme": {
-    "palette": ["#1e40af", "#3b82f6", "#93c5fd", "#dbeafe"],
-    "number_format": "¥#,##0",
-    "date_format": "%Y-%m-%d"
-  }
-}
-```
-
-User-level defaults go in `~/.yigthinker/settings.json`.
-
-## Tools Reference
-
-| Category | Tool | Description |
-|----------|------|-------------|
-| SQL | `sql_query` | Execute SQL against configured connections |
-| SQL | `sql_explain` | Show query execution plan |
-| SQL | `schema_inspect` | View table structure and sample data |
-| DataFrame | `df_load` | Load CSV/Excel/Parquet/JSON/DB into named DataFrame |
-| DataFrame | `df_transform` | Run Pandas/Polars code in sandboxed namespace |
-| DataFrame | `df_profile` | Data quality: missing values, distributions, outliers |
-| DataFrame | `df_merge` | Join two DataFrames with auto key inference |
-| Charts | `chart_create` | Generate Plotly chart from DataFrame or query |
-| Charts | `chart_modify` | Modify chart style via natural language |
-| Charts | `chart_recommend` | Recommend chart types for a dataset |
-| Charts | `dashboard_push` | Push chart/table/KPI to Web Dashboard |
-| Reports | `report_generate` | Generate Excel/PDF/Word from template + data |
-| Reports | `report_template` | List and manage report templates |
-| Reports | `report_schedule` | Schedule recurring report generation |
-| Forecast | `forecast_timeseries` | Time series forecasting with confidence intervals |
-| Forecast | `forecast_regression` | Multi-factor regression analysis |
-| Forecast | `forecast_evaluate` | Evaluate forecast accuracy (MAPE, RMSE, R²) |
-| Explore | `explore_overview` | Dataset overview: metrics, distributions, data quality |
-| Explore | `explore_drilldown` | Drill down by dimension with auto-chart |
-| Explore | `explore_anomaly` | Detect anomalies + suggest root cause dimensions |
-| Agent | `spawn_agent` | Spawn a subagent with isolated DataFrame snapshot |
-
-## Slash Commands
-
-| Command | Description |
-|---------|-------------|
-| `/connect <name>` | Switch active data connection |
-| `/vars` | Inspect DataFrame variable registry |
-| `/schema` | View current connection schema |
-| `/stats` | Show session usage statistics |
-| `/history` | View session history |
-| `/advisor [off\|model]` | Configure financial advisor review |
-| `/voice [on\|off\|lang]` | Toggle voice input mode |
-
-Add custom commands by placing `.md` files in `commands/`.
-
-## MCP Connectors
-
-External systems connect via the [Model Context Protocol](https://modelcontextprotocol.io) (`.mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "sap": {
-      "command": "yigthinker-mcp-sap",
-      "args": ["--client", "800", "--host", "sap.company.com"],
-      "env": { "SAP_USER": "vault://sap/user", "SAP_PASS": "vault://sap/pass" }
-    },
-    "wind": {
-      "command": "yigthinker-mcp-wind",
-      "args": ["--api-key-env", "WIND_API_KEY"]
+  "connections": {
+    "finance": {
+      "type": "sqlite",
+      "database": "./finance.db"
     }
   }
 }
 ```
 
-Available MCP packages: `yigthinker-mcp-sap`, `yigthinker-mcp-yonyou`, `yigthinker-mcp-kingdee`, `yigthinker-mcp-wind`, `yigthinker-mcp-bloomberg` (commercial)
+Saved API keys in user settings are promoted into environment variables at load time:
 
-## Hooks
+- `anthropic_api_key` -> `ANTHROPIC_API_KEY`
+- `openai_api_key` -> `OPENAI_API_KEY`
+- `azure_openai_api_key` -> `AZURE_OPENAI_API_KEY`
 
-Extend behavior without modifying core code:
+### 2. Run the CLI
 
-```python
-from yigthinker.hooks import hook, HookEvent, HookResult
-
-@hook("PreToolUse", matcher="sql_query")
-async def check_field_permissions(event: HookEvent) -> HookResult:
-    if contains_sensitive_fields(event.tool_input, event.session.user):
-        return HookResult.BLOCK("Access denied: salary field requires Admin role")
-    return HookResult.ALLOW
-
-@hook("PostToolUse", matcher="*")
-async def audit_log(event: HookEvent) -> HookResult:
-    write_audit_entry(event)
-    return HookResult.ALLOW
+```bash
+yigthinker
 ```
 
-Command hooks (shell scripts) use exit codes: `0` = allow, `1` = warn, `2` = block.
+Example prompt:
 
-Hook events: `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`, `PreCompact`
-
-## Plugins
-
-```
-yigthinker-plugin-name/
-  .yigthinker-plugin/plugin.json
-  commands/*.md          # slash commands
-  hooks/hooks.json       # hook definitions
-  .mcp.json              # MCP server definitions
-  templates/             # report templates
+```text
+Load ./data/revenue.csv, profile it, and show anomalies by month.
 ```
 
-## Enterprise Features
+### 3. Run Gateway + TUI
 
-The `yigthinker-enterprise` plugin (commercial subscription) adds:
+Terminal 1:
 
-- **RBAC** — field-level permissions via PreToolUse hooks + managed settings
-- **Audit logging** — structured log: who, what, when, full tool trace
-- **Data masking** — sensitive fields masked before the LLM sees them; output masked by role
-- **Approval workflows** — operations matching approval rules block → notify approver (DingTalk/Feishu/Slack) → re-submit on approval
-- **SSO** — LDAP, OAuth2, SAML via SessionStart hook
-- **ERP connectors** — SAP, Yonyou, Kingdee, Oracle EBS MCP servers
-- **Team collaboration** — shared sessions, report sharing
-- **Scheduled tasks** — APScheduler-based report and analysis scheduling
+```bash
+yigthinker gateway
+```
 
-## Technology Stack
+Terminal 2:
 
-| Layer | Technology |
-|-------|-----------|
-| CLI | Python 3.11+, Typer, Rich |
-| Web Dashboard | FastAPI, Plotly Dash, WebSocket |
-| Data Processing | Pandas, Polars, NumPy |
-| SQL | SQLAlchemy, asyncpg, aiomysql |
-| Visualization | Plotly |
-| Reports | openpyxl, reportlab, python-docx, Jinja2 |
-| Forecasting | Prophet, statsmodels, scikit-learn |
-| LLM | anthropic SDK, openai SDK, ollama |
+```bash
+yigthinker tui
+```
+
+### 4. Run the dashboard
+
+```bash
+yigthinker dashboard
+```
+
+Default URLs:
+
+- dashboard: `http://127.0.0.1:8765/dashboard/`
+- gateway health: `http://127.0.0.1:8766/health`
+
+## Built-in Slash Commands
+
+The CLI command router currently supports:
+
+- `/help`
+- `/vars`
+- `/connect <name>`
+- `/schema [table]`
+- `/history`
+- `/export`
+- `/schedule`
+- `/stats`
+- `/advisor [off|model]`
+- `/voice [on|off|lang <code>]`
+
+Plugin-provided slash commands are loaded from:
+
+- `~/.yigthinker/plugins`
+- `.yigthinker/plugins` in the current project
+
+## Tool Surface
+
+Always available:
+
+- SQL: `sql_query`, `sql_explain`, `schema_inspect`
+- DataFrame: `df_load`, `df_transform`, `df_profile`, `df_merge`
+- Charts: `chart_create`, `chart_modify`, `chart_recommend`, `dashboard_push`
+- Reports: `report_generate`, `report_template`, `report_schedule`
+- Exploration: `explore_overview`, `explore_drilldown`, `explore_anomaly`
+- Agent: `spawn_agent`
+
+Registered only when forecast dependencies are installed:
+
+- `forecast_timeseries`
+- `forecast_regression`
+- `forecast_evaluate`
+
+## Architecture
+
+Core flow:
+
+1. `build_app()` wires provider, tools, hooks, permissions, and DB pool.
+2. `AgentLoop` runs the message -> tool_use -> tool_result cycle.
+3. `SessionContext` stores messages, stats, context manager state, and DataFrame variables.
+4. `GatewayServer` manages session keys, WebSocket clients, and session hibernation.
+5. `YigthinkerTUI` connects to the Gateway and renders chat, vars, tool cards, and streamed output.
+
+Important directories:
+
+- `yigthinker/agent.py` - agent loop
+- `yigthinker/builder.py` - app construction
+- `yigthinker/gateway/` - Gateway, session registry, protocol, hibernation
+- `yigthinker/tui/` - Textual client
+- `yigthinker/tools/` - tool implementations
+- `yigthinker/memory/` - session memory, compaction, auto dream
+- `yigthinker/channels/` - Teams / Feishu / Google Chat adapters
+- `tests/` - full automated test suite
+
+## Testing
+
+Run the full suite:
+
+```bash
+python -m pytest -q
+```
+
+Current local status on this branch:
+
+```text
+359 passed
+```
+
+Examples:
+
+```bash
+python -m pytest tests/test_gateway/test_session_registry.py -q
+python -m pytest tests/test_tui -q
+python -m pytest tests/test_memory/test_auto_dream.py -q
+```
+
+Forecast tests use `pytest.importorskip` for missing scientific packages, but the main dashboard, gateway, and TUI suites assume the matching runtime dependencies are installed. Using `.[test]` is the simplest contributor setup.
+
+## Channels
+
+The Gateway can mount optional webhook adapters from settings:
+
+- `channels.teams`
+- `channels.feishu`
+- `channels.gchat`
+
+The Teams adapter currently:
+
+- verifies webhook HMAC signatures
+- derives a session key from sender identity
+- sends Adaptive Card responses using `httpx` + `msal`
+
+## Limitations
+
+- No daemon manager is included; the Gateway runs in the foreground.
+- `spawn_agent` is a placeholder tool today.
+- Scheduled reports are not persisted across restarts.
+- README examples are intentionally aligned to the current codebase, not a future product surface.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE)
-
-Enterprise plugin: commercial subscription
+MIT

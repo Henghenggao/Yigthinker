@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Agent Loop & Infrastructure** - Fix the core LLM-tool cycle so it runs end-to-end with all 4 providers
 - [x] **Phase 2: Gateway & Sessions** - Stand up the daemon that routes messages and manages session lifecycle
 - [x] **Phase 3: TUI Client** - Wire the terminal UI to the Gateway for interactive data analysis conversations
-- [ ] **Phase 4: Streaming & Teams Adapter** - Add token-by-token streaming and Teams channel integration
+- [x] **Phase 4: Streaming & Teams Adapter** - Add token-by-token streaming and Teams channel integration
 - [x] **Phase 5: Session Memory & Auto Dream** - Enable cross-session knowledge accumulation (completed 2026-04-06)
 
 ## Phase Details
@@ -36,7 +36,7 @@ Plans:
 - [x] 01-01-PLAN.md -- Session infrastructure: typed VarRegistry + ContextManager injection
 - [x] 01-02-PLAN.md -- AgentLoop guardrails: iteration limit, timeout, session-scoped permissions
 - [x] 01-03-PLAN.md -- Builder extraction: async build_app, MCP fail-fast, honest stub tools
-- [ ] 01-04-PLAN.md -- Downstream fixes: chart tools migration, ctx.context_manager, provider tests, sandbox hardening
+- [x] 01-04-PLAN.md -- Downstream fixes: chart tools migration, ctx.context_manager, provider tests, sandbox hardening
 
 ### Phase 2: Gateway & Sessions
 **Goal**: A user can start the Gateway daemon and interact with it over WebSocket -- sessions are created, routed, scoped, and evicted correctly
@@ -103,10 +103,30 @@ Plans:
 - [x] 05-01-PLAN.md -- LLM extraction in MemoryManager + LLM consolidation in AutoDream
 - [x] 05-02-PLAN.md -- AgentLoop lifecycle wiring, builder hook registration, system prompt injection
 
+### Phase 6: Web Dashboard
+**Goal**: A finance manager opens a browser, sees a conversation interface, clicks a sample question, gets an interactive chart in seconds, connects their own database, and starts daily analysis. All served from the Gateway on a single port.
+**Depends on**: Phase 2 (Gateway), Phase 4 (Streaming)
+**Requirements**: DASH-01 (gateway-served static SPA), DASH-02 (WebSocket chat with streaming), DASH-03 (inline Plotly charts), DASH-04 (tool call accordion), DASH-05 (vars panel), DASH-06 (sample finance DB + welcome), DASH-07 (in-dashboard DB connection), DASH-08 (session auto-resume), DASH-09 (gateway origin validation)
+**Success Criteria** (what must be TRUE):
+  1. `yigthinker gateway` serves the dashboard at `http://localhost:8766/dashboard/` with no separate process needed
+  2. User can authenticate with gateway token, attach to a session, send messages, and see streaming token-by-token responses
+  3. Tool calls display as collapsible accordion cards showing tool name, status, and expandable details
+  4. Charts render as interactive Plotly.js embeds inline in the conversation
+  5. First-time user sees welcome screen with sample questions; clicking one loads sample SQLite DB and runs the query within 60 seconds
+  6. User can connect their own database from the dashboard settings modal (no terminal needed)
+  7. Gateway WebSocket rejects non-localhost origins by default, with configurable allowed_origins for LAN access
+**Plans**: TBD
+
+Plans:
+- [ ] 06-01-PLAN.md -- Gateway hardening: origin validation + static file serving + pyproject.toml cleanup
+- [ ] 06-02-PLAN.md -- Dashboard SPA: HTML/JS/CSS, WebSocket client, conversation UI, streaming, tool cards, charts
+- [ ] 06-03-PLAN.md -- Sample finance DB, welcome screen, DB connection modal, session auto-resume
+- [ ] 06-04-PLAN.md -- CLI command update, old Dash code removal, test migration
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -114,4 +134,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 2. Gateway & Sessions | 2/2 | Complete | 2026-04-03 |
 | 3. TUI Client | 2/2 | Complete | 2026-04-03 |
 | 4. Streaming & Teams Adapter | 3/3 | Complete | 2026-04-05 |
-| 5. Session Memory & Auto Dream | 2/2 | Complete   | 2026-04-06 |
+| 5. Session Memory & Auto Dream | 2/2 | Complete | 2026-04-06 |
+| 6. Web Dashboard | 0/4 | In Progress | — |

@@ -110,7 +110,7 @@ Recent decisions affecting current work:
 - [Phase 05]: SessionEnd fires in finally block to guarantee execution even on timeout
 - [Phase 05]: HookRegistry created separately from HookExecutor for explicit hook registration in builder
 - [Phase 05]: Memory content injected via system= parameter on provider calls each iteration
-- [Post-v1]: Full local suite is green at 342 tests after environment and persistence stabilization
+- [Post-v1]: Full local suite is green at 359 tests after environment and persistence stabilization
 
 ### Pending Todos
 
