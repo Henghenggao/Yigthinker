@@ -33,32 +33,55 @@ The current `master` branch has completed the v1 stabilization milestone and the
 
 ## Installation
 
-Requirements:
-
-- Python 3.11+
-
-Base install:
+One command to install:
 
 ```bash
-pip install yigthinker
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/gaoyu/Yigthinker/master/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/gaoyu/Yigthinker/master/install.ps1 | iex
 ```
 
-Useful extras:
+The installer will guide you through choosing components. After installation, run:
 
 ```bash
-pip install "yigthinker[forecast]"      # statsmodels / scikit-learn / prophet
-pip install "yigthinker[dashboard]"     # FastAPI / Dash / Plotly / Uvicorn
-pip install "yigthinker[gateway]"       # FastAPI / websockets / pyarrow / Uvicorn
-pip install "yigthinker[tui]"           # Textual / websockets
-pip install "yigthinker[teams]"         # httpx / msal
-pip install "yigthinker[feishu]"        # lark-oapi
-pip install "yigthinker[gchat]"         # google-api-python-client / google-auth
-pip install "yigthinker[all-channels]"  # all channel extras
+yigthinker setup    # Configure API keys and data sources
+yigthinker          # Start the interactive REPL
 ```
 
-For contributors who want to run the full suite from this repo:
+### Manual Installation
+
+If you prefer to install manually or the one-liner doesn't work in your environment:
 
 ```bash
+# 1. Install uv (Python toolchain)
+curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS/Linux
+# or: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"  # Windows
+
+# 2. Install yigthinker with your preferred extras
+uv tool install "yigthinker[forecast,dashboard]"           # local analysis
+uv tool install "yigthinker[forecast,dashboard,gateway,tui]"  # team server
+uv tool install "yigthinker[forecast,dashboard,gateway,tui,feishu,teams,gchat]"  # everything
+```
+
+### Extras Reference
+
+| Extra | What it adds |
+|-------|-------------|
+| `forecast` | statsmodels / scikit-learn / prophet |
+| `dashboard` | FastAPI / Plotly / Uvicorn |
+| `gateway` | FastAPI / websockets / pyarrow / Uvicorn |
+| `tui` | Textual / websockets |
+| `feishu` | Feishu / Lark SDK |
+| `teams` | httpx / msal |
+| `gchat` | Google API client / google-auth |
+
+### For Contributors
+
+```bash
+git clone https://github.com/gaoyu/Yigthinker.git
+cd Yigthinker
 pip install -e ".[test]"
 ```
 
