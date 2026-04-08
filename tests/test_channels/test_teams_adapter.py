@@ -1,4 +1,5 @@
-"""Tests for Teams adapter session key derivation, immediate ACK, and Graph API response (TEAMS-02, TEAMS-03, D-05)."""
+"""Tests for Teams adapter session key derivation, immediate ACK, Graph API response,
+retry logic, MSAL failure handling, and serviceUrl configuration."""
 from __future__ import annotations
 
 import asyncio
@@ -9,6 +10,7 @@ import json
 import sys
 from types import ModuleType
 
+import httpx
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -235,3 +237,260 @@ async def test_webhook_rejects_invalid_hmac(adapter):
 
     response = await route_handler(mock_request)
     assert response.status_code == 401
+
+
+# --- Retry logic for Graph API failures ---
+
+
+@pytest.mark.asyncio
+async def test_send_response_retries_on_server_error():
+    """send_response retries on 500/502/503/504 with exponential backoff."""
+    adapter = TeamsAdapter({
+        "tenant_id": "t", "client_id": "c", "client_secret": "s",
+        "max_retries": 3, "timeout": 5.0,
+    })
+    adapter._msal_app = MagicMock()
+    adapter._msal_app.acquire_token_for_client.return_value = {
+        "access_token": "tok",
+    }
+
+    event = {
+        "serviceUrl": "https://smba.example.com/",
+        "conversation": {"id": "conv-1"},
+    }
+
+    # First two calls return 503, third returns 200
+    mock_resp_503 = MagicMock()
+    mock_resp_503.status_code = 503
+    mock_resp_503.text = "Service Unavailable"
+    mock_resp_503.request = MagicMock()
+
+    mock_resp_200 = MagicMock()
+    mock_resp_200.status_code = 200
+
+    call_count = 0
+
+    async def mock_post(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            return mock_resp_503
+        return mock_resp_200
+
+    with patch("httpx.AsyncClient") as mock_cls, \
+         patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        mock_client = AsyncMock()
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        await adapter.send_response(event, "Hello")
+
+    assert call_count == 3
+    # Verify backoff delays: 1s, 2s
+    assert mock_sleep.call_count == 2
+    mock_sleep.assert_any_call(1)
+    mock_sleep.assert_any_call(2)
+
+
+@pytest.mark.asyncio
+async def test_send_response_no_retry_on_client_error():
+    """send_response does NOT retry on 400/401/403 — non-retryable."""
+    adapter = TeamsAdapter({
+        "tenant_id": "t", "client_id": "c", "client_secret": "s",
+        "max_retries": 3,
+    })
+    adapter._msal_app = MagicMock()
+    adapter._msal_app.acquire_token_for_client.return_value = {
+        "access_token": "tok",
+    }
+
+    event = {
+        "serviceUrl": "https://smba.example.com/",
+        "conversation": {"id": "conv-1"},
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 403
+    mock_resp.text = "Forbidden"
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        await adapter.send_response(event, "Hello")
+
+        # Only called once — no retry for 403
+        mock_client.post.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_send_response_retries_on_timeout():
+    """send_response retries on httpx.TimeoutException."""
+    adapter = TeamsAdapter({
+        "tenant_id": "t", "client_id": "c", "client_secret": "s",
+        "max_retries": 2, "timeout": 5.0,
+    })
+    adapter._msal_app = MagicMock()
+    adapter._msal_app.acquire_token_for_client.return_value = {
+        "access_token": "tok",
+    }
+
+    event = {
+        "serviceUrl": "https://smba.example.com/",
+        "conversation": {"id": "conv-1"},
+    }
+
+    call_count = 0
+
+    async def mock_post(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise httpx.TimeoutException("timed out")
+
+    with patch("httpx.AsyncClient") as mock_cls, \
+         patch("asyncio.sleep", new_callable=AsyncMock):
+        mock_client = AsyncMock()
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        await adapter.send_response(event, "Hello")
+
+    assert call_count == 2
+
+
+# --- MSAL token failure ---
+
+
+@pytest.mark.asyncio
+async def test_send_response_aborts_on_msal_failure():
+    """send_response returns early when MSAL token acquisition fails."""
+    adapter = TeamsAdapter({
+        "tenant_id": "t", "client_id": "c", "client_secret": "s",
+    })
+    adapter._msal_app = MagicMock()
+    adapter._msal_app.acquire_token_for_client.return_value = {
+        "error": "invalid_client",
+        "error_description": "Client secret is expired",
+    }
+
+    event = {
+        "serviceUrl": "https://smba.example.com/",
+        "conversation": {"id": "conv-1"},
+    }
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+
+        await adapter.send_response(event, "Hello")
+
+        # httpx should never be called if token fails
+        mock_client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_acquire_token_returns_none_when_msal_not_initialized():
+    """_acquire_token returns None with descriptive log when MSAL app is None."""
+    adapter = TeamsAdapter({
+        "tenant_id": "t", "client_id": "c", "client_secret": "s",
+    })
+    adapter._msal_app = None
+
+    token = adapter._acquire_token()
+    assert token is None
+
+
+# --- serviceUrl configuration for private deployments ---
+
+
+@pytest.mark.asyncio
+async def test_service_url_override_for_private_deployment():
+    """Configured service_url takes precedence over event serviceUrl."""
+    private_url = "https://teams.internal.corp.com/botframework/"
+    adapter = TeamsAdapter({
+        "tenant_id": "t", "client_id": "c", "client_secret": "s",
+        "service_url": private_url,
+        "max_retries": 1,
+    })
+    adapter._msal_app = MagicMock()
+    adapter._msal_app.acquire_token_for_client.return_value = {
+        "access_token": "tok",
+    }
+
+    event = {
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "conv-1"},
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        await adapter.send_response(event, "Hello")
+
+        call_args = mock_client.post.call_args
+        url = call_args[0][0]
+        # Must use private URL, not the event's public serviceUrl
+        assert url.startswith(private_url.rstrip("/"))
+        assert "smba.trafficmanager.net" not in url
+
+
+@pytest.mark.asyncio
+async def test_service_url_falls_back_to_event():
+    """When service_url not configured, uses event serviceUrl."""
+    adapter = TeamsAdapter({
+        "tenant_id": "t", "client_id": "c", "client_secret": "s",
+        "max_retries": 1,
+    })
+    adapter._msal_app = MagicMock()
+    adapter._msal_app.acquire_token_for_client.return_value = {
+        "access_token": "tok",
+    }
+
+    event_url = "https://smba.trafficmanager.net/emea/"
+    event = {
+        "serviceUrl": event_url,
+        "conversation": {"id": "conv-1"},
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        await adapter.send_response(event, "Hello")
+
+        call_args = mock_client.post.call_args
+        url = call_args[0][0]
+        assert url.startswith(event_url.rstrip("/"))
+
+
+# --- Settings integration ---
+
+
+def test_default_settings_include_webhook_secret():
+    """DEFAULT_SETTINGS includes webhook_secret, service_url, max_retries, timeout."""
+    from yigthinker.settings import DEFAULT_SETTINGS
+    teams = DEFAULT_SETTINGS["channels"]["teams"]
+    assert "webhook_secret" in teams
+    assert "service_url" in teams
+    assert "max_retries" in teams
+    assert "timeout" in teams

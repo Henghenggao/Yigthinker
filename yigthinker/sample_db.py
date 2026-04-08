@@ -75,13 +75,13 @@ def _populate(conn: sqlite3.Connection) -> None:
         ("Acme Corp", "2026-03-05", "2026-04-05", 125_000, "pending", "EMEA"),  # anomaly: spike
         ("TechParts Ltd", "2026-01-20", "2026-02-20", 23_500, "paid", "APAC"),
         ("TechParts Ltd", "2026-02-18", "2026-03-18", 21_800, "paid", "APAC"),
-        ("TechParts Ltd", "2026-03-12", "2026-04-12", 89_000, "overdue", "APAC"),  # anomaly: spike + overdue
+        ("TechParts Ltd", "2026-03-12", "2026-04-12", 89_000, "overdue", "APAC"),  # anomaly
         ("GlobalShip Inc", "2026-01-08", "2026-02-08", 67_000, "paid", "Americas"),
         ("GlobalShip Inc", "2026-02-05", "2026-03-05", 71_200, "paid", "Americas"),
         ("GlobalShip Inc", "2026-03-01", "2026-04-01", 69_500, "pending", "Americas"),
         ("Shanghai Metals", "2026-01-25", "2026-02-25", 112_000, "paid", "APAC"),
         ("Shanghai Metals", "2026-02-20", "2026-03-20", 108_500, "paid", "APAC"),
-        ("Shanghai Metals", "2026-03-15", "2026-04-15", 187_000, "pending", "APAC"),  # anomaly: 40% jump
+        ("Shanghai Metals", "2026-03-15", "2026-04-15", 187_000, "pending", "APAC"),  # anomaly
         ("Berlin Logistics", "2026-01-12", "2026-02-12", 34_000, "paid", "EMEA"),
         ("Berlin Logistics", "2026-02-08", "2026-03-08", 36_200, "paid", "EMEA"),
         ("Berlin Logistics", "2026-03-03", "2026-04-03", 38_100, "pending", "EMEA"),

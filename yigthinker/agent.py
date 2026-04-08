@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from yigthinker.hooks.executor import HookExecutor
@@ -19,6 +20,15 @@ _ITERATION_LIMIT_SYSTEM_MSG = (
     "Please summarize your findings so far and provide the best answer you "
     "can with the information gathered."
 )
+
+
+def _serialize_tool_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    try:
+        return json.dumps(content, ensure_ascii=False, default=str)
+    except TypeError:
+        return str(content)
 
 
 class AgentLoop:
@@ -165,11 +175,12 @@ class AgentLoop:
                     tool_results: list[dict] = []
                     for tool_use in response.tool_uses:
                         result = await self._execute_tool(tool_use.name, tool_use.input, tool_use.id, ctx, on_tool_event)
+                        result_content = _serialize_tool_content(result.content)
                         tool_results.append(
                             {
                                 "type": "tool_result",
                                 "tool_use_id": tool_use.id,
-                                "content": str(result.content),
+                                "content": result_content,
                                 "is_error": result.is_error,
                             }
                         )
@@ -182,6 +193,15 @@ class AgentLoop:
                             messages_snapshot = list(messages)  # shallow copy per Pitfall 1
                             extraction_coro = self._run_extraction(messages_snapshot)
                             task = asyncio.create_task(extraction_coro)
+                            scheduled_coro = None
+                            get_coro = getattr(task, "get_coro", None)
+                            if callable(get_coro):
+                                try:
+                                    scheduled_coro = get_coro()
+                                except Exception:
+                                    scheduled_coro = None
+                            if scheduled_coro is not extraction_coro:
+                                extraction_coro.close()
                             self._background_tasks.add(task)
                             task.add_done_callback(self._background_tasks.discard)
 
@@ -291,9 +311,10 @@ class AgentLoop:
         await self._hooks.run(post_event)
 
         if on_tool_event is not None:
+            serialized_content = _serialize_tool_content(result.content)
             on_tool_event("tool_result", {
                 "tool_id": tool_use_id,
-                "content": str(result.content)[:500],
+                "content": serialized_content,
                 "is_error": result.is_error,
             })
 

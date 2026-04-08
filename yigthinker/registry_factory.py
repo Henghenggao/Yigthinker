@@ -21,7 +21,10 @@ from yigthinker.tools.visualization.chart_recommend import ChartRecommendTool
 from yigthinker.tools.agent_cancel import AgentCancelTool
 from yigthinker.tools.agent_status import AgentStatusTool
 from yigthinker.tools.spawn_agent import SpawnAgentTool
-from yigthinker.tools.visualization.dashboard_push import DashboardPushTool
+from yigthinker.tools.finance.finance_calculate import FinanceCalculateTool
+from yigthinker.tools.finance.finance_analyze import FinanceAnalyzeTool
+from yigthinker.tools.finance.finance_validate import FinanceValidateTool
+from yigthinker.tools.finance.finance_budget import FinanceBudgetTool
 
 
 def _register_forecast_tools(registry: ToolRegistry) -> None:
@@ -54,8 +57,6 @@ def build_tool_registry(pool: ConnectionPool) -> ToolRegistry:
     registry.register(ChartCreateTool())
     registry.register(ChartModifyTool())
     registry.register(ChartRecommendTool())
-    registry.register(DashboardPushTool())
-
     registry.register(ReportGenerateTool())
     registry.register(ReportTemplateTool())
     registry.register(ReportScheduleTool())
@@ -65,6 +66,11 @@ def build_tool_registry(pool: ConnectionPool) -> ToolRegistry:
     registry.register(ExploreOverviewTool())
     registry.register(ExploreDrilldownTool())
     registry.register(ExploreAnomalyTool())
+
+    registry.register(FinanceCalculateTool())
+    registry.register(FinanceAnalyzeTool())
+    registry.register(FinanceValidateTool())
+    registry.register(FinanceBudgetTool())
 
     spawn_tool = SpawnAgentTool()
     registry.register(spawn_tool)

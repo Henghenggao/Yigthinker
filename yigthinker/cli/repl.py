@@ -13,33 +13,23 @@ from yigthinker.tools.sql.connection import ConnectionPool
 
 _console = Console()
 
-if TYPE_CHECKING:
-    from yigthinker.dashboard.server import DashboardSessionBridge
-
-
 class Repl:
     def __init__(
         self,
         agent_loop: AgentLoop,
         ctx: SessionContext,
         pool: ConnectionPool,
-        session_bridge: DashboardSessionBridge | None = None,
         plugin_commands: dict[str, str] | None = None,
     ) -> None:
         self._loop = agent_loop
         self._ctx = ctx
         self._commands = CommandRouter(pool=pool, extra_commands=plugin_commands)
-        self._session_bridge = session_bridge
         self._transcript: TranscriptWriter | None = None
         if ctx.transcript_path:
             from pathlib import Path
 
             self._transcript = TranscriptWriter(Path(ctx.transcript_path))
         self._drilldown_token: str | None = None
-        if self._session_bridge is not None:
-            self._drilldown_token = self._session_bridge.register_session(
-                ctx.session_id, self.process_input
-            )
 
     async def process_input(self, text: str) -> str:
         text = text.strip()
@@ -70,5 +60,3 @@ class Repl:
             except (KeyboardInterrupt, EOFError):
                 _console.print("\nGoodbye!")
                 break
-        if self._session_bridge is not None:
-            self._session_bridge.unregister_session(self._ctx.session_id)

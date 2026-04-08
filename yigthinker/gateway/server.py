@@ -1,9 +1,8 @@
 """GatewayServer: long-running daemon managing multi-session agent access.
 
 Exposes:
-  - WebSocket at ``/ws`` for TUI and dashboard clients
+  - WebSocket at ``/ws`` for TUI and API clients
   - HTTP API at ``/api/sessions`` for session management
-  - Static dashboard SPA at ``/dashboard/``
   - Webhook endpoints registered by channel adapters
   - ``/health`` for liveness checks
 """
@@ -18,8 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from yigthinker.gateway.auth import GatewayAuth
 from yigthinker.gateway.protocol import (
@@ -62,15 +60,16 @@ class GatewayServer:
     _DEFAULT_ALLOWED_ORIGINS = frozenset({
         "http://localhost",
         "http://127.0.0.1",
-        "http://localhost:8766",
-        "http://127.0.0.1:8766",
     })
 
     def __init__(self, settings: dict[str, Any]) -> None:
         self._settings = settings
         gw_cfg = settings.get("gateway", {})
+        resolved_host = gw_cfg.get("host", "127.0.0.1")
+        resolved_port = int(gw_cfg.get("port", 8766))
 
         self._auth = GatewayAuth()
+        self._settings["_gateway_token"] = self._auth.token
         self._registry = SessionRegistry(
             idle_timeout=gw_cfg.get("idle_timeout_seconds", 3600),
             max_sessions=gw_cfg.get("max_sessions", 100),
@@ -84,13 +83,18 @@ class GatewayServer:
         self._eviction_task: asyncio.Task | None = None
         self._shutting_down = False
         self._adapters = self._build_adapters(settings.get("channels", {}))
+        self._dashboard_entries: list[dict[str, Any]] = []  # kept for API compat
 
         # Build allowed origins set from defaults + settings
         extra_origins = gw_cfg.get("allowed_origins", [])
-        self._allowed_origins = self._DEFAULT_ALLOWED_ORIGINS | frozenset(extra_origins)
+        self._allowed_origins = _build_allowed_origins(
+            host=resolved_host,
+            port=resolved_port,
+            extra_origins=extra_origins,
+        )
 
         self._mount_routes()
-        self._mount_dashboard()
+        # Dashboard removed — static SPA no longer mounted
 
     @property
     def app(self) -> FastAPI:
@@ -243,6 +247,33 @@ class GatewayServer:
                 return self._registry.list_sessions_for_owner(owner)
             return self._registry.list_sessions()
 
+        @app.get("/api/dashboard/entries")
+        async def list_dashboard_entries(request: Request):
+            token = _extract_token(request)
+            if not self._auth.verify(token):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return list(self._dashboard_entries)
+
+        @app.post("/api/dashboard/push")
+        async def push_dashboard_entry(request: Request):
+            token = _extract_token(request)
+            if not self._auth.verify(token):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+            body = await request.json()
+            entry = {
+                "dashboard_id": str(body.get("dashboard_id", "")).strip(),
+                "title": str(body.get("title", "")).strip(),
+                "chart_json": str(body.get("chart_json", "")).strip(),
+                "description": str(body.get("description", "")).strip(),
+            }
+            if not entry["dashboard_id"] or not entry["title"] or not entry["chart_json"]:
+                return JSONResponse({"error": "dashboard_id, title, and chart_json are required"}, status_code=400)
+
+            self._dashboard_entries.append(entry)
+            await self._broadcast_dashboard_entry(entry)
+            return {"ok": True, "dashboard_id": entry["dashboard_id"]}
+
         @app.post("/api/sessions")
         async def create_session(request: Request):
             token = _extract_token(request)
@@ -302,16 +333,18 @@ class GatewayServer:
                     self._ws_clients.remove(client)
 
     async def _ws_read_loop(self, client: _WSClient) -> None:
-        """Process incoming WebSocket messages from a TUI client."""
+        """Process incoming WebSocket messages from a TUI or dashboard client."""
         while True:
             raw = await client.ws.receive_text()
             data = json.loads(raw)
             msg = parse_client_msg(data)
 
             if msg.type == "attach":
-                # Ownership check: only allow attaching to sessions you own
-                # or sessions you're creating fresh. TUI clients create sessions
-                # with the key they attach to, so the owner_id matches the key.
+                # Restore first so we can reject ownership mismatches before
+                # auto-creating a fresh session. After auth, dashboard and TUI
+                # clients should be able to attach to a clean session
+                # immediately, which keeps the session picker and vars panel in
+                # sync on first load.
                 session = self._registry.get(msg.session_key)
                 if session is None:
                     session = await self._registry.restore(msg.session_key, self._settings, channel="tui")
@@ -320,15 +353,16 @@ class GatewayServer:
                         ErrorMsg(message="Access denied: you do not own this session")
                     ))
                     continue
+                if session is None:
+                    session = self._registry.get_or_create(msg.session_key, self._settings, channel="tui")
                 client.session_key = msg.session_key
-                if session:
-                    await client.ws.send_json(to_json_dict(
-                        VarsUpdateMsg(vars=[v.__dict__ for v in session.ctx.vars.list()])
-                    ))
-                # Only list sessions owned by this client's attached key
-                owner_filter = msg.session_key
                 await client.ws.send_json(to_json_dict(
-                    SessionListMsg(sessions=self._registry.list_sessions_for_owner(owner_filter))
+                    VarsUpdateMsg(vars=[v.__dict__ for v in session.ctx.vars.list()])
+                ))
+                # Gateway auth is token-based rather than user-account-based,
+                # so expose the local session list for the picker UI.
+                await client.ws.send_json(to_json_dict(
+                    SessionListMsg(sessions=self._registry.list_sessions())
                 ))
 
             elif msg.type == "detach":
@@ -389,34 +423,16 @@ class GatewayServer:
         for client in dead:
             self._ws_clients.remove(client)
 
-    def _mount_dashboard(self) -> None:
-        """Mount dashboard static files at /dashboard/ if the static dir exists."""
-        dashboard_dir = Path(__file__).resolve().parent.parent / "dashboard" / "static"
-        if not dashboard_dir.is_dir():
-            logger.debug("Dashboard static dir not found at %s, skipping mount", dashboard_dir)
-            return
-
-        assets_dir = dashboard_dir / "assets"
-        if assets_dir.is_dir():
-            self._app.mount(
-                "/dashboard/assets",
-                StaticFiles(directory=str(assets_dir)),
-                name="dashboard-assets",
-            )
-
-        index_html = dashboard_dir / "index.html"
-
-        @self._app.get("/dashboard/{path:path}")
-        async def dashboard_spa(path: str = ""):
-            if index_html.exists():
-                return FileResponse(str(index_html))
-            return JSONResponse({"error": "Dashboard not built"}, status_code=404)
-
-        @self._app.get("/dashboard")
-        async def dashboard_root():
-            if index_html.exists():
-                return FileResponse(str(index_html))
-            return JSONResponse({"error": "Dashboard not built"}, status_code=404)
+    async def _broadcast_dashboard_entry(self, entry: dict[str, Any]) -> None:
+        dead: list[_WSClient] = []
+        message = {"type": "dashboard_entry", "entry": entry}
+        for client in self._ws_clients:
+            try:
+                await client.ws.send_json(message)
+            except Exception:
+                dead.append(client)
+        for client in dead:
+            self._ws_clients.remove(client)
 
     async def _eviction_loop(self, interval: int) -> None:
         """Background task: evict idle sessions periodically."""
@@ -472,3 +488,17 @@ def _extract_token(request: Request) -> str:
     if auth.startswith("Bearer "):
         return auth[7:]
     return ""
+
+
+def _build_allowed_origins(
+    host: str,
+    port: int,
+    extra_origins: list[str] | tuple[str, ...],
+) -> frozenset[str]:
+    origins = set(GatewayServer._DEFAULT_ALLOWED_ORIGINS)
+    for local_host in {"localhost", "127.0.0.1"}:
+        origins.add(f"http://{local_host}:{port}")
+    if host not in {"", "0.0.0.0", "::"}:
+        origins.add(f"http://{host}:{port}")
+    origins.update(extra_origins)
+    return frozenset(origin.rstrip("/") for origin in origins)

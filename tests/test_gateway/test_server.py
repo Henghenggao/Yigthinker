@@ -46,6 +46,16 @@ def server(tmp_path, monkeypatch):
     return gateway
 
 
+def _receive_attach_messages(ws):
+    msg_a = ws.receive_json()
+    msg_b = ws.receive_json()
+    types = {msg_a["type"], msg_b["type"]}
+    assert types == {"vars_update", "session_list"}
+    vars_msg = msg_a if msg_a["type"] == "vars_update" else msg_b
+    session_list_msg = msg_a if msg_a["type"] == "session_list" else msg_b
+    return vars_msg, session_list_msg
+
+
 def test_session_api_requires_auth(server):
     with TestClient(server.app) as client:
         response = client.get("/api/sessions")
@@ -85,8 +95,9 @@ def test_websocket_round_trip_and_vars_update(server):
             assert ws.receive_json()["ok"] is True
 
             ws.send_json({"type": "attach", "session_key": "tui:user1"})
-            session_list = ws.receive_json()
-            assert session_list["type"] == "session_list"
+            attach_vars, session_list = _receive_attach_messages(ws)
+            assert attach_vars["vars"] == []
+            assert session_list["sessions"][0]["key"] == "tui:user1"
 
             ws.send_json({"type": "user_input", "text": "hello", "request_id": "r1"})
             first = ws.receive_json()
@@ -158,10 +169,10 @@ def test_websocket_e2e_full_flow(server):
 
             # Step 2: Attach to session
             ws.send_json({"type": "attach", "session_key": "tui:e2e-test"})
-            # Attach sends session_list (no vars_update since new session has no vars)
-            session_list_msg = ws.receive_json()
-            assert session_list_msg["type"] == "session_list"
+            attach_vars_msg, session_list_msg = _receive_attach_messages(ws)
+            assert attach_vars_msg["vars"] == []
             assert isinstance(session_list_msg["sessions"], list)
+            assert session_list_msg["sessions"][0]["key"] == "tui:e2e-test"
 
             # Step 3: Send user input
             ws.send_json({"type": "user_input", "text": "analyze revenue", "request_id": "req-001"})
@@ -186,6 +197,21 @@ def test_websocket_e2e_full_flow(server):
             assert "shape" in revenue_var
             assert "dtypes" in revenue_var
             assert "var_type" in revenue_var  # Verifies Plan 01's VarsUpdate fix
+
+
+def test_websocket_attach_lists_existing_sessions_for_picker(server):
+    server.registry.get_or_create("tui:first", {}, "tui")
+    server.registry.get_or_create("tui:second", {}, "tui")
+
+    with TestClient(server.app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "auth", "token": server.auth.token})
+            assert ws.receive_json()["ok"] is True
+
+            ws.send_json({"type": "attach", "session_key": "tui:first"})
+            _attach_vars, session_list = _receive_attach_messages(ws)
+
+    assert {session["key"] for session in session_list["sessions"]} == {"tui:first", "tui:second"}
 
 
 def test_websocket_bad_auth_rejected(server):

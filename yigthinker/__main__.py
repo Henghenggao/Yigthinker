@@ -3,14 +3,18 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from pathlib import Path
+import sys
 from typing import Optional
 import uuid
 
 import typer
 from rich.console import Console
+from typer.main import get_command
 
 app = typer.Typer(help="Yigthinker - AI-powered financial analysis agent")
 console = Console()
+_ROOT_COMMANDS = frozenset({"install", "main", "quickstart", "gateway", "tui"})
+_ROOT_HELP_FLAGS = frozenset({"--help", "--install-completion", "--show-completion"})
 
 
 @app.command("install")
@@ -26,6 +30,41 @@ def _default_transcript_path() -> Path:
     sessions_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return sessions_dir / f"session-{timestamp}-{uuid.uuid4().hex[:8]}.jsonl"
+
+
+def _normalize_cli_args(argv: list[str]) -> list[str]:
+    """Route bare invocations to the documented default `main` command."""
+    if not argv:
+        return ["main"]
+
+    first = argv[0]
+    if first in _ROOT_COMMANDS or first in _ROOT_HELP_FLAGS:
+        return argv
+
+    if first.startswith("-"):
+        return ["main", *argv]
+
+    return ["main", *argv]
+
+
+def _client_url_host(host: str) -> str:
+    if host in {"0.0.0.0", "::"}:
+        return "127.0.0.1"
+    return host
+
+
+def _resolve_gateway_binding(
+    settings: dict,
+    host: str | None,
+    port: int | None,
+) -> tuple[str, int]:
+    gw_cfg = settings.setdefault("gateway", {})
+    resolved_host = host or gw_cfg.get("host") or "127.0.0.1"
+    resolved_port = port or gw_cfg.get("port") or 8766
+    gw_cfg["host"] = resolved_host
+    gw_cfg["port"] = resolved_port
+    settings["dashboard_url"] = f"http://{_client_url_host(resolved_host)}:{resolved_port}"
+    return resolved_host, resolved_port
 
 
 def _hydrate_session_from_resume(ctx, resume: bool) -> None:
@@ -92,50 +131,10 @@ def main(
 
 
 @app.command()
-def dashboard(
-    host: str = typer.Option("127.0.0.1", help="Gateway host"),
-    port: int = typer.Option(8766, help="Gateway port"),
-    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open browser"),
-) -> None:
-    """Launch the Yigthinker Web Dashboard (starts Gateway + opens browser)."""
-    import uvicorn
-
-    from yigthinker.dashboard.sample_db import ensure_sample_db
-    from yigthinker.gateway.server import GatewayServer
-    from yigthinker.settings import load_settings
-
-    settings = load_settings()
-    gw_cfg = settings.get("gateway", {})
-    resolved_host = gw_cfg.get("host") or host
-    resolved_port = gw_cfg.get("port") or port
-
-    # Ensure sample DB exists for first-time experience
-    sample_path = ensure_sample_db()
-    console.print(f"[dim]Sample database: {sample_path}[/]")
-
-    gateway = GatewayServer(settings)
-    url = f"http://{resolved_host}:{resolved_port}/dashboard/"
-    console.print(f"[bold blue]Yigthinker Dashboard[/] starting at {url}")
-
-    if not no_browser:
-        import threading
-        import time
-        import webbrowser
-
-        def _open_browser():
-            time.sleep(1.5)
-            webbrowser.open(url)
-
-        threading.Thread(target=_open_browser, daemon=True).start()
-
-    uvicorn.run(gateway.app, host=resolved_host, port=resolved_port)
-
-
-@app.command()
 def quickstart(
-    port: int = typer.Option(8766, help="Port for the gateway + dashboard"),
+    port: int = typer.Option(8766, help="Port for the gateway"),
 ) -> None:
-    """First-time setup: configure API key, create sample data, launch dashboard."""
+    """First-time setup: configure API key, create sample data, launch gateway."""
     import os
 
     from rich.panel import Panel
@@ -167,23 +166,23 @@ def quickstart(
 
     # Step 2: Create sample database
     console.print(f"\n[bold]Step 2/3[/] — Creating sample finance database")
-    from yigthinker.dashboard.sample_db import ensure_sample_db
+    from yigthinker.sample_db import ensure_sample_db
     sample_path = ensure_sample_db()
     console.print(f"  [green]OK[/] Sample data at [cyan]{sample_path}[/]")
     console.print("  [dim]3 tables: revenue (18 rows), accounts_payable (18 rows), expenses (300 rows)[/]")
 
-    # Step 3: Show token and start dashboard
-    console.print(f"\n[bold]Step 3/3[/] — Starting dashboard\n")
+    # Step 3: Launch gateway
+    console.print(f"\n[bold]Step 3/3[/] — Starting gateway\n")
 
     from yigthinker.gateway.auth import GatewayAuth
     auth = GatewayAuth()
     token = auth.token
 
     console.print(Panel.fit(
-        f"[bold green]Your gateway token[/] (paste this into the dashboard):\n\n"
+        f"[bold green]Your gateway token[/]:\n\n"
         f"  [bold cyan]{token}[/]\n\n"
         f"[dim]Token saved at: ~/.yigthinker/gateway.token\n"
-        f"The dashboard will remember it after first login.[/]",
+        f"Use this token to connect from TUI or IM channels.[/]",
         border_style="green",
     ))
 
@@ -192,27 +191,17 @@ def quickstart(
     from yigthinker.gateway.server import GatewayServer
 
     gateway = GatewayServer(settings)
-    url = f"http://127.0.0.1:{port}/dashboard/"
-    console.print(f"[bold blue]Dashboard[/] → [bold]{url}[/]")
+    url = f"http://127.0.0.1:{port}"
+    console.print(f"[bold blue]Gateway[/] → [bold]{url}/health[/]")
     console.print("[dim]Press Ctrl+C to stop.\n[/]")
-
-    import threading
-    import time
-    import webbrowser
-
-    def _open_browser():
-        time.sleep(1.5)
-        webbrowser.open(url)
-
-    threading.Thread(target=_open_browser, daemon=True).start()
 
     uvicorn.run(gateway.app, host="127.0.0.1", port=port)
 
 
 @app.command("gateway")
 def gateway_start(
-    host: str = typer.Option("127.0.0.1", help="Gateway host"),
-    port: int = typer.Option(8766, help="Gateway port"),
+    host: str | None = typer.Option(None, help="Gateway host (default: from settings or 127.0.0.1)"),
+    port: int | None = typer.Option(None, help="Gateway port (default: from settings or 8766)"),
 ) -> None:
     """Start the Yigthinker Gateway (foreground)."""
     import uvicorn
@@ -221,28 +210,25 @@ def gateway_start(
     from yigthinker.settings import load_settings
 
     settings = load_settings()
-    gw_cfg = settings.get("gateway", {})
-    resolved_host = gw_cfg.get("host") or host
-    resolved_port = gw_cfg.get("port") or port
+    resolved_host, resolved_port = _resolve_gateway_binding(settings, host, port)
+    client_host = _client_url_host(resolved_host)
 
     gateway = GatewayServer(settings)
-    console.print(f"[bold blue]Yigthinker Gateway[/] starting at http://{resolved_host}:{resolved_port}")
-    console.print(f"Health check: http://{resolved_host}:{resolved_port}/health")
+    console.print(f"[bold blue]Yigthinker Gateway[/] starting at http://{client_host}:{resolved_port}")
+    console.print(f"Health check: http://{client_host}:{resolved_port}/health")
     uvicorn.run(gateway.app, host=resolved_host, port=resolved_port)
 
 
 @app.command("tui")
 def tui_command(
-    host: str = typer.Option("", help="Gateway host (default: from settings)"),
-    port: int = typer.Option(0, help="Gateway port (default: from settings)"),
+    host: str | None = typer.Option(None, help="Gateway host (default: from settings or 127.0.0.1)"),
+    port: int | None = typer.Option(None, help="Gateway port (default: from settings or 8766)"),
 ) -> None:
     """Launch the Yigthinker TUI client."""
     from yigthinker.settings import load_settings
 
     settings = load_settings()
-    gw_cfg = settings.get("gateway", {})
-    resolved_host = host or gw_cfg.get("host", "127.0.0.1")
-    resolved_port = port or gw_cfg.get("port", 8766)
+    resolved_host, resolved_port = _resolve_gateway_binding(settings, host, port)
 
     token_path = Path.home() / ".yigthinker" / "gateway.token"
     if token_path.exists():
@@ -260,5 +246,10 @@ def tui_command(
     tui.run()
 
 
+def run(argv: list[str] | None = None) -> None:
+    args = _normalize_cli_args(list(sys.argv[1:] if argv is None else argv))
+    get_command(app).main(args=args, prog_name="yigthinker")
+
+
 if __name__ == "__main__":
-    app()
+    run()

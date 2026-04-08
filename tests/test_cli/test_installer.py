@@ -46,25 +46,25 @@ def test_strings_have_same_keys():
 
 
 def test_build_extras_local_no_platforms():
-    assert build_extras(mode="local", platforms=[]) == "forecast,dashboard"
+    assert build_extras(mode="local", platforms=[]) == "forecast"
 
 
 def test_build_extras_team_no_platforms():
-    assert build_extras(mode="team", platforms=[]) == "forecast,dashboard,gateway,tui"
+    assert build_extras(mode="team", platforms=[]) == "forecast,gateway,tui"
 
 
 def test_build_extras_full_no_platforms():
-    assert build_extras(mode="full", platforms=[]) == "forecast,dashboard,gateway,tui,feishu,teams,gchat"
+    assert build_extras(mode="full", platforms=[]) == "forecast,gateway,tui,feishu,teams,gchat"
 
 
 def test_build_extras_local_with_feishu():
-    assert build_extras(mode="local", platforms=["feishu"]) == "forecast,dashboard,feishu"
+    assert build_extras(mode="local", platforms=["feishu"]) == "forecast,feishu"
 
 
 def test_build_extras_team_with_teams_and_gchat():
-    assert build_extras(mode="team", platforms=["teams", "gchat"]) == "forecast,dashboard,gateway,tui,teams,gchat"
+    assert build_extras(mode="team", platforms=["teams", "gchat"]) == "forecast,gateway,tui,teams,gchat"
 
 
 def test_build_extras_full_ignores_duplicate_platforms():
     result = build_extras(mode="full", platforms=["feishu"])
-    assert result == "forecast,dashboard,gateway,tui,feishu,teams,gchat"
+    assert result == "forecast,gateway,tui,feishu,teams,gchat"

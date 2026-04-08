@@ -89,6 +89,38 @@ def test_gateway_ws_accepts_127_origin(gateway_default):
             assert msg["ok"] is True
 
 
+def test_gateway_ws_accepts_runtime_port_origin(tmp_path, monkeypatch):
+    """WebSocket should accept the configured runtime port, not just 8766."""
+    monkeypatch.setattr("yigthinker.gateway.server.GatewayAuth", DummyAuth)
+    settings = {
+        "gateway": {
+            "idle_timeout_seconds": 3600,
+            "max_sessions": 10,
+            "hibernate_dir": str(tmp_path / "hibernate"),
+            "port": 9000,
+        },
+        "channels": {},
+    }
+    gateway = GatewayServer(settings)
+
+    async def fake_start():
+        gateway._agent_loop = None
+        gateway._pool = None
+
+    async def fake_stop():
+        return None
+
+    gateway.start = fake_start
+    gateway.stop = fake_stop
+
+    with TestClient(gateway.app) as client:
+        with client.websocket_connect("/ws", headers={"origin": "http://127.0.0.1:9000"}) as ws:
+            ws.send_text(json.dumps({"type": "auth", "token": "test-token"}))
+            msg = ws.receive_json()
+            assert msg["type"] == "auth_result"
+            assert msg["ok"] is True
+
+
 def test_gateway_ws_accepts_no_origin(gateway_default):
     """WebSocket with no Origin header (TUI clients) should be accepted."""
     with TestClient(gateway_default.app) as client:

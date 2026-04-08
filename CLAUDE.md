@@ -8,7 +8,7 @@ Design spec: `docs/superpowers/specs/2026-04-01-yigthinker-design.md`
 
 ## Architecture Principles
 
-- **Flat tools** — all 21 tools registered directly in the Agent Loop; no grouping or agent personas at runtime
+- **Flat tools** — all 26 tools registered directly in the Agent Loop; no grouping or agent personas at runtime
 - **Tool Registration** — `(name, input_schema, handler)` tuple; Pydantic model → auto JSON Schema; no `risk_level` or `validate()` on tools
 - **Permissions are external** — settings.json `allow/ask/deny` + pattern matching; PreToolUse Hooks handle validation
 - **Hooks over hardcoded logic** — enterprise features (RBAC, audit, masking, approvals) are Hook implementations, not architectural layers
@@ -36,7 +36,7 @@ class YigthinkerTool(Protocol):
     async def execute(self, input: BaseModel, ctx: SessionContext) -> ToolResult
 ```
 
-All tools: `sql_query`, `sql_explain`, `schema_inspect`, `df_load`, `df_transform`, `df_profile`, `df_merge`, `chart_create`, `chart_modify`, `chart_recommend`, `dashboard_push`, `report_generate`, `report_template`, `report_schedule`, `forecast_timeseries`, `forecast_regression`, `forecast_evaluate`, `explore_overview`, `explore_drilldown`, `explore_anomaly`, `spawn_agent`
+All tools: `sql_query`, `sql_explain`, `schema_inspect`, `df_load`, `df_transform`, `df_profile`, `df_merge`, `chart_create`, `chart_modify`, `chart_recommend`, `report_generate`, `report_template`, `report_schedule`, `forecast_timeseries`, `forecast_regression`, `forecast_evaluate`, `explore_overview`, `explore_drilldown`, `explore_anomaly`, `finance_calculate`, `finance_analyze`, `finance_validate`, `finance_budget`, `spawn_agent`, `agent_status`, `agent_cancel`
 
 ## Hook Pattern
 
@@ -65,7 +65,7 @@ Hook events: `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionSt
 4. If tool_use: PreToolUse hooks → permission check → execute → PostToolUse hooks → build tool_result
 5. If hook blocks (exit 2): stderr → LLM as feedback for replanning
 6. Append tool_result → loop to step 2
-7. end_turn → CLI output + WebSocket push to Dashboard
+7. end_turn → CLI output + WebSocket push to connected clients
 
 ## Context Manager
 
@@ -113,9 +113,9 @@ Sessions are saved as JSONL transcripts. Resume via `yigthinker --resume`.
 
 **Yigthinker**
 
-Yigthinker is a Python-based AI agent for financial and data analysis — a "data analysis Claude Code" with multi-channel access. It uses a flat tool registry (21 tools), a single Agent Loop, hooks for cross-cutting concerns, and in-memory DataFrame operations. The codebase is scaffolded with Gateway daemon, Textual TUI, and channel adapters (Feishu/Teams/Google Chat), but most modules are stubs or partially implemented.
+Yigthinker is a Python-based AI agent for financial and data analysis — a headless "data analysis Claude Code" with multi-channel access. It uses a flat tool registry (26 tools), a single Agent Loop, hooks for cross-cutting concerns, and in-memory DataFrame operations. The codebase includes Gateway daemon, Textual TUI, and channel adapters (Feishu/Teams/Google Chat). No web dashboard — product is headless by design.
 
-**Core Value:** A user can start the Gateway, open the TUI, have an AI-assisted data analysis conversation with tool calls (SQL, DataFrame, charts, forecasts), and see results — with the same experience accessible from Feishu or other messaging platforms.
+**Core Value:** A user can interact via CLI REPL, IM channels (Feishu/Teams/Google Chat), or TUI connected to the Gateway, having AI-assisted data analysis conversations with tool calls (SQL, DataFrame, charts, forecasts, finance calculations) — same agent, multiple surfaces.
 
 ### Constraints
 
@@ -140,14 +140,13 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a "dat
 - typer 0.24.1 - CLI entrypoint and command definitions (`yigthinker/__main__.py`)
 - rich 14.3.3 - Terminal output formatting, tables, panels (`yigthinker/cli/`)
 - pydantic 2.12.5 - Tool input schemas, data models (`yigthinker/types.py`, all tool files)
-- fastapi 0.135.3 - Dashboard REST API + WebSocket server (`yigthinker/dashboard/server.py`), Gateway daemon (`yigthinker/gateway/server.py`)
-- uvicorn 0.42.0 - ASGI server for FastAPI apps (launched via `yigthinker dashboard` and `yigthinker gateway start`)
+- fastapi 0.135.3 - Gateway daemon REST API + WebSocket server (`yigthinker/gateway/server.py`)
+- uvicorn 0.42.0 - ASGI server for FastAPI apps (launched via `yigthinker gateway start`)
 - pandas 3.0.2 - Primary DataFrame operations across all tools
 - numpy 2.4.4 - Numerical operations in forecast tools
 - sqlalchemy 2.0.48 - Async database access via `AsyncEngine` (`yigthinker/tools/sql/connection.py`)
 - aiosqlite 0.22.1 - SQLite async driver (used as default database + event dedup store)
 - plotly 6.6.0 - Chart generation via `plotly.express` and `plotly.graph_objects` (`yigthinker/tools/visualization/chart_create.py`)
-- dash 4.1.0 - Web dashboard UI (`yigthinker/dashboard/layout.py`)
 - textual 8.2.1 - Terminal UI application (`yigthinker/tui/app.py` and `yigthinker/tui/`)
 - websockets 16.0 - WebSocket client for TUI-to-Gateway connection (`yigthinker/tui/ws_client.py`)
 - pytest 9.0.2 - Test runner (`pyproject.toml` `testpaths = ["tests"]`)
@@ -174,21 +173,20 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a "dat
 - `AZURE_OPENAI_API_KEY` - Required for Azure deployments (`azure/`)
 - Ollama requires no key (uses local HTTP at `http://localhost:11434`)
 - Default model: `claude-sonnet-4-20250514`
-- Dashboard URL: `http://localhost:8765`
 - Ollama base URL: `http://localhost:11434`
 - Gateway: `127.0.0.1:8766`
 - Session transcripts: `~/.yigthinker/sessions/*.jsonl`
 - Session hibernation: `~/.yigthinker/hibernate/`
 - Gateway token: `~/.yigthinker/gateway.token`
 - Azure API version: `2024-02-01`
-- `pyproject.toml` - Project manifest; optional dependency groups: `dev`, `forecast`, `dashboard`, `gateway`, `tui`, `feishu`, `teams`, `gchat`, `all-channels`
+- `pyproject.toml` - Project manifest; optional dependency groups: `dev`, `forecast`, `gateway`, `tui`, `feishu`, `teams`, `gchat`, `all-channels`
 - CLI entrypoint: `yigthinker = "yigthinker.__main__:app"`
 - No `.env` file present; no `.nvmrc` or `.python-version`
 ## Platform Requirements
 - Python 3.11+
 - Virtual environment at `.venv/`
 - Install with `pip install -e .[dev]` (core + dev extras)
-- Optional extras: `pip install -e .[forecast,dashboard,gateway,tui]`
+- Optional extras: `pip install -e .[forecast,gateway,tui]`
 - Self-hosted; no cloud platform dependency
 - Can run headless as gateway daemon: `yigthinker gateway start`
 - Supports local Ollama for air-gapped deployments
@@ -246,7 +244,7 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a "dat
 
 ## Pattern Overview
 - One `AgentLoop` orchestrates all tool execution — no sub-agents, no hierarchical planner at runtime
-- All 21 tools registered at the same level in a flat `ToolRegistry`; no grouping or routing by tool category
+- All 26 tools registered at the same level in a flat `ToolRegistry`; no grouping or routing by tool category
 - `SessionContext` holds the only persistent in-memory state between tool calls (message history + DataFrame variable registry)
 - Cross-cutting concerns (permissions, audit, RBAC) are implemented as Hook functions, not as architectural layers
 - Multiple input surfaces (CLI REPL, Gateway daemon + WebSocket, messaging channel adapters) all funnel into the same `AgentLoop.run()` call
@@ -266,7 +264,7 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a "dat
 - Used by: `AgentLoop`
 - Purpose: Implement all domain capabilities as independently executable tools
 - Location: `yigthinker/tools/`
-- Contains: 21 registered tools across subgroups (`sql/`, `dataframe/`, `visualization/`, `reports/`, `forecast/`, `exploration/`, `spawn_agent.py`)
+- Contains: 26 registered tools across subgroups (`sql/`, `dataframe/`, `visualization/`, `reports/`, `forecast/`, `exploration/`, `finance/`, `spawn_agent.py`)
 - Depends on: `SessionContext` (for `ctx.vars` access), `ContextManager` (for result summarization)
 - Used by: `AgentLoop._execute_tool()`
 - Purpose: Hold all session-scoped mutable state — message history, DataFrame registry, stats, settings reference
@@ -311,7 +309,7 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a "dat
 - Session persistence: JSONL transcript at `~/.yigthinker/sessions/session-<timestamp>-<id>.jsonl`
 - Gateway hibernation: `SessionHibernator` serializes `ManagedSession` to `~/.yigthinker/hibernate/`
 ## Key Abstractions
-- Purpose: Uniform interface for all 21 tools; enables `ToolRegistry` to store heterogeneous tools
+- Purpose: Uniform interface for all 26 tools; enables `ToolRegistry` to store heterogeneous tools
 - Location: `yigthinker/tools/base.py`
 - Pattern: Structural `Protocol` — any class with `name: str`, `description: str`, `input_schema: type[BaseModel]`, and `async execute(input, ctx) -> ToolResult` satisfies it
 - Purpose: Swap LLM backends without touching `AgentLoop`
@@ -336,9 +334,6 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a "dat
 - Location: `yigthinker/__main__.py` → `setup()` + `yigthinker/cli/setup_wizard.py`
 - Triggers: `yigthinker setup`
 - Responsibilities: Interactive provider/model/API key configuration
-- Location: `yigthinker/__main__.py` → `dashboard()` + `yigthinker/dashboard/`
-- Triggers: `yigthinker dashboard`
-- Responsibilities: Start FastAPI + Dash app on port 8765
 - Location: `yigthinker/__main__.py` → `gateway_start()` + `yigthinker/gateway/server.py`
 - Triggers: `yigthinker gateway start`
 - Responsibilities: Start `GatewayServer` (FastAPI) on port 8766; mounts `/ws`, `/api/sessions`, `/health`, channel webhook routes

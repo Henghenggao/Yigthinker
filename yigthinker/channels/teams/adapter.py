@@ -1,7 +1,7 @@
-"""Microsoft Teams channel adapter (Graph API, not deprecated Bot Framework SDK).
+"""Microsoft Teams channel adapter (Bot Framework REST API).
 
 Uses raw HTTP via ``httpx`` + ``msal`` for Azure AD token acquisition.
-Marked as optional/experimental.
+Outgoing webhooks verified via HMAC-SHA256.
 
 Requires: ``pip install httpx msal``
 """
@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 
 
 class TeamsAdapter:
-    """Teams channel adapter using Microsoft Graph API.
+    """Teams channel adapter using Bot Framework REST API.
 
-    Instead of the deprecated ``botbuilder-core`` SDK, this adapter uses:
-      - ``httpx`` for HTTP requests to the Graph API
+    Uses:
+      - ``httpx`` for HTTP requests to Bot Framework service URL
       - ``msal`` for Azure AD token acquisition
       - Outgoing Webhook for inbound messages (HMAC-SHA256 signature verification)
     """
@@ -44,12 +44,23 @@ class TeamsAdapter:
         self._client_secret = config.get("client_secret", "")
         self._webhook_secret = config.get("webhook_secret", "")
         self._session_scope = config.get("session_scope", "per-sender")
+        self._service_url_override = config.get("service_url", "")
+        self._max_retries = int(config.get("max_retries", 3))
+        self._timeout = float(config.get("timeout", 30.0))
         self._renderer = TeamsCardRenderer()
         self._gateway: GatewayServer | None = None
         self._msal_app: Any = None
 
     async def start(self, gateway: GatewayServer) -> None:
         self._gateway = gateway
+
+        # Warn if HMAC verification is disabled
+        if not self._webhook_secret:
+            logger.warning(
+                "Teams webhook_secret is empty — HMAC signature verification "
+                "is DISABLED. Set channels.teams.webhook_secret in settings "
+                "to secure the webhook endpoint."
+            )
 
         try:
             import msal
@@ -64,7 +75,7 @@ class TeamsAdapter:
 
         @gateway.app.post("/webhook/teams")
         async def teams_webhook(request: Request):
-            # HMAC verification per D-06 -- must read raw body BEFORE JSON parsing
+            # HMAC verification — must read raw body BEFORE JSON parsing
             raw_body = await request.body()
             if self._webhook_secret:
                 auth_header = request.headers.get("Authorization", "")
@@ -82,9 +93,9 @@ class TeamsAdapter:
 
             key = self.session_key(body)
 
-            # Per D-05: Immediate ACK + async processing
+            # Immediate ACK + async processing (D-05):
             # Return 200 immediately with a "thinking..." card.
-            # Fire async task to process and deliver result via Graph API.
+            # Fire async task to process and deliver result via Bot Framework API.
             asyncio.create_task(self._process_and_respond(key, text, body))
 
             return JSONResponse({
@@ -117,11 +128,7 @@ class TeamsAdapter:
         vars_summary: list[dict[str, Any]] | None = None,
         error: str | None = None,
     ) -> None:
-        """Send response to Teams via Bot Framework REST API with Adaptive Card.
-
-        Uses MSAL ConfidentialClientApplication to acquire an app token,
-        then POSTs an Adaptive Card to the conversation via Bot Framework API.
-        """
+        """Send response to Teams via Bot Framework REST API with Adaptive Card."""
         if error:
             card = self._renderer.render_error(error)
         elif text:
@@ -129,14 +136,23 @@ class TeamsAdapter:
         else:
             return
 
-        # Extract conversation context from the original event
-        service_url = event.get(
-            "serviceUrl", "https://smba.trafficmanager.net/amer/"
+        # Use configured service_url override for private deployments,
+        # fall back to event's serviceUrl, then public cloud default.
+        service_url = (
+            self._service_url_override
+            or event.get("serviceUrl", "")
         )
+        if not service_url:
+            logger.warning(
+                "No serviceUrl in Teams event and no service_url configured. "
+                "Set channels.teams.service_url for private deployments."
+            )
+            service_url = "https://smba.trafficmanager.net/amer/"
+
         conversation_id = event.get("conversation", {}).get("id", "")
         if not conversation_id:
             logger.error(
-                "No conversation ID in Teams event -- cannot send response"
+                "No conversation ID in Teams event — cannot send response"
             )
             return
 
@@ -146,9 +162,6 @@ class TeamsAdapter:
             logger.error("Failed to acquire MSAL token for Bot Framework API")
             return
 
-        # POST Adaptive Card to the conversation via Bot Framework REST API
-        # (Teams outgoing webhooks use the Bot Framework service URL,
-        # not Graph API directly)
         url = (
             f"{service_url.rstrip('/')}/v3/conversations/"
             f"{conversation_id}/activities"
@@ -160,27 +173,63 @@ class TeamsAdapter:
                 "content": card,
             }],
         }
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                url,
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
-            )
-            if resp.status_code >= 400:
-                logger.error(
-                    "Teams Bot Framework API error %d: %s",
-                    resp.status_code,
-                    resp.text,
+        # Retry with exponential backoff
+        last_error: Exception | None = None
+        for attempt in range(self._max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(url, json=payload, headers=headers)
+                    if resp.status_code < 400:
+                        return  # success
+                    if resp.status_code in (429, 500, 502, 503, 504):
+                        # Retryable server/rate-limit error
+                        logger.warning(
+                            "Teams API returned %d (attempt %d/%d): %s",
+                            resp.status_code, attempt + 1,
+                            self._max_retries, resp.text[:200],
+                        )
+                        last_error = httpx.HTTPStatusError(
+                            f"HTTP {resp.status_code}",
+                            request=resp.request, response=resp,
+                        )
+                    else:
+                        # Non-retryable client error (400, 401, 403, etc.)
+                        logger.error(
+                            "Teams API error %d (not retryable): %s",
+                            resp.status_code, resp.text[:200],
+                        )
+                        return
+            except httpx.TimeoutException as exc:
+                logger.warning(
+                    "Teams API timeout (attempt %d/%d): %s",
+                    attempt + 1, self._max_retries, exc,
                 )
+                last_error = exc
+            except httpx.ConnectError as exc:
+                logger.warning(
+                    "Teams API connection error (attempt %d/%d): %s",
+                    attempt + 1, self._max_retries, exc,
+                )
+                last_error = exc
+
+            if attempt < self._max_retries - 1:
+                delay = 2 ** attempt  # 1s, 2s, 4s
+                await asyncio.sleep(delay)
+
+        logger.error(
+            "Teams API failed after %d attempts: %s",
+            self._max_retries, last_error,
+        )
 
     async def _process_and_respond(
         self, session_key: str, text: str, event: dict[str, Any]
     ) -> None:
-        """Run agent processing asynchronously and deliver result via Graph API (D-05)."""
+        """Run agent processing asynchronously and deliver result via Bot Framework API (D-05)."""
         try:
             result = await self._gateway.handle_message(
                 session_key, text, channel="teams"
@@ -198,6 +247,10 @@ class TeamsAdapter:
     def _acquire_token(self) -> str | None:
         """Acquire an app-only token via MSAL for Bot Framework API calls."""
         if self._msal_app is None:
+            logger.error(
+                "MSAL app not initialized — check Teams tenant_id, "
+                "client_id, and client_secret configuration"
+            )
             return None
         result = self._msal_app.acquire_token_for_client(
             scopes=["https://api.botframework.com/.default"],
@@ -205,7 +258,8 @@ class TeamsAdapter:
         if "access_token" in result:
             return result["access_token"]
         logger.error(
-            "MSAL token acquisition failed: %s",
-            result.get("error_description", ""),
+            "MSAL token acquisition failed: %s — check Azure AD app "
+            "registration and client_secret",
+            result.get("error_description", result.get("error", "unknown")),
         )
         return None

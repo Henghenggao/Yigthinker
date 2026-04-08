@@ -95,9 +95,9 @@ STRINGS: dict[str, dict[str, str]] = {
 }
 
 _PRESETS: dict[str, list[str]] = {
-    "local": ["forecast", "dashboard"],
-    "team": ["forecast", "dashboard", "gateway", "tui"],
-    "full": ["forecast", "dashboard", "gateway", "tui", "feishu", "teams", "gchat"],
+    "local": ["forecast"],
+    "team": ["forecast", "gateway", "tui"],
+    "full": ["forecast", "gateway", "tui", "feishu", "teams", "gchat"],
 }
 
 

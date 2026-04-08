@@ -1,7 +1,7 @@
 # tests/test_cli_main.py
 from typer.testing import CliRunner
 from unittest.mock import AsyncMock, patch, MagicMock
-from yigthinker.__main__ import app
+from yigthinker.__main__ import _normalize_cli_args, app, run
 
 runner = CliRunner()
 
@@ -26,3 +26,26 @@ def test_help_flag():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "Usage" in result.output
+
+
+def test_normalize_cli_args_routes_documented_root_modes():
+    assert _normalize_cli_args([]) == ["main"]
+    assert _normalize_cli_args(["hello world"]) == ["main", "hello world"]
+    assert _normalize_cli_args(["--resume"]) == ["main", "--resume"]
+    assert _normalize_cli_args(["gateway"]) == ["gateway"]
+    assert _normalize_cli_args(["--help"]) == ["--help"]
+
+
+def test_run_dispatches_bare_query_to_default_main():
+    captured = {}
+
+    class DummyCommand:
+        def main(self, *, args, prog_name):
+            captured["args"] = args
+            captured["prog_name"] = prog_name
+
+    with patch("yigthinker.__main__.get_command", return_value=DummyCommand()):
+        run(["hello world"])
+
+    assert captured["args"] == ["main", "hello world"]
+    assert captured["prog_name"] == "yigthinker"

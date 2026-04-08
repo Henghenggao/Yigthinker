@@ -172,7 +172,7 @@ yigthinker dashboard
 
 Default URLs:
 
-- dashboard: `http://127.0.0.1:8765/dashboard/`
+- dashboard: `http://127.0.0.1:8766/dashboard/`
 - gateway health: `http://127.0.0.1:8766/health`
 
 ## Built-in Slash Commands

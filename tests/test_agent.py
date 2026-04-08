@@ -217,6 +217,51 @@ async def test_tool_exception_reported_to_llm():
     )
 
 
+async def test_tool_result_dicts_are_serialized_as_json():
+    class ChartInput(BaseModel):
+        name: str
+
+    class ChartTool:
+        name = "chart"
+        description = "Returns chart payload"
+        input_schema = ChartInput
+
+        async def execute(self, input, ctx):
+            return ToolResult(
+                tool_use_id="",
+                content={"chart_name": input.name, "chart_json": '{"data":[],"layout":{}}'},
+            )
+
+    tool_response = LLMResponse(
+        stop_reason="tool_use",
+        tool_uses=[ToolUse(id="tu1", name="chart", input={"name": "last_chart"})],
+    )
+    final_response = LLMResponse(stop_reason="end_turn", text="done")
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = AsyncMock(side_effect=[tool_response, final_response])
+    tools = ToolRegistry()
+    tools.register(ChartTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["chart"]})
+    loop = AgentLoop(provider=mock_provider, tools=tools, hooks=hooks, permissions=perms)
+    ctx = SessionContext()
+
+    await loop.run("make a chart", ctx)
+
+    second_call_messages = mock_provider.chat.await_args_list[1].args[0]
+    tool_result_msg = next(
+        m for m in second_call_messages
+        if m.role == "user" and isinstance(m.content, list)
+    )
+    payload = next(
+        item["content"]
+        for item in tool_result_msg.content
+        if isinstance(item, dict) and item.get("type") == "tool_result"
+    )
+    assert payload == '{"chart_name": "last_chart", "chart_json": "{\\"data\\":[],\\"layout\\":{}}"}'
+
+
 # ---------------------------------------------------------------------------
 # Streaming Tests
 # ---------------------------------------------------------------------------

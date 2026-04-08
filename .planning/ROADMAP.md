@@ -146,7 +146,7 @@ Plans:
 - [ ] 07-01-PLAN.md -- SubAgent engine: child AgentLoop factory, isolated SessionContext, context isolation (final-message-only return), model override
 - [x] 07-02-PLAN.md -- DataFrame sharing: copy-in by name, merge-back with prefix, merge summary in tool_result
 - [x] 07-03-PLAN.md -- Tool access control: allowed_tools whitelist, spawn_agent recursion removal, immutable child ToolRegistry
-- [ ] 07-04-PLAN.md -- Lifecycle management: foreground/background modes, concurrency limiter, agent_status/agent_cancel tools, SubagentStop hook event, subagent transcript persistence
+- [x] 07-04-PLAN.md -- Lifecycle management: foreground/background modes, concurrency limiter, agent_status/agent_cancel tools, SubagentStop hook event, subagent transcript persistence
 - [ ] 07-05-PLAN.md -- Integration: hook/permission inheritance, Gateway WebSocket broadcast, TUI subagent display, predefined agent types (.yigthinker/agents/*.md), full test suite
 
 ## Progress
@@ -162,4 +162,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 4. Streaming & Teams Adapter | 3/3 | Complete | 2026-04-05 |
 | 5. Session Memory & Auto Dream | 2/2 | Complete | 2026-04-06 |
 | 6. Web Dashboard | 0/4 | In Progress | — |
-| 7. Spawn Agent | 2/5 | In Progress|  |
+| 7. Spawn Agent | 3/5 | In Progress|  |
