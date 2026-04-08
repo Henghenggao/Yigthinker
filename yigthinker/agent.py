@@ -58,6 +58,7 @@ class AgentLoop:
     ) -> str:
         messages: list[Message] = list(ctx.messages)
         messages.append(Message(role="user", content=user_input))
+        ctx._on_tool_event = on_tool_event  # type: ignore[attr-defined]
         tool_schemas = self._tools.export_schemas()
         iteration = 0
 
