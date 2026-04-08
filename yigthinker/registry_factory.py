@@ -18,6 +18,8 @@ from yigthinker.tools.sql.sql_query import SqlQueryTool
 from yigthinker.tools.visualization.chart_create import ChartCreateTool
 from yigthinker.tools.visualization.chart_modify import ChartModifyTool
 from yigthinker.tools.visualization.chart_recommend import ChartRecommendTool
+from yigthinker.tools.agent_cancel import AgentCancelTool
+from yigthinker.tools.agent_status import AgentStatusTool
 from yigthinker.tools.spawn_agent import SpawnAgentTool
 from yigthinker.tools.visualization.dashboard_push import DashboardPushTool
 
@@ -64,6 +66,11 @@ def build_tool_registry(pool: ConnectionPool) -> ToolRegistry:
     registry.register(ExploreDrilldownTool())
     registry.register(ExploreAnomalyTool())
 
-    registry.register(SpawnAgentTool())
+    spawn_tool = SpawnAgentTool()
+    registry.register(spawn_tool)
+    registry.register(AgentStatusTool())
+    registry.register(AgentCancelTool())
+    # Give spawn_agent a reference to the full registry for allowed_tools validation
+    spawn_tool._tools = registry
 
     return registry
