@@ -84,6 +84,7 @@ class GatewayServer:
         self._shutting_down = False
         self._adapters = self._build_adapters(settings.get("channels", {}))
         self._dashboard_entries: list[dict[str, Any]] = []  # kept for API compat
+        self._max_dashboard_entries: int = int(gw_cfg.get("max_dashboard_entries", 500))
 
         # Build allowed origins set from defaults + settings
         extra_origins = gw_cfg.get("allowed_origins", [])
@@ -271,6 +272,9 @@ class GatewayServer:
                 return JSONResponse({"error": "dashboard_id, title, and chart_json are required"}, status_code=400)
 
             self._dashboard_entries.append(entry)
+            # LRU eviction: drop oldest entries when cap is reached
+            if len(self._dashboard_entries) > self._max_dashboard_entries:
+                self._dashboard_entries = self._dashboard_entries[-self._max_dashboard_entries:]
             await self._broadcast_dashboard_entry(entry)
             return {"ok": True, "dashboard_id": entry["dashboard_id"]}
 

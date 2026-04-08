@@ -133,6 +133,11 @@ def _irr(inp: FinanceCalculateInput) -> dict:
             break
         irr = new_irr
 
+    # Verify convergence: NPV at final rate should be near zero
+    check_npv = sum(cf / (1 + irr) ** t for t, cf in enumerate(cfs))
+    if abs(check_npv) > 1.0:
+        raise ValueError("IRR did not converge. Verify cash flows include at least one sign change.")
+
     value = _r2(irr * 100)
     interp = f"IRR of {value}%. Compare against your required rate of return to evaluate the investment."
     return {"metric": "irr", "value": value, "interpretation": interp,
@@ -242,6 +247,8 @@ def _depreciation(inp: FinanceCalculateInput) -> dict:
     salvage = _require(inp.salvage, "salvage")
     life = int(_require(inp.life, "life"))
     method = (inp.method or "straight-line").lower()
+    if inp.period is not None and inp.period < 1:
+        raise ValueError("period must be at least 1")
     period = inp.period or 1
 
     base = cost - salvage

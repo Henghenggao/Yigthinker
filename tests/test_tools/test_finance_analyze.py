@@ -158,6 +158,36 @@ async def test_scenario_missing_data_error(tool, ctx):
     assert result.is_error
 
 
+async def test_scenario_partial_probabilities_error(tool, ctx):
+    """If some scenarios have probability but not all, should error."""
+    inp = tool.input_schema(
+        analysis_type="scenario",
+        base_case={"revenue": 1000, "costs": 600},
+        scenarios=[
+            {"name": "up", "assumptions": {"revenue": 1200}, "probability": 0.5},
+            {"name": "down", "assumptions": {"revenue": 800}},
+        ],
+    )
+    result = await tool.execute(inp, ctx)
+    assert result.is_error
+    assert "probability" in result.content.lower()
+
+
+async def test_scenario_bad_probability_sum_error(tool, ctx):
+    """Probabilities that don't sum to 1.0 should error."""
+    inp = tool.input_schema(
+        analysis_type="scenario",
+        base_case={"revenue": 1000, "costs": 600},
+        scenarios=[
+            {"name": "up", "assumptions": {"revenue": 1200}, "probability": 0.5},
+            {"name": "down", "assumptions": {"revenue": 800}, "probability": 0.3},
+        ],
+    )
+    result = await tool.execute(inp, ctx)
+    assert result.is_error
+    assert "sum to 1.0" in result.content
+
+
 # ── Sensitivity ──────────────────────────────────────────────────────────
 
 async def test_sensitivity_basic(tool, ctx):

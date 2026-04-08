@@ -277,7 +277,13 @@ def _scenario(inp: FinanceAnalyzeInput) -> dict:
     comparison: dict = {"best_case": best, "worst_case": worst}
     # Probability-weighted value if probabilities provided
     probs = [sc.get("probability", 0) for sc in scenarios]
-    if all(p > 0 for p in probs) and abs(sum(probs) - 1.0) < 0.05:
+    has_probs = any(p > 0 for p in probs)
+    if has_probs:
+        if not all(p > 0 for p in probs):
+            raise ValueError("If any scenario has a probability, all scenarios must have one.")
+        prob_sum = sum(probs)
+        if abs(prob_sum - 1.0) > 0.001:
+            raise ValueError(f"Scenario probabilities must sum to 1.0 (got {_r2(prob_sum)}).")
         pw = sum(
             r["outputs"].get(primary, 0) * sc.get("probability", 0)
             for r, sc in zip(results, scenarios)

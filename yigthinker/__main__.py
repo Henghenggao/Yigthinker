@@ -164,12 +164,17 @@ def quickstart(
         model = settings.get("model", "unknown")
         console.print(f"\n[bold]Step 1/3[/] — LLM provider [green]already configured[/] (model: [bold]{model}[/])")
 
-    # Step 2: Create sample database
+    # Step 2: Create sample database and wire it as a connection
     console.print(f"\n[bold]Step 2/3[/] — Creating sample finance database")
     from yigthinker.sample_db import ensure_sample_db
     sample_path = ensure_sample_db()
+    # Register sample DB as a named connection so sql_query can reach it
+    connections = settings.setdefault("connections", {})
+    if "sample" not in connections:
+        connections["sample"] = {"type": "sqlite", "database": str(sample_path)}
     console.print(f"  [green]OK[/] Sample data at [cyan]{sample_path}[/]")
     console.print("  [dim]3 tables: revenue (18 rows), accounts_payable (18 rows), expenses (300 rows)[/]")
+    console.print("  [dim]Connection registered as [bold]sample[/] — use /connect sample[/]")
 
     # Step 3: Launch gateway
     console.print(f"\n[bold]Step 3/3[/] — Starting gateway\n")

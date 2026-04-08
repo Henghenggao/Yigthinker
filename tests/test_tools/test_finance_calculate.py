@@ -188,6 +188,34 @@ async def test_depreciation_bad_method(tool, ctx):
     assert result.is_error
 
 
+# ── IRR convergence ──────────────────────────────────────────────────────
+
+async def test_irr_no_sign_change_error(tool, ctx):
+    """All-positive cash flows have no IRR — should error, not return garbage."""
+    inp = tool.input_schema(metric="irr", cash_flows=[100, 200, 300])
+    result = await tool.execute(inp, ctx)
+    assert result.is_error
+    assert "converge" in result.content.lower()
+
+
+async def test_irr_multiple_sign_changes(tool, ctx):
+    """Cash flows with a valid IRR should still converge normally."""
+    inp = tool.input_schema(metric="irr", cash_flows=[-1000, 500, 400, 300])
+    result = await tool.execute(inp, ctx)
+    assert not result.is_error
+
+
+# ── Depreciation period validation ──────────────────────────────────────
+
+async def test_depreciation_period_zero_error(tool, ctx):
+    """period=0 is invalid for depreciation and should error."""
+    inp = tool.input_schema(metric="depreciation", cost=10000, salvage=1000,
+                            life=5, method="sum-of-years", period=0)
+    result = await tool.execute(inp, ctx)
+    assert result.is_error
+    assert "period" in result.content.lower()
+
+
 # ── Missing params ───────────────────────────────────────────────────────
 
 async def test_missing_required_param(tool, ctx):
