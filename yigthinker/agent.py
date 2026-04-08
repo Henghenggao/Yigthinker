@@ -92,6 +92,16 @@ class AgentLoop:
                         if loaded:
                             system_prompt = ctx.context_manager.build_memory_section(loaded)
 
+                    # Drain background subagent notifications (D-08)
+                    if ctx.subagent_manager is not None:
+                        notifications = ctx.subagent_manager.drain_notifications()
+                        if notifications:
+                            notif_text = "\n".join(notifications)
+                            if system_prompt:
+                                system_prompt += f"\n\n[Subagent Notifications]\n{notif_text}"
+                            else:
+                                system_prompt = f"[Subagent Notifications]\n{notif_text}"
+
                     if self._compact is not None:
                         token_est = self._estimate_tokens(messages)
                         if token_est > ctx.context_manager.history_budget:

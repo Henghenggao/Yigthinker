@@ -60,6 +60,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "session_scope": "per-sender",
         },
     },
+    "spawn_agent": {
+        "max_concurrent": 3,
+        "max_iterations": 20,
+        "timeout": 120.0,
+    },
     "sandbox": {
         "df_transform": {
             "allowed_imports": ["pandas", "numpy", "polars"],
