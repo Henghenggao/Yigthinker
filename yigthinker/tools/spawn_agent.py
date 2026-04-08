@@ -69,12 +69,12 @@ class SpawnAgentTool:
                 "detail": f"Task: {input.prompt[:100]}",
             })
 
-        # Subagent execution is not yet fully wired (engine/manager from waves 1-3).
+        # Subagent execution is not yet implemented (engine/manager from waves 1-3).
         # Return informative error for now; once engine is available it will run here.
         return ToolResult(
             tool_use_id="",
             content=(
-                "spawn_agent is not yet fully implemented. Agent type loading and "
+                "spawn_agent is not yet implemented. Agent type loading and "
                 "event broadcasting are wired. The execution engine will be available "
                 "once the SubagentEngine module is integrated. "
                 f"Would use prompt: {full_prompt[:200]}, "
