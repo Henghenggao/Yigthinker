@@ -18,7 +18,7 @@ def test_registry_exports_valid_schemas():
     pool = ConnectionPool()
     registry = build_tool_registry(pool=pool)
     schemas = registry.export_schemas()
-    assert len(schemas) == 21
+    assert len(schemas) == 23  # 21 original + agent_status + agent_cancel
     for schema in schemas:
         assert "name" in schema
         assert "description" in schema
