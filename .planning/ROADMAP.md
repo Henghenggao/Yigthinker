@@ -16,7 +16,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Gateway & Sessions** - Stand up the daemon that routes messages and manages session lifecycle
 - [x] **Phase 3: TUI Client** - Wire the terminal UI to the Gateway for interactive data analysis conversations
 - [x] **Phase 4: Streaming & Teams Adapter** - Add token-by-token streaming and Teams channel integration
-- [x] **Phase 5: Session Memory & Auto Dream** - Enable cross-session knowledge accumulation (completed 2026-04-06)
+- [x] **Phase 5: Session Memory & Auto Dream** - Enable cross-session knowledge accumulation (completed 2026-04-06)
+- [ ] **Phase 7: Spawn Agent** - Context-isolated sub-agent execution with DataFrame sharing, tool access control, and lifecycle management
 
 ## Phase Details
 
@@ -123,10 +124,35 @@ Plans:
 - [ ] 06-03-PLAN.md -- Sample finance DB, welcome screen, DB connection modal, session auto-resume
 - [ ] 06-04-PLAN.md -- CLI command update, old Dash code removal, test migration
 
+### Phase 7: Spawn Agent
+**Goal**: The LLM can delegate subtasks to child agent loops that execute in isolation, share DataFrames via copy-in/merge-back, and return only final results to the parent -- enabling parallel analysis workflows like "analyze East and West regions simultaneously" without polluting the parent's context window
+**Depends on**: Phase 1 (Agent Loop), Phase 5 (Session Memory for team_memory flag)
+**Requirements**: SPAWN-01 through SPAWN-20
+**Design reference**: Adapted from Claude Code sub-agent architecture. Core principles: context isolation (intermediate tool calls never enter parent messages), least-privilege tool access, recursion prevention, DataFrame sharing as domain-specific extension.
+**Success Criteria** (what must be TRUE):
+  1. spawn_agent creates a child AgentLoop with isolated SessionContext and independent message history; the child does NOT receive the parent's conversation history
+  2. Only the child's final text message is returned to the parent as tool_result; intermediate tool calls stay inside the child
+  3. Specified DataFrames are shallow-copied from parent to child; new DataFrames merge back with `{agent_name}_` prefix to prevent collisions
+  4. Child ToolRegistry excludes `spawn_agent` (recursion prevention); optional `allowed_tools` restricts to a subset (least privilege)
+  5. Foreground mode awaits result inline; background mode returns `subagent_id` immediately and parent continues
+  6. Concurrent subagent limit (configurable, default 3) is enforced; excess spawns return clear error for LLM replanning
+  7. agent_status and agent_cancel companion tools manage running subagents
+  8. Hooks and permissions inherit from parent; SubagentStop hook event fires on child completion
+  9. Subagent transcripts persist separately at `~/.yigthinker/sessions/subagents/{session_id}/{subagent_id}.jsonl`
+  10. `.yigthinker/agents/*.md` files define reusable agent types with preset prompt, tools, and model
+**Plans**: 5 plans
+
+Plans:
+- [ ] 07-01-PLAN.md -- SubAgent engine: child AgentLoop factory, isolated SessionContext, context isolation (final-message-only return), model override
+- [x] 07-02-PLAN.md -- DataFrame sharing: copy-in by name, merge-back with prefix, merge summary in tool_result
+- [x] 07-03-PLAN.md -- Tool access control: allowed_tools whitelist, spawn_agent recursion removal, immutable child ToolRegistry
+- [ ] 07-04-PLAN.md -- Lifecycle management: foreground/background modes, concurrency limiter, agent_status/agent_cancel tools, SubagentStop hook event, subagent transcript persistence
+- [ ] 07-05-PLAN.md -- Integration: hook/permission inheritance, Gateway WebSocket broadcast, TUI subagent display, predefined agent types (.yigthinker/agents/*.md), full test suite
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -136,3 +162,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 4. Streaming & Teams Adapter | 3/3 | Complete | 2026-04-05 |
 | 5. Session Memory & Auto Dream | 2/2 | Complete | 2026-04-06 |
 | 6. Web Dashboard | 0/4 | In Progress | — |
+| 7. Spawn Agent | 2/5 | In Progress|  |

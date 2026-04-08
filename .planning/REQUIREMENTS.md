@@ -80,6 +80,53 @@ Deferred to future milestone. Tracked but not in current roadmap.
 - **GCHAT-02**: Google Chat adapter sends Cards v2 responses
 - **GCHAT-03**: Google Chat adapter enforces per-space rate limiting (1 req/sec)
 
+### Spawn Agent (Sub-Agent Parallel Execution)
+
+Design adapted from Claude Code's sub-agent architecture. Core principles: context isolation (intermediate
+tool calls never enter parent messages), least-privilege tool access, recursion prevention, and
+DataFrame sharing as Yigthinker's domain-specific extension.
+
+#### Context Isolation & Execution
+
+- **SPAWN-01**: spawn_agent creates a child AgentLoop with an isolated SessionContext and independent message history; the child does NOT receive the parent's conversation history
+- **SPAWN-02**: Only the child's **final text message** (end_turn) is returned to the parent as the tool_result; intermediate tool calls and tool_results stay inside the child and never enter the parent's messages
+- **SPAWN-03**: The child AgentLoop uses the same or overridden LLM provider (per `model` parameter: None=inherit, or explicit provider name)
+
+#### DataFrame Sharing (Yigthinker-specific)
+
+- **SPAWN-04**: Specified DataFrames (`dataframes: list[str]`) are shallow-copied from parent ctx.vars to child ctx.vars before execution; unspecified parent DataFrames are not visible to the child
+- **SPAWN-05**: New or modified DataFrames created by the child are merged back into parent ctx.vars after completion, with a `{agent_name}_` prefix to prevent name collisions (e.g. child's `df1` becomes `east_df1` in parent)
+- **SPAWN-06**: The merge-back summary (which DataFrames were added/modified, their shapes) is appended to the tool_result text so the parent LLM is aware of new data
+
+#### Tool Access Control
+
+- **SPAWN-07**: spawn_agent accepts an optional `allowed_tools: list[str]` parameter; when set, the child ToolRegistry contains ONLY those tools (principle of least privilege)
+- **SPAWN-08**: When `allowed_tools` is omitted, the child inherits all parent tools EXCEPT `spawn_agent` itself (recursion prevention — subagents cannot spawn subagents)
+- **SPAWN-09**: The child's ToolRegistry is built at spawn time and is immutable for the child's lifetime
+
+#### Lifecycle Management
+
+- **SPAWN-10**: Foreground mode (default, `background=False`): spawn_agent awaits the child AgentLoop.run() and returns the result inline as a single tool_result
+- **SPAWN-11**: Background mode (`background=True`): spawn_agent launches the child as an asyncio.Task, returns immediately with a `subagent_id`, and the parent continues its own loop
+- **SPAWN-12**: Concurrent subagent limit is configurable via settings (`spawn_agent.max_concurrent`, default 3); excess spawns return a clear error to the LLM for replanning
+- **SPAWN-13**: agent_status companion tool lists all subagents (running/completed/failed) with their subagent_id, name, status, and elapsed time
+- **SPAWN-14**: agent_cancel companion tool cancels a running background subagent by subagent_id; the cancelled subagent's partial results (if any) are discarded
+
+#### Hook & Permission Inheritance
+
+- **SPAWN-15**: The child inherits the parent's HookExecutor and PermissionSystem references; child tool calls fire PreToolUse/PostToolUse hooks normally under the parent's session_id
+- **SPAWN-16**: A new `SubagentStop` hook event fires when a child completes (or is cancelled), carrying `subagent_id`, `subagent_name`, `final_text`, and `status` (completed/failed/cancelled)
+
+#### Transcript & Observability
+
+- **SPAWN-17**: Each subagent's conversation is persisted as a separate JSONL transcript at `~/.yigthinker/sessions/subagents/{session_id}/{subagent_id}.jsonl`
+- **SPAWN-18**: Gateway broadcasts subagent lifecycle events (spawned/completed/failed) to attached WebSocket clients so the dashboard and TUI can display subagent status
+
+#### Predefined Agent Types (Extension)
+
+- **SPAWN-19**: `.yigthinker/agents/*.md` files with YAML frontmatter (`name`, `description`, `allowed_tools`, `model`) define reusable agent types; spawn_agent accepts an optional `agent_type: str` that loads the predefined prompt and tool restrictions
+- **SPAWN-20**: When `agent_type` is set, the predefined agent's `description` and system prompt are injected into the child's context; user-provided `prompt` becomes the task instruction appended after the system prompt
+
 ### Advanced Features
 
 - **ADV-01**: Speculation engine predicts next user action and pre-computes responses
@@ -140,12 +187,33 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MEM-02 | Phase 5 | Complete |
 | MEM-03 | Phase 5 | Complete |
 | MEM-04 | Phase 5 | Complete |
+| SPAWN-01 | Phase 7 | Not Started |
+| SPAWN-02 | Phase 7 | Not Started |
+| SPAWN-03 | Phase 7 | Not Started |
+| SPAWN-04 | Phase 7 | Not Started |
+| SPAWN-05 | Phase 7 | Not Started |
+| SPAWN-06 | Phase 7 | Not Started |
+| SPAWN-07 | Phase 7 | Not Started |
+| SPAWN-08 | Phase 7 | Not Started |
+| SPAWN-09 | Phase 7 | Not Started |
+| SPAWN-10 | Phase 7 | Not Started |
+| SPAWN-11 | Phase 7 | Not Started |
+| SPAWN-12 | Phase 7 | Not Started |
+| SPAWN-13 | Phase 7 | Not Started |
+| SPAWN-14 | Phase 7 | Not Started |
+| SPAWN-15 | Phase 7 | Not Started |
+| SPAWN-16 | Phase 7 | Not Started |
+| SPAWN-17 | Phase 7 | Not Started |
+| SPAWN-18 | Phase 7 | Not Started |
+| SPAWN-19 | Phase 7 | Not Started |
+| SPAWN-20 | Phase 7 | Not Started |
 
 **Coverage:**
-- v1 requirements: 33 total
-- Mapped to phases: 33
+- v1 requirements: 33 total, all mapped
+- v1.1 requirements: 20 total (SPAWN-01 through SPAWN-20)
+- Mapped to phases: 53
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-02*
-*Last updated: 2026-04-02 after roadmap creation*
+*Last updated: 2026-04-08 after expanding Phase 7 with Claude Code design principles*
