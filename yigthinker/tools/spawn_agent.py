@@ -37,7 +37,8 @@ class SpawnAgentTool:
         "with its own context and returns only its final result. Use foreground "
         "mode (default) to wait for the result, or background=True to continue "
         "working while the child runs. Specify allowed_tools to restrict the "
-        "child's capabilities."
+        "child's capabilities, or agent_type to load a predefined agent "
+        "configuration from .yigthinker/agents/*.md files."
     )
     input_schema = SpawnAgentInput
 
@@ -74,14 +75,42 @@ class SpawnAgentTool:
                 is_error=True,
             )
 
-        # 2. Lazy-init SubagentManager on ctx
+        # 2. Handle agent_type if specified (SPAWN-19, SPAWN-20)
+        system_prompt_prefix = ""
+        effective_allowed_tools = input.allowed_tools
+        effective_model = input.model
+
+        if input.agent_type:
+            from yigthinker.subagent.agent_types import load_agent_type
+            try:
+                agent_def = load_agent_type(input.agent_type)
+            except (FileNotFoundError, ValueError) as exc:
+                return ToolResult(tool_use_id="", content=str(exc), is_error=True)
+
+            # Agent type's allowed_tools override if user didn't specify (D-11)
+            if effective_allowed_tools is None and agent_def.allowed_tools is not None:
+                effective_allowed_tools = agent_def.allowed_tools
+
+            # Agent type's model override if user didn't specify
+            if effective_model is None and agent_def.model is not None:
+                effective_model = agent_def.model
+
+            # System prompt: agent type body is the system prompt prefix (D-11)
+            system_prompt_prefix = agent_def.system_prompt
+
+        # Build the full prompt with agent type system prompt if present
+        full_prompt = input.prompt
+        if system_prompt_prefix:
+            full_prompt = system_prompt_prefix + "\n\n---\n\nTask: " + input.prompt
+
+        # 3. Lazy-init SubagentManager on ctx
         if ctx.subagent_manager is None:
             max_concurrent = (
                 ctx.settings.get("spawn_agent", {}).get("max_concurrent", 3)
             )
             ctx.subagent_manager = SubagentManager(max_concurrent)
 
-        # 3. Check concurrency limit (SPAWN-12)
+        # 4. Check concurrency limit (SPAWN-12)
         if not ctx.subagent_manager.can_spawn():
             limit = ctx.subagent_manager._max_concurrent
             return ToolResult(
@@ -93,10 +122,20 @@ class SpawnAgentTool:
                 is_error=True,
             )
 
-        # 4. Generate agent_name
-        agent_name = input.name or f"subagent_{len(ctx.subagent_manager.list_all()) + 1}"
+        # 5. Generate agent_name
+        agent_name = input.name or input.agent_type or f"subagent_{len(ctx.subagent_manager.list_all()) + 1}"
 
-        # 5. Create SubagentEngine
+        # 6. Broadcast spawned event if on_tool_event is available (SPAWN-18)
+        _on_tool_event = getattr(ctx, "_on_tool_event", None)
+        if _on_tool_event:
+            _on_tool_event("subagent_event", {
+                "subagent_id": "",
+                "subagent_name": agent_name,
+                "event": "spawned",
+                "detail": f"Task: {input.prompt[:100]}",
+            })
+
+        # 7. Create SubagentEngine
         engine = SubagentEngine(
             self._tools,
             self._hooks,
@@ -105,21 +144,16 @@ class SpawnAgentTool:
             ctx.settings,
         )
 
-        # 6. Create child AgentLoop
+        # 8. Create child AgentLoop
         child_loop = engine.create_child_loop(
-            allowed_tools=input.allowed_tools,
-            model=input.model,
+            allowed_tools=effective_allowed_tools,
+            model=effective_model,
         )
 
-        # 7. Create isolated SessionContext for child
+        # 9. Create isolated SessionContext for child
         child_ctx = SessionContext(settings=ctx.settings)
 
-        # 8. Set up transcript persistence (SPAWN-17)
-        # Generate a temporary subagent_id for transcript path
-        import uuid
-        temp_id = str(uuid.uuid4())
-
-        # 9. Copy DataFrames if specified
+        # 10. Copy DataFrames if specified
         original_names: set[str] = set()
         if input.dataframes:
             try:
@@ -133,7 +167,7 @@ class SpawnAgentTool:
                 )
 
         if not input.background:
-            # 10. Foreground mode (SPAWN-10)
+            # 11. Foreground mode (SPAWN-10)
             info = ctx.subagent_manager.register(agent_name, task=None)
 
             # Set transcript path for child
@@ -141,7 +175,7 @@ class SpawnAgentTool:
             child_ctx.transcript_path = str(writer._path)
 
             try:
-                result_text = await child_loop.run(input.prompt, child_ctx)
+                result_text = await child_loop.run(full_prompt, child_ctx)
 
                 # Merge back DataFrames if any were specified
                 merge_summary = ""
@@ -165,6 +199,15 @@ class SpawnAgentTool:
                 ))
                 # NOTE: Return value of hooks.run() intentionally ignored for SubagentStop
                 # per D-13. Even if a hook returns BLOCK, the subagent has already completed.
+
+                # Broadcast completed event (SPAWN-18)
+                if _on_tool_event:
+                    _on_tool_event("subagent_event", {
+                        "subagent_id": info.subagent_id,
+                        "subagent_name": agent_name,
+                        "event": "completed",
+                        "detail": truncated_text[:100],
+                    })
 
                 # Write child transcript
                 for msg in child_ctx.messages:
@@ -192,14 +235,22 @@ class SpawnAgentTool:
                 ))
                 # D-13: BLOCK result ignored for SubagentStop
 
+                # Broadcast failed event (SPAWN-18)
+                if _on_tool_event:
+                    _on_tool_event("subagent_event", {
+                        "subagent_id": info.subagent_id,
+                        "subagent_name": agent_name,
+                        "event": "failed",
+                        "detail": str(exc)[:100],
+                    })
+
                 return ToolResult(
                     tool_use_id="",
                     content=f"Subagent '{agent_name}' failed: {exc}",
                     is_error=True,
                 )
         else:
-            # 11. Background mode (SPAWN-11)
-            # Register first to get subagent_id, then create task
+            # 12. Background mode (SPAWN-11)
             info = ctx.subagent_manager.register(agent_name, task=None)
 
             # Set transcript path for child
@@ -212,12 +263,13 @@ class SpawnAgentTool:
             transcript_path = ctx.transcript_path
             parent_vars = ctx.vars
             dataframes_specified = input.dataframes
+            on_tool_event = _on_tool_event
 
             async def _run_background() -> None:
                 result_text = ""
                 status = "completed"
                 try:
-                    result_text = await child_loop.run(input.prompt, child_ctx)
+                    result_text = await child_loop.run(full_prompt, child_ctx)
 
                     # Merge back DataFrames
                     merge_summary = ""
@@ -259,6 +311,15 @@ class SpawnAgentTool:
                         subagent_final_text=final_text,  # per D-14
                     ))
                     # D-13: BLOCK result ignored for SubagentStop
+
+                    # Broadcast lifecycle event (SPAWN-18)
+                    if on_tool_event:
+                        on_tool_event("subagent_event", {
+                            "subagent_id": info.subagent_id,
+                            "subagent_name": agent_name,
+                            "event": status,
+                            "detail": final_text[:100],
+                        })
 
                     # Write child transcript
                     for msg in child_ctx.messages:

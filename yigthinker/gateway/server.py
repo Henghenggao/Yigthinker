@@ -27,6 +27,7 @@ from yigthinker.gateway.protocol import (
     ErrorMsg,
     ResponseDoneMsg,
     SessionListMsg,
+    SubagentEventMsg,
     TokenStreamMsg,
     ToolCallMsg,
     ToolResultMsg,
@@ -181,6 +182,13 @@ class GatewayServer:
                         tool_id=data.get("tool_id", ""),
                         content=data.get("content", ""),
                         is_error=data.get("is_error", False),
+                    ))
+                elif event_type == "subagent_event":
+                    msg = to_json_dict(SubagentEventMsg(
+                        subagent_id=data.get("subagent_id", ""),
+                        subagent_name=data.get("subagent_name", ""),
+                        event=data.get("event", ""),
+                        detail=data.get("detail", ""),
                     ))
                 else:
                     return

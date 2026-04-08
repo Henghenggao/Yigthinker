@@ -101,6 +101,16 @@ class ErrorMsg:
     type: str = "error"
 
 
+@dataclass
+class SubagentEventMsg:
+    """Lifecycle event for subagent status changes (SPAWN-18, D-17)."""
+    subagent_id: str
+    subagent_name: str
+    event: str  # "spawned" | "completed" | "failed" | "cancelled"
+    detail: str = ""
+    type: str = "subagent_event"
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def to_json_dict(msg: Any) -> dict[str, Any]:
