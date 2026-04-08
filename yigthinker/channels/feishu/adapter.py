@@ -69,7 +69,7 @@ class FeishuAdapter:
 
             if self._verify_token:
                 incoming_token = body.get("token") or body.get("header", {}).get("token", "")
-                if incoming_token and incoming_token != self._verify_token:
+                if not incoming_token or incoming_token != self._verify_token:
                     return JSONResponse({"code": 99991663, "msg": "verification token mismatch"}, status_code=401)
 
             # Handle Feishu URL verification challenge

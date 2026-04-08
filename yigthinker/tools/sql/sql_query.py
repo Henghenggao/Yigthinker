@@ -8,7 +8,10 @@ from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
 from yigthinker.tools.sql.connection import ConnectionPool
 
-_DML_KEYWORDS = re.compile(r"\b(DELETE|INSERT|UPDATE|DROP|TRUNCATE|ALTER|CREATE)\b", re.IGNORECASE)
+_DML_KEYWORDS = re.compile(
+    r"\b(DELETE|INSERT|UPDATE|DROP|TRUNCATE|ALTER|CREATE|COPY|MERGE|CALL|GRANT|REVOKE|EXEC)\b",
+    re.IGNORECASE,
+)
 
 
 class SqlQueryInput(BaseModel):

@@ -1,9 +1,15 @@
 from __future__ import annotations
+import re
 import sqlalchemy as sa
 from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
 from yigthinker.tools.sql.connection import ConnectionPool
+
+_DML_KEYWORDS = re.compile(
+    r"\b(DELETE|INSERT|UPDATE|DROP|TRUNCATE|ALTER|CREATE|COPY|MERGE|CALL|GRANT|REVOKE|EXEC)\b",
+    re.IGNORECASE,
+)
 
 
 class SqlExplainInput(BaseModel):
@@ -15,7 +21,7 @@ class SqlExplainTool:
     name = "sql_explain"
     description = (
         "Show the execution plan for a SQL query without running it. "
-        "Always read-only and safe to call."
+        "Only SELECT queries are allowed — DML statements are rejected."
     )
     input_schema = SqlExplainInput
 
@@ -23,6 +29,13 @@ class SqlExplainTool:
         self._pool = pool
 
     async def execute(self, input: SqlExplainInput, ctx: SessionContext) -> ToolResult:
+        if _DML_KEYWORDS.search(input.query):
+            return ToolResult(
+                tool_use_id="",
+                content="DML statements are not allowed in sql_explain. Only SELECT queries can be explained.",
+                is_error=True,
+            )
+
         try:
             engine = self._pool.get(input.connection)
             dialect = engine.dialect.name

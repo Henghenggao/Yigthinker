@@ -38,14 +38,43 @@ _BLOCKED_DUNDERS = frozenset({
     "__code__", "__func__", "__self__", "__closure__", "__wrapped__",
 })
 
+# Module-level attributes that provide access to dangerous stdlib modules.
+# These are reachable via injected library objects (e.g. pd.io.common.os).
+_BLOCKED_ATTRS = frozenset({
+    "os", "subprocess", "sys", "importlib", "ctypes", "shutil",
+    "pathlib", "socket", "http", "urllib", "ftplib", "smtplib",
+    "webbrowser", "code", "codeop", "compileall", "runpy",
+})
 
-class _DunderBlocker(ast.NodeVisitor):
-    """Raises SyntaxError if any blocked dunder attribute is accessed."""
+
+def _get_attr_chain(node: ast.Attribute) -> list[str]:
+    """Walk an Attribute node to build the full dotted path as a list."""
+    parts: list[str] = []
+    current: ast.expr = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if isinstance(current, ast.Name):
+        parts.append(current.id)
+    parts.reverse()
+    return parts
+
+
+class _SandboxChecker(ast.NodeVisitor):
+    """Raises SyntaxError if blocked dunders or dangerous module paths are accessed."""
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if node.attr in _BLOCKED_DUNDERS:
             raise SyntaxError(
                 f"Access to '{node.attr}' is not allowed in df_transform sandbox."
+            )
+        # Block access to dangerous stdlib modules via attribute chains
+        # (e.g. pd.io.common.os, np.distutils.exec_command.subprocess)
+        if node.attr in _BLOCKED_ATTRS:
+            chain = _get_attr_chain(node)
+            raise SyntaxError(
+                f"Access to '{'.'.join(chain)}' is blocked in df_transform sandbox. "
+                f"Module '{node.attr}' is not allowed."
             )
         self.generic_visit(node)
 
@@ -63,7 +92,7 @@ def _check_ast(code: str) -> None:
         tree = ast.parse(code, mode="exec")
     except SyntaxError as exc:
         raise SyntaxError(f"Invalid Python syntax: {exc}") from exc
-    _DunderBlocker().visit(tree)
+    _SandboxChecker().visit(tree)
 
 
 def _safe_import(name: str, *args, **kwargs):
