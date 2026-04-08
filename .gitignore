@@ -83,3 +83,7 @@ requirements/
 *-SPEC*.md
 *-PLAN*.md
 *-DESIGN*.md
+
+# Project-level docs (keep README.md tracked)
+CLAUDE.md
+TODOS.md

@@ -1,119 +1,106 @@
 # Yigthinker
 
-Yigthinker is a Python agent for data analysis workflows across CLI, Gateway, TUI, dashboard, and messaging channels.
+Yigthinker is a headless AI agent for financial and data analysis. It runs as a CLI REPL, a FastAPI gateway daemon, a Textual TUI, or behind messaging channel webhooks (Feishu, Teams, Google Chat) — same agent, multiple surfaces, no web dashboard.
 
 It combines:
 
-- an LLM-driven agent loop with tool calling
-- session-scoped DataFrame storage
-- a FastAPI Gateway for multi-session access
-- a Textual TUI client
-- optional dashboard, forecasting, and channel integrations
+- An LLM-driven agent loop with 26 registered tools
+- Session-scoped in-memory DataFrame storage (`ctx.vars`)
+- A hook system for permissions, auditing, and cross-cutting concerns
+- 4 LLM providers: Claude, OpenAI, Ollama, Azure
 
-The current `master` branch has completed the v1 stabilization milestone and the full local test suite is green.
+## Quick Start
 
-## What It Can Do
-
-- Query configured databases with `sql_query`, `sql_explain`, and `schema_inspect`
-- Load, transform, merge, and profile DataFrames in-session
-- Create and modify charts, and push entries to the dashboard queue
-- Run exploration helpers for overview, drilldown, and anomaly detection
-- Start a Gateway and connect a TUI client over WebSocket
-- Stream token output through the Gateway/TUI path
-- Persist session state and hibernate idle Gateway sessions
-- Accumulate session memory and run background "auto dream" consolidation
-- Expose experimental adapters for Teams, Feishu, and Google Chat
-
-## Honest Status Notes
-
-- `spawn_agent` is registered but intentionally returns a "not implemented" error.
-- `report_schedule` stores schedules in session memory only; it is not a persistent scheduler.
-- Forecast tools are optional and only register when their scientific dependencies are installed.
-- Channel adapters are present, but should still be treated as integration-level features rather than polished product surfaces.
-
-## Installation
-
-One command to install:
+### 1. Install
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/gaoyu/Yigthinker/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Henghenggao/Yigthinker/master/install.sh | bash
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/gaoyu/Yigthinker/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/Henghenggao/Yigthinker/master/install.ps1 | iex
 ```
 
-The installer will guide you through choosing components. After installation, run:
+The installer sets up [uv](https://docs.astral.sh/uv/) and walks you through component selection.
+
+### 2. First run
 
 ```bash
-yigthinker setup    # Configure API keys and data sources
-yigthinker          # Start the interactive REPL
+yigthinker quickstart
 ```
 
-### Manual Installation
+This does three things:
+1. Configures your LLM provider and API key
+2. Creates a sample finance database (revenue, accounts payable, expenses)
+3. Starts the gateway on `http://127.0.0.1:8766`
 
-If you prefer to install manually or the one-liner doesn't work in your environment:
+Once the gateway is running, open a second terminal:
 
 ```bash
-# 1. Install uv (Python toolchain)
-curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS/Linux
-# or: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"  # Windows
+yigthinker tui
+```
 
-# 2. Install yigthinker with your preferred extras
-uv tool install "yigthinker[forecast,dashboard]"           # local analysis
-uv tool install "yigthinker[forecast,dashboard,gateway,tui]"  # team server
-uv tool install "yigthinker[forecast,dashboard,gateway,tui,feishu,teams,gchat]"  # everything
+### 3. Try a query
+
+In the REPL or TUI, type:
+
+```text
+Show total revenue by region for 2025 from the sample database
+```
+
+The agent will use `sql_query` on the sample database, then render a summary.
+
+## Manual Installation
+
+```bash
+# Core (CLI + all tools)
+pip install yigthinker
+
+# With gateway + TUI
+pip install "yigthinker[gateway,tui]"
+
+# With forecasting (statsmodels, scikit-learn, prophet)
+pip install "yigthinker[forecast]"
+
+# Everything including channel adapters
+pip install "yigthinker[gateway,tui,forecast,feishu,teams,gchat]"
 ```
 
 ### Extras Reference
 
 | Extra | What it adds |
 |-------|-------------|
-| `forecast` | statsmodels / scikit-learn / prophet |
-| `dashboard` | FastAPI / Plotly / Uvicorn |
-| `gateway` | FastAPI / websockets / pyarrow / Uvicorn |
-| `tui` | Textual / websockets |
-| `feishu` | Feishu / Lark SDK |
-| `teams` | httpx / msal |
-| `gchat` | Google API client / google-auth |
+| `forecast` | statsmodels, scikit-learn, prophet |
+| `gateway` | FastAPI, uvicorn, websockets, pyarrow |
+| `tui` | Textual, websockets |
+| `feishu` | Lark/Feishu SDK |
+| `teams` | httpx, msal (Azure AD) |
+| `gchat` | Google API client, google-auth |
 
 ### For Contributors
 
 ```bash
-git clone https://github.com/gaoyu/Yigthinker.git
+git clone https://github.com/Henghenggao/Yigthinker.git
 cd Yigthinker
 pip install -e ".[test]"
+python -m pytest -q
 ```
 
-## Entry Points
-
-The current Typer app exposes these top-level commands:
+## CLI Commands
 
 ```bash
-yigthinker
-yigthinker "show me revenue by region for Q1"
-yigthinker --resume
-yigthinker dashboard
-yigthinker gateway
-yigthinker tui
+yigthinker                      # Start interactive REPL
+yigthinker "your query here"    # Single-shot query
+yigthinker --resume             # Resume last session
+yigthinker quickstart           # First-time guided setup
+yigthinker install              # Interactive component installer
+yigthinker gateway              # Start gateway daemon (foreground)
+yigthinker tui                  # Launch TUI (connects to gateway)
 ```
 
-Notes:
+## Configuration
 
-- `yigthinker` without arguments starts the interactive REPL.
-- `yigthinker gateway` runs in the foreground and creates `~/.yigthinker/gateway.token` on first start.
-- `yigthinker tui` expects that gateway token file to exist, so start the Gateway first.
-
-## Quick Start
-
-### 1. Configure a model
-
-Create either:
-
-- project settings at `.yigthinker/settings.json`
-- user settings at `~/.yigthinker/settings.json`
-
-Minimal example:
+Create `.yigthinker/settings.json` (project) or `~/.yigthinker/settings.json` (user):
 
 ```json
 {
@@ -121,7 +108,7 @@ Minimal example:
   "permissions": {
     "allow": ["schema_inspect", "df_profile", "chart_recommend"],
     "ask": ["sql_query", "df_transform", "report_generate"],
-    "deny": ["sql_query(DELETE:*)", "sql_query(DROP:*)", "sql_query(UPDATE:*)"]
+    "deny": ["sql_query(DELETE:*)", "sql_query(DROP:*)"]
   },
   "connections": {
     "finance": {
@@ -132,152 +119,134 @@ Minimal example:
 }
 ```
 
-Saved API keys in user settings are promoted into environment variables at load time:
+API keys can be set as environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`) or saved in user settings during `yigthinker quickstart`.
 
-- `anthropic_api_key` -> `ANTHROPIC_API_KEY`
-- `openai_api_key` -> `OPENAI_API_KEY`
-- `azure_openai_api_key` -> `AZURE_OPENAI_API_KEY`
-
-### 2. Run the CLI
-
-```bash
-yigthinker
-```
-
-Example prompt:
-
-```text
-Load ./data/revenue.csv, profile it, and show anomalies by month.
-```
-
-### 3. Run Gateway + TUI
-
-Terminal 1:
-
-```bash
-yigthinker gateway
-```
-
-Terminal 2:
-
-```bash
-yigthinker tui
-```
-
-### 4. Run the dashboard
-
-```bash
-yigthinker dashboard
-```
-
-Default URLs:
-
-- dashboard: `http://127.0.0.1:8766/dashboard/`
-- gateway health: `http://127.0.0.1:8766/health`
-
-## Built-in Slash Commands
-
-The CLI command router currently supports:
-
-- `/help`
-- `/vars`
-- `/connect <name>`
-- `/schema [table]`
-- `/history`
-- `/export`
-- `/schedule`
-- `/stats`
-- `/advisor [off|model]`
-- `/voice [on|off|lang <code>]`
-
-Plugin-provided slash commands are loaded from:
-
-- `~/.yigthinker/plugins`
-- `.yigthinker/plugins` in the current project
+Ollama requires no API key — it uses the local HTTP endpoint at `http://localhost:11434`.
 
 ## Tool Surface
 
-Always available:
+### Always available (26 tools)
 
-- SQL: `sql_query`, `sql_explain`, `schema_inspect`
-- DataFrame: `df_load`, `df_transform`, `df_profile`, `df_merge`
-- Charts: `chart_create`, `chart_modify`, `chart_recommend`, `dashboard_push`
-- Reports: `report_generate`, `report_template`, `report_schedule`
-- Exploration: `explore_overview`, `explore_drilldown`, `explore_anomaly`
-- Agent: `spawn_agent`
+| Category | Tools |
+|----------|-------|
+| SQL | `sql_query`, `sql_explain`, `schema_inspect` |
+| DataFrame | `df_load`, `df_transform`, `df_profile`, `df_merge` |
+| Visualization | `chart_create`, `chart_modify`, `chart_recommend` |
+| Reports | `report_generate`, `report_template`, `report_schedule` |
+| Exploration | `explore_overview`, `explore_drilldown`, `explore_anomaly` |
+| Finance | `finance_calculate`, `finance_analyze`, `finance_validate`, `finance_budget` |
+| Agent | `spawn_agent`, `agent_status`, `agent_cancel` |
 
-Registered only when forecast dependencies are installed:
+### Optional (require `forecast` extra)
 
-- `forecast_timeseries`
-- `forecast_regression`
-- `forecast_evaluate`
+`forecast_timeseries`, `forecast_regression`, `forecast_evaluate`
+
+## Built-in Slash Commands
+
+```
+/help                   Show available commands
+/vars                   List in-memory DataFrames
+/connect <name>         Switch database connection
+/schema [table]         Inspect database schema
+/history                Show conversation history
+/export                 Export session data
+/schedule               Manage report schedules
+/stats                  Show session statistics
+/advisor [off|model]    Toggle dual-model advisor
+/voice [on|off|lang]    Toggle voice input
+```
+
+Plugin-provided commands are loaded from `~/.yigthinker/plugins` and `.yigthinker/plugins`.
 
 ## Architecture
 
-Core flow:
+```
+User input
+  |
+  v
+Entry point (CLI / Gateway WS / Channel webhook)
+  |
+  v
+AgentLoop.run(user_input, session_context)
+  |
+  +---> LLM call (Claude / OpenAI / Ollama / Azure)
+  |       |
+  |       v
+  |     Parse response: text | tool_use | end_turn
+  |       |
+  |     tool_use:
+  |       +---> PreToolUse hooks (permissions, audit)
+  |       +---> tool.execute(input, ctx)
+  |       +---> PostToolUse hooks
+  |       +---> tool_result -> loop back to LLM
+  |
+  v
+end_turn -> output to user
+```
 
-1. `build_app()` wires provider, tools, hooks, permissions, and DB pool.
-2. `AgentLoop` runs the message -> tool_use -> tool_result cycle.
-3. `SessionContext` stores messages, stats, context manager state, and DataFrame variables.
-4. `GatewayServer` manages session keys, WebSocket clients, and session hibernation.
-5. `YigthinkerTUI` connects to the Gateway and renders chat, vars, tool cards, and streamed output.
+Key directories:
 
-Important directories:
+| Path | Purpose |
+|------|---------|
+| `yigthinker/agent.py` | Agent loop |
+| `yigthinker/session.py` | Session context + VarRegistry |
+| `yigthinker/providers/` | LLM provider implementations |
+| `yigthinker/tools/` | All 26 tool implementations |
+| `yigthinker/gateway/` | Gateway server, session registry, protocol |
+| `yigthinker/tui/` | Textual TUI client |
+| `yigthinker/channels/` | Feishu, Teams, Google Chat adapters |
+| `yigthinker/hooks/` | Hook registry and executor |
+| `yigthinker/memory/` | Session memory and auto-dream |
+| `yigthinker/mcp/` | MCP integration |
 
-- `yigthinker/agent.py` - agent loop
-- `yigthinker/builder.py` - app construction
-- `yigthinker/gateway/` - Gateway, session registry, protocol, hibernation
-- `yigthinker/tui/` - Textual client
-- `yigthinker/tools/` - tool implementations
-- `yigthinker/memory/` - session memory, compaction, auto dream
-- `yigthinker/channels/` - Teams / Feishu / Google Chat adapters
-- `tests/` - full automated test suite
+## Gateway + Channels
+
+The gateway is a long-running FastAPI daemon that manages multiple sessions:
+
+```bash
+yigthinker gateway --host 127.0.0.1 --port 8766
+```
+
+It exposes:
+- `/ws` — WebSocket for TUI and API clients
+- `/api/sessions` — Session management REST API
+- `/health` — Liveness check
+- Webhook routes registered by channel adapters
+
+### Channel adapters
+
+Configure in `.yigthinker/settings.json`:
+
+```json
+{
+  "channels": {
+    "feishu": { "enabled": true, "app_id": "...", "app_secret": "..." },
+    "teams": { "enabled": true, "app_id": "...", "app_secret": "...", "webhook_secret": "..." },
+    "gchat": { "enabled": true, "service_account_file": "..." }
+  }
+}
+```
+
+Channel adapters handle platform-specific auth (Feishu token verification, Teams HMAC, Google service accounts) and route messages through the same `AgentLoop.run()` as CLI and TUI.
 
 ## Testing
 
-Run the full suite:
-
 ```bash
-python -m pytest -q
+python -m pytest -q          # Full suite
+python -m pytest tests/test_gateway/ -q    # Gateway tests only
+python -m pytest tests/test_tools/ -q      # Tool tests only
 ```
 
-Current local status on this branch:
-
-```text
-359 passed
-```
-
-Examples:
-
-```bash
-python -m pytest tests/test_gateway/test_session_registry.py -q
-python -m pytest tests/test_tui -q
-python -m pytest tests/test_memory/test_auto_dream.py -q
-```
-
-Forecast tests use `pytest.importorskip` for missing scientific packages, but the main dashboard, gateway, and TUI suites assume the matching runtime dependencies are installed. Using `.[test]` is the simplest contributor setup.
-
-## Channels
-
-The Gateway can mount optional webhook adapters from settings:
-
-- `channels.teams`
-- `channels.feishu`
-- `channels.gchat`
-
-The Teams adapter currently:
-
-- verifies webhook HMAC signatures
-- derives a session key from sender identity
-- sends Adaptive Card responses using `httpx` + `msal`
+Current status: **514 tests passing** in ~12 seconds.
 
 ## Limitations
 
-- No daemon manager is included; the Gateway runs in the foreground.
-- `spawn_agent` is a placeholder tool today.
-- Scheduled reports are not persisted across restarts.
-- README examples are intentionally aligned to the current codebase, not a future product surface.
+- The gateway runs in the foreground; no built-in daemon manager (use systemd, supervisor, or similar).
+- `report_schedule` stores schedules in session memory only; not persisted across restarts.
+- Forecast tools only register when their scientific dependencies are installed.
+- Channel adapters are functional but should be treated as integration-level features.
+- SQL queries pass LLM-generated SQL directly; use read-only database users for safety.
 
 ## License
 
-MIT
+[MIT](LICENSE)

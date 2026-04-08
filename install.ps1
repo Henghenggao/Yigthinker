@@ -1,5 +1,5 @@
 # Yigthinker one-line installer for Windows
-# Usage: irm https://raw.githubusercontent.com/gaoyu/Yigthinker/master/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/Henghenggao/Yigthinker/master/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
 function Main {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Yigthinker one-line installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/gaoyu/Yigthinker/master/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/Henghenggao/Yigthinker/master/install.sh | bash
 set -euo pipefail
 
 main() {
