@@ -57,7 +57,8 @@ HookResult.ALLOW = HookResult(HookAction.ALLOW)
 class HookEvent:
     event_type: Literal[
         "PreToolUse", "PostToolUse", "UserPromptSubmit",
-        "Stop", "SessionStart", "SessionEnd", "PreCompact"
+        "Stop", "SessionStart", "SessionEnd", "PreCompact",
+        "SubagentStop",
     ]
     session_id: str
     transcript_path: str
@@ -65,6 +66,10 @@ class HookEvent:
     tool_input: dict = field(default_factory=dict)
     tool_result: ToolResult | None = None
     user_prompt: str = ""
+    subagent_id: str = ""
+    subagent_name: str = ""
+    subagent_status: str = ""  # "completed" | "failed" | "cancelled"
+    subagent_final_text: str = ""  # truncated summary per D-14
 
 
 @dataclass

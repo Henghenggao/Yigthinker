@@ -3,7 +3,10 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from yigthinker.subagent.manager import SubagentManager
 
 import pandas as pd
 
@@ -85,6 +88,7 @@ class SessionContext:
     context_manager: ContextManager = field(default_factory=ContextManager)
     stats: StatsAccumulator = field(default_factory=StatsAccumulator)
     messages: list[Message] = field(default_factory=list)
+    subagent_manager: SubagentManager | None = None
 
     def mark_active(self) -> None:
         self.last_active = time.monotonic()
