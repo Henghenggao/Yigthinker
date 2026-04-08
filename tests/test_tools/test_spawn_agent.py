@@ -17,14 +17,16 @@ def test_spawn_agent_input_schema():
     assert inp.prompt == "Analyze East region"
     assert inp.dataframes is None
     assert inp.background is False
+    assert inp.allowed_tools is None
+    assert inp.agent_type is None
 
 
-async def test_spawn_agent_returns_not_implemented_error(ctx):
+async def test_spawn_agent_returns_stub_error(ctx):
     tool = SpawnAgentTool()
     inp = SpawnAgentInput(prompt="Summarize the sales data")
     result = await tool.execute(inp, ctx)
     assert result.is_error
-    assert "not yet implemented" in result.content.lower()
+    assert "structure validated" in result.content
 
 
 async def test_spawn_agent_with_dataframes_still_returns_error(ctx):
@@ -32,4 +34,4 @@ async def test_spawn_agent_with_dataframes_still_returns_error(ctx):
     inp = SpawnAgentInput(prompt="analyze", dataframes=["sales"])
     result = await tool.execute(inp, ctx)
     assert result.is_error
-    assert "not yet implemented" in result.content.lower()
+    assert "structure validated" in result.content
