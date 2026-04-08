@@ -92,6 +92,16 @@ async def build_app(
         timeout_seconds=timeout_seconds,
     )
 
+    # --- Spawn agent wiring ---
+    spawn_tool = tools.get("spawn_agent")
+    if hasattr(spawn_tool, "set_parent_components"):
+        spawn_tool.set_parent_components(
+            tools=tools,
+            hooks=hooks,
+            permissions=permissions,
+            provider=provider,
+        )
+
     # --- Memory subsystem ---
     memory_manager: MemoryManager | None = None
 

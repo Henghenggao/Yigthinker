@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from yigthinker.session import SessionContext
+from yigthinker.subagent.dataframes import copy_dataframes_to_child, merge_back_dataframes
+from yigthinker.subagent.engine import SubagentEngine
 from yigthinker.subagent.manager import SubagentManager
-from yigthinker.types import ToolResult
+from yigthinker.subagent.transcript import create_subagent_transcript_writer
+from yigthinker.types import HookEvent, ToolResult
 
 if TYPE_CHECKING:
+    from yigthinker.hooks.executor import HookExecutor
+    from yigthinker.permissions import PermissionSystem
+    from yigthinker.providers.base import LLMProvider
     from yigthinker.tools.registry import ToolRegistry
 
 
@@ -26,25 +33,55 @@ class SpawnAgentInput(BaseModel):
 class SpawnAgentTool:
     name = "spawn_agent"
     description = (
-        "Spawn a child agent to handle a subtask in isolation. "
-        "The child runs with its own context and returns only its final result. "
-        "Specify allowed_tools to restrict the child's capabilities, "
-        "or omit to inherit all parent tools except spawn_agent."
+        "Spawn a child agent to handle a subtask in isolation. The child runs "
+        "with its own context and returns only its final result. Use foreground "
+        "mode (default) to wait for the result, or background=True to continue "
+        "working while the child runs. Specify allowed_tools to restrict the "
+        "child's capabilities."
     )
     input_schema = SpawnAgentInput
 
-    def __init__(self, tools: ToolRegistry | None = None) -> None:
+    def __init__(self) -> None:
+        self._tools: ToolRegistry | None = None
+        self._hooks: HookExecutor | None = None
+        self._permissions: PermissionSystem | None = None
+        self._provider: LLMProvider | None = None
+
+    def set_parent_components(
+        self,
+        tools: ToolRegistry,
+        hooks: HookExecutor,
+        permissions: PermissionSystem,
+        provider: LLMProvider,
+    ) -> None:
+        """Inject parent components for SubagentEngine construction."""
         self._tools = tools
+        self._hooks = hooks
+        self._permissions = permissions
+        self._provider = provider
 
     async def execute(self, input: SpawnAgentInput, ctx: SessionContext) -> ToolResult:
-        # Ensure SubagentManager exists on ctx
+        # 1. Check all parent components are set
+        if (
+            self._tools is None
+            or self._hooks is None
+            or self._permissions is None
+            or self._provider is None
+        ):
+            return ToolResult(
+                tool_use_id="",
+                content="spawn_agent not fully initialized. Missing parent components.",
+                is_error=True,
+            )
+
+        # 2. Lazy-init SubagentManager on ctx
         if ctx.subagent_manager is None:
             max_concurrent = (
                 ctx.settings.get("spawn_agent", {}).get("max_concurrent", 3)
             )
             ctx.subagent_manager = SubagentManager(max_concurrent)
 
-        # Check concurrency limit
+        # 3. Check concurrency limit (SPAWN-12)
         if not ctx.subagent_manager.can_spawn():
             limit = ctx.subagent_manager._max_concurrent
             return ToolResult(
@@ -56,26 +93,187 @@ class SpawnAgentTool:
                 is_error=True,
             )
 
-        # Validate allowed_tools against parent registry
-        if input.allowed_tools is not None and self._tools is not None:
-            available = set(self._tools.names())
-            invalid = [t for t in input.allowed_tools if t not in available]
-            if invalid:
+        # 4. Generate agent_name
+        agent_name = input.name or f"subagent_{len(ctx.subagent_manager.list_all()) + 1}"
+
+        # 5. Create SubagentEngine
+        engine = SubagentEngine(
+            self._tools,
+            self._hooks,
+            self._permissions,
+            self._provider,
+            ctx.settings,
+        )
+
+        # 6. Create child AgentLoop
+        child_loop = engine.create_child_loop(
+            allowed_tools=input.allowed_tools,
+            model=input.model,
+        )
+
+        # 7. Create isolated SessionContext for child
+        child_ctx = SessionContext(settings=ctx.settings)
+
+        # 8. Set up transcript persistence (SPAWN-17)
+        # Generate a temporary subagent_id for transcript path
+        import uuid
+        temp_id = str(uuid.uuid4())
+
+        # 9. Copy DataFrames if specified
+        original_names: set[str] = set()
+        if input.dataframes:
+            try:
+                copy_dataframes_to_child(ctx.vars, child_ctx.vars, input.dataframes)
+                original_names = set(child_ctx.vars._vars.keys())
+            except KeyError as exc:
                 return ToolResult(
                     tool_use_id="",
-                    content=(
-                        f"Invalid tool names in allowed_tools: {invalid}. "
-                        f"Available tools: {sorted(available)}"
-                    ),
+                    content=f"DataFrame copy failed: {exc}",
                     is_error=True,
                 )
 
-        # Structural stub -- full foreground/background execution wired in Plan 04
-        return ToolResult(
-            tool_use_id="",
-            content=(
-                "spawn_agent structure validated. "
-                "Full execution available after lifecycle wiring."
-            ),
-            is_error=True,
-        )
+        if not input.background:
+            # 10. Foreground mode (SPAWN-10)
+            info = ctx.subagent_manager.register(agent_name, task=None)
+
+            # Set transcript path for child
+            writer = create_subagent_transcript_writer(ctx.session_id, info.subagent_id)
+            child_ctx.transcript_path = str(writer._path)
+
+            try:
+                result_text = await child_loop.run(input.prompt, child_ctx)
+
+                # Merge back DataFrames if any were specified
+                merge_summary = ""
+                if input.dataframes:
+                    merge_summary = merge_back_dataframes(
+                        ctx.vars, child_ctx.vars, agent_name, original_names,
+                    )
+
+                ctx.subagent_manager.complete(info.subagent_id, result_text)
+
+                # Fire SubagentStop hook event (notification-only per D-13, BLOCK is ignored)
+                truncated_text = result_text[:500] if len(result_text) > 500 else result_text
+                await self._hooks.run(HookEvent(
+                    event_type="SubagentStop",
+                    session_id=ctx.session_id,
+                    transcript_path=ctx.transcript_path,
+                    subagent_id=info.subagent_id,
+                    subagent_name=agent_name,
+                    subagent_status="completed",
+                    subagent_final_text=truncated_text,  # per D-14
+                ))
+                # NOTE: Return value of hooks.run() intentionally ignored for SubagentStop
+                # per D-13. Even if a hook returns BLOCK, the subagent has already completed.
+
+                # Write child transcript
+                for msg in child_ctx.messages:
+                    content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                    writer.append(msg.role, content)
+
+                return ToolResult(
+                    tool_use_id="",
+                    content=result_text + merge_summary,
+                )
+
+            except Exception as exc:
+                ctx.subagent_manager.fail(info.subagent_id, str(exc))
+
+                # Fire SubagentStop with status "failed" (D-14)
+                error_text = str(exc)[:500]
+                await self._hooks.run(HookEvent(
+                    event_type="SubagentStop",
+                    session_id=ctx.session_id,
+                    transcript_path=ctx.transcript_path,
+                    subagent_id=info.subagent_id,
+                    subagent_name=agent_name,
+                    subagent_status="failed",
+                    subagent_final_text=error_text,  # per D-14
+                ))
+                # D-13: BLOCK result ignored for SubagentStop
+
+                return ToolResult(
+                    tool_use_id="",
+                    content=f"Subagent '{agent_name}' failed: {exc}",
+                    is_error=True,
+                )
+        else:
+            # 11. Background mode (SPAWN-11)
+            # Register first to get subagent_id, then create task
+            info = ctx.subagent_manager.register(agent_name, task=None)
+
+            # Set transcript path for child
+            writer = create_subagent_transcript_writer(ctx.session_id, info.subagent_id)
+            child_ctx.transcript_path = str(writer._path)
+
+            manager = ctx.subagent_manager
+            hooks = self._hooks
+            session_id = ctx.session_id
+            transcript_path = ctx.transcript_path
+            parent_vars = ctx.vars
+            dataframes_specified = input.dataframes
+
+            async def _run_background() -> None:
+                result_text = ""
+                status = "completed"
+                try:
+                    result_text = await child_loop.run(input.prompt, child_ctx)
+
+                    # Merge back DataFrames
+                    merge_summary = ""
+                    if dataframes_specified:
+                        merge_summary = merge_back_dataframes(
+                            parent_vars, child_ctx.vars, agent_name, original_names,
+                        )
+
+                    manager.complete(info.subagent_id, result_text)
+                    # D-08: notification for parent LLM
+                    manager.add_notification(
+                        f"[Subagent '{agent_name}' completed] "
+                        f"{result_text[:200]}{merge_summary}"
+                    )
+
+                except asyncio.CancelledError:
+                    status = "cancelled"
+                    info.status = "cancelled"
+                    raise
+
+                except Exception as exc:
+                    status = "failed"
+                    result_text = str(exc)
+                    manager.fail(info.subagent_id, str(exc))
+                    manager.add_notification(
+                        f"[Subagent '{agent_name}' failed] {exc}"
+                    )
+
+                finally:
+                    # Fire SubagentStop hook event (D-14, D-13: BLOCK ignored)
+                    final_text = result_text[:500] if len(result_text) > 500 else result_text
+                    await hooks.run(HookEvent(
+                        event_type="SubagentStop",
+                        session_id=session_id,
+                        transcript_path=transcript_path,
+                        subagent_id=info.subagent_id,
+                        subagent_name=agent_name,
+                        subagent_status=status,
+                        subagent_final_text=final_text,  # per D-14
+                    ))
+                    # D-13: BLOCK result ignored for SubagentStop
+
+                    # Write child transcript
+                    for msg in child_ctx.messages:
+                        content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                        writer.append(msg.role, content)
+
+            task = asyncio.create_task(_run_background())
+            # Update the registered info with the actual task
+            info.task = task
+
+            return ToolResult(
+                tool_use_id="",
+                content=(
+                    f"Subagent '{agent_name}' launched in background "
+                    f"(id: {info.subagent_id}). "
+                    "Use agent_status to check progress."
+                ),
+            )

@@ -23,4 +23,4 @@ def test_all_phase3_tools_registered():
 def test_registry_has_20_tools():
     pool = ConnectionPool()
     registry = build_tool_registry(pool=pool)
-    assert len(registry.names()) == 23
+    assert len(registry.names()) == 23  # 21 original + agent_status + agent_cancel

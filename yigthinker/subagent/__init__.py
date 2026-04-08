@@ -1,3 +1,4 @@
 from yigthinker.subagent.dataframes import copy_dataframes_to_child, merge_back_dataframes
 from yigthinker.subagent.engine import SubagentEngine
 from yigthinker.subagent.manager import SubagentInfo, SubagentManager
+from yigthinker.subagent.transcript import create_subagent_transcript_writer
