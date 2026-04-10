@@ -89,8 +89,8 @@ Plans:
 
 **Milestone Goal:** Enable Yigthinker to recognize repeatable analysis patterns and proactively generate, deploy, and manage automated workflows on mainstream RPA platforms.
 
-- [ ] **Phase 8: Workflow Foundation** - Registry, templates, and workflow_generate tool with versioning and security
-- [ ] **Phase 9: Deployment & Lifecycle** - workflow_deploy (local/guided/auto) and workflow_manage (list/inspect/pause/resume/rollback/retire/health)
+- [x] **Phase 8: Workflow Foundation** - Registry, templates, and workflow_generate tool with versioning and security
+- [x] **Phase 9: Deployment & Lifecycle** - workflow_deploy (local/guided/auto) and workflow_manage (list/inspect/pause/resume/rollback/retire/health)
 - [ ] **Phase 10: Gateway RPA & Behavior Layer** - Self-healing endpoints, status reporting, proactive automation suggestions, and cross-session pattern detection
 - [ ] **Phase 11: UiPath MCP Server** - Independent yigthinker-mcp-uipath package with OAuth2 and 5 tools
 - [ ] **Phase 12: Power Automate MCP Server** - Independent yigthinker-mcp-powerautomate package with MSAL auth and 5 tools

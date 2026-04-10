@@ -57,11 +57,12 @@ A user can interact via CLI REPL, IM channels (Teams), or TUI connected to the G
 - ✓ Workflow Registry: versioned scripts, manifests at ~/.yigthinker/workflows/ — Validated in Phase 8
 - ✓ Jinja2 templates for Python/PA/UiPath script generation (SandboxedEnvironment) — Validated in Phase 8
 - ✓ checkpoint_utils.py template: retry + self-healing callback wrapper (Gateway optional) — Validated in Phase 8
+- ✓ workflow_deploy tool: local/guided/auto modes × local/power_automate/uipath targets with runtime ZIP bundle generation and find_spec-based MCP detection (architect-not-executor invariant preserved) — Validated in Phase 9
+- ✓ workflow_manage tool: list/inspect/pause/resume/rollback/retire/health_check — all 7 lifecycle actions with transactional fail-fast rollback and target-keyed instructional next_steps — Validated in Phase 9
+- ✓ Phase 9 registry schema extension: lazy-default-on-read + per-entry merge save (no migration pass) preserves Phase 8 fields through Phase 9 patches — Validated in Phase 9
 
 ### Active
 
-- [ ] workflow_deploy tool: deploy to RPA platforms with auto/guided/local modes
-- [ ] workflow_manage tool: list/inspect/pause/resume/rollback/retire/health_check
 - [ ] "Automate everything" behavior: system prompt directive + proactive suggestions
 - [ ] SessionStart hook: registry health check on conversation start
 - [ ] Gateway /api/rpa/callback: self-healing endpoint for failed checkpoints
@@ -86,7 +87,7 @@ A user can interact via CLI REPL, IM channels (Teams), or TUI connected to the G
 
 ## Context
 
-**Brownfield project:** Extensive codebase (~60+ Python files) with a fully functional core. Agent Loop, Gateway, TUI, streaming, memory, spawn agent, and workflow generation are all working end-to-end. 550 tests passing.
+**Brownfield project:** Extensive codebase (~60+ Python files) with a fully functional core. Agent Loop, Gateway, TUI, streaming, memory, spawn agent, workflow generation, workflow deployment (3 modes × 3 targets), and workflow lifecycle management (7 actions) are all working end-to-end. 603 tests passing.
 
 **Design spec:** Workflow & RPA Bridge design at `docs/superpowers/specs/2026-04-09-workflow-rpa-bridge-design.md` defines the full architecture: native tools, registry, behavior layer, gateway endpoints, MCP servers, and generated script structure.
 
@@ -125,6 +126,10 @@ A user can interact via CLI REPL, IM channels (Teams), or TUI connected to the G
 | Dashboard permanently removed | Headless product by design | ✓ Good |
 | Spawn Agent added to v1.0 | Enables parallel analysis workflows | ✓ Good |
 | 4 finance tools ported from YCE | Calculate, analyze, validate, budget | ✓ Good |
+| Architect-not-executor for workflow_deploy | Yigthinker never subprocess-execs schedulers or imports MCP; find_spec only | ✓ Good |
+| Runtime ZIP bundle generation (no pre-canned artifacts) | Jinja2 + zipfile stdlib, rendered per-deploy | ✓ Good |
+| Lazy-default-on-read for Phase 8→Phase 9 schema bump | No disk migration pass needed; per-entry merge on save preserves both | ✓ Good |
+| Rolling back to currently-active version is an error | Loud-failure safer than silent no-op | ✓ Good |
 
 ## Evolution
 
@@ -144,4 +149,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-10 after Phase 8 Workflow Foundation complete*
+*Last updated: 2026-04-10 after Phase 9 Deployment & Lifecycle complete*
