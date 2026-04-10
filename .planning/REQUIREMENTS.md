@@ -1,11 +1,10 @@
 # Requirements: Yigthinker
 
 **Defined:** 2026-04-02
-**Core Value:** A user can start the Gateway, open the TUI, have an AI-assisted data analysis conversation with tool calls, and see results — with the same experience accessible from messaging platforms.
+**Updated:** 2026-04-10 (v1.1 milestone)
+**Core Value:** A user can interact via CLI REPL, IM channels, or TUI connected to the Gateway, having AI-assisted data analysis conversations with tool calls — same agent, multiple surfaces. Repeatable analysis patterns become automated workflows deployed to RPA platforms.
 
-## v1 Requirements
-
-Requirements for stabilization milestone. Each maps to roadmap phases.
+## v1.0 Requirements (Validated)
 
 ### Agent Loop & Infrastructure
 
@@ -58,9 +57,72 @@ Requirements for stabilization milestone. Each maps to roadmap phases.
 - [x] **MEM-03**: Auto Dream triggers at SessionEnd, extracts domain knowledge via LLM summarization
 - [x] **MEM-04**: Auto Dream persists memories to ~/.yigthinker/memory/, loaded at SessionStart
 
+### Spawn Agent
+
+- [x] **SPAWN-01** through **SPAWN-20**: Context-isolated sub-agent execution with DataFrame sharing, tool access control, lifecycle management, hook/permission inheritance, transcript persistence, predefined agent types
+
+## v1.1 Requirements
+
+Requirements for Workflow & RPA Bridge milestone. Each maps to roadmap phases.
+
+### Workflow Generation
+
+- [x] **WFG-01**: workflow_generate tool creates self-contained Python scripts from step definitions with target selection (python/power_automate/uipath)
+- [x] **WFG-02**: Generated scripts include checkpoint_utils.py with retry + self-healing callback wrapper
+- [x] **WFG-03**: Jinja2 templates render target-specific scripts (base, power_automate, uipath) using SandboxedEnvironment
+- [x] **WFG-04**: Workflow Registry stores versioned scripts at ~/.yigthinker/workflows/ with registry.json index and per-workflow manifest.json
+- [x] **WFG-05**: Generated config.yaml uses vault:// placeholder references for credentials, never plaintext
+- [x] **WFG-06**: workflow_generate supports `update_of` parameter for versioned updates; previous versions preserved
+- [x] **WFG-07**: Registry operations use filelock + atomic os.replace() to prevent corruption
+
+### Deployment
+
+- [ ] **DEP-01**: workflow_deploy local mode generates Windows Task Scheduler XML or crontab entry
+- [ ] **DEP-02**: workflow_deploy guided mode generates paste-ready artifacts (setup_guide.md, flow_import.zip, task_scheduler.xml, test_trigger.ps1) with IM-native step-by-step instructions
+- [ ] **DEP-03**: workflow_deploy auto mode returns structured next-step instructions for LLM to call MCP tools through normal AgentLoop cycle
+- [ ] **DEP-04**: LLM auto-selects deploy mode based on environment (MCP available → auto, PA/UiPath mentioned but no API → guided, no RPA → local); user can override
+- [ ] **DEP-05**: After deployment (any mode), metadata written to Workflow Registry (manifest.json + registry.json)
+
+### Lifecycle Management
+
+- [ ] **LCM-01**: workflow_manage list action shows all workflows with status, version, schedule, last run
+- [ ] **LCM-02**: workflow_manage inspect action shows detailed manifest for a specific workflow
+- [ ] **LCM-03**: workflow_manage pause/resume actions control scheduled triggers
+- [ ] **LCM-04**: workflow_manage rollback action reverts to a previous version
+- [ ] **LCM-05**: workflow_manage retire action permanently deactivates a workflow (preserves files)
+- [ ] **LCM-06**: workflow_manage health_check action checks run health of all active workflows
+
+### Gateway RPA Endpoints
+
+- [ ] **GW-RPA-01**: /api/rpa/callback endpoint receives self-healing requests with Bearer token auth, returns fix_applied/skip/escalate decisions
+- [ ] **GW-RPA-02**: /api/rpa/callback uses callback_id deduplication via existing aiosqlite event dedup store
+- [ ] **GW-RPA-03**: /api/rpa/report endpoint accepts execution status reports (no LLM cost, pure data write)
+- [ ] **GW-RPA-04**: Circuit breaker limits self-healing: 3 attempts per checkpoint per 24h, 10 LLM calls per workflow per day
+- [x] **GW-RPA-05**: Generated scripts treat Gateway as optional — ConnectionError falls back to escalate
+
+### Behavior Layer
+
+- [ ] **BHV-01**: System prompt directive instructs LLM to evaluate tasks for automation potential after completing work
+- [ ] **BHV-02**: SessionStart hook performs registry health check (failure rate, overdue executions) and injects alerts into context
+- [ ] **BHV-03**: Proactive suggestions include estimated time saved, execution frequency, and required connections
+- [ ] **BHV-04**: Declined suggestions stored in registry.json under suppressed_suggestions with pattern, reason, and 3-month expiry
+- [ ] **BHV-05**: Cross-session pattern detection via AutoDream memory (same tool sequence in 2+ sessions flags as automation-worthy)
+
+### MCP Server: UiPath
+
+- [ ] **MCP-UI-01**: Independent package yigthinker-mcp-uipath with 5 tools: ui_deploy_process, ui_trigger_job, ui_job_history, ui_manage_trigger, ui_queue_status
+- [ ] **MCP-UI-02**: OAuth2 client credentials authentication (no API key path)
+- [ ] **MCP-UI-03**: Configured via .mcp.json with vault:// environment variable references
+
+### MCP Server: Power Automate
+
+- [ ] **MCP-PA-01**: Independent package yigthinker-mcp-powerautomate with 5 tools: pa_deploy_flow, pa_trigger_flow, pa_flow_status, pa_pause_flow, pa_list_connections
+- [ ] **MCP-PA-02**: MSAL ConfidentialClientApplication authentication
+- [ ] **MCP-PA-03**: Configured via .mcp.json with vault:// environment variable references
+
 ## v2 Requirements
 
-Deferred to future milestone. Tracked but not in current roadmap.
+Deferred to future milestones. Tracked but not in current roadmap.
 
 ### Hibernation
 
@@ -68,64 +130,14 @@ Deferred to future milestone. Tracked but not in current roadmap.
 - **HIB-02**: Session restore loads hibernated state with crash-safe atomic operations
 - **HIB-03**: Hibernation metadata includes version for forward compatibility
 
-### Feishu Adapter
+### Channel Adapters
 
 - **FEISHU-01**: Feishu adapter receives webhook, returns ACK within 3 seconds
 - **FEISHU-02**: Feishu adapter sends "thinking" card, updates same card with result
 - **FEISHU-03**: Feishu event deduplication via SQLite-backed EventDeduplicator
-
-### Google Chat Adapter
-
 - **GCHAT-01**: Google Chat adapter authenticates via Service Account
 - **GCHAT-02**: Google Chat adapter sends Cards v2 responses
-- **GCHAT-03**: Google Chat adapter enforces per-space rate limiting (1 req/sec)
-
-### Spawn Agent (Sub-Agent Parallel Execution)
-
-Design adapted from Claude Code's sub-agent architecture. Core principles: context isolation (intermediate
-tool calls never enter parent messages), least-privilege tool access, recursion prevention, and
-DataFrame sharing as Yigthinker's domain-specific extension.
-
-#### Context Isolation & Execution
-
-- **SPAWN-01**: spawn_agent creates a child AgentLoop with an isolated SessionContext and independent message history; the child does NOT receive the parent's conversation history
-- **SPAWN-02**: Only the child's **final text message** (end_turn) is returned to the parent as the tool_result; intermediate tool calls and tool_results stay inside the child and never enter the parent's messages
-- **SPAWN-03**: The child AgentLoop uses the same or overridden LLM provider (per `model` parameter: None=inherit, or explicit provider name)
-
-#### DataFrame Sharing (Yigthinker-specific)
-
-- **SPAWN-04**: Specified DataFrames (`dataframes: list[str]`) are shallow-copied from parent ctx.vars to child ctx.vars before execution; unspecified parent DataFrames are not visible to the child
-- **SPAWN-05**: New or modified DataFrames created by the child are merged back into parent ctx.vars after completion, with a `{agent_name}_` prefix to prevent name collisions (e.g. child's `df1` becomes `east_df1` in parent)
-- **SPAWN-06**: The merge-back summary (which DataFrames were added/modified, their shapes) is appended to the tool_result text so the parent LLM is aware of new data
-
-#### Tool Access Control
-
-- **SPAWN-07**: spawn_agent accepts an optional `allowed_tools: list[str]` parameter; when set, the child ToolRegistry contains ONLY those tools (principle of least privilege)
-- **SPAWN-08**: When `allowed_tools` is omitted, the child inherits all parent tools EXCEPT `spawn_agent` itself (recursion prevention — subagents cannot spawn subagents)
-- **SPAWN-09**: The child's ToolRegistry is built at spawn time and is immutable for the child's lifetime
-
-#### Lifecycle Management
-
-- **SPAWN-10**: Foreground mode (default, `background=False`): spawn_agent awaits the child AgentLoop.run() and returns the result inline as a single tool_result
-- **SPAWN-11**: Background mode (`background=True`): spawn_agent launches the child as an asyncio.Task, returns immediately with a `subagent_id`, and the parent continues its own loop
-- **SPAWN-12**: Concurrent subagent limit is configurable via settings (`spawn_agent.max_concurrent`, default 3); excess spawns return a clear error to the LLM for replanning
-- **SPAWN-13**: agent_status companion tool lists all subagents (running/completed/failed) with their subagent_id, name, status, and elapsed time
-- **SPAWN-14**: agent_cancel companion tool cancels a running background subagent by subagent_id; the cancelled subagent's partial results (if any) are discarded
-
-#### Hook & Permission Inheritance
-
-- **SPAWN-15**: The child inherits the parent's HookExecutor and PermissionSystem references; child tool calls fire PreToolUse/PostToolUse hooks normally under the parent's session_id
-- **SPAWN-16**: A new `SubagentStop` hook event fires when a child completes (or is cancelled), carrying `subagent_id`, `subagent_name`, `final_text`, and `status` (completed/failed/cancelled)
-
-#### Transcript & Observability
-
-- **SPAWN-17**: Each subagent's conversation is persisted as a separate JSONL transcript at `~/.yigthinker/sessions/subagents/{session_id}/{subagent_id}.jsonl`
-- **SPAWN-18**: Gateway broadcasts subagent lifecycle events (spawned/completed/failed) to attached WebSocket clients so the dashboard and TUI can display subagent status
-
-#### Predefined Agent Types (Extension)
-
-- **SPAWN-19**: `.yigthinker/agents/*.md` files with YAML frontmatter (`name`, `description`, `allowed_tools`, `model`) define reusable agent types; spawn_agent accepts an optional `agent_type: str` that loads the predefined prompt and tool restrictions
-- **SPAWN-20**: When `agent_type` is set, the predefined agent's `description` and system prompt are injected into the child's context; user-provided `prompt` becomes the task instruction appended after the system prompt
+- **GCHAT-03**: Google Chat adapter enforces per-space rate limiting
 
 ### Advanced Features
 
@@ -137,16 +149,16 @@ DataFrame sharing as Yigthinker's domain-specific extension.
 
 | Feature | Reason |
 |---------|--------|
+| Visual workflow editor | Headless product — users don't see scripts |
+| Built-in cron scheduler | OS Task Scheduler / PA / UiPath handles scheduling |
+| Screen recording / macro recording | AI-driven generation, not a recorder |
+| RPA platforms beyond PA + UiPath | Start with two, validate pattern, then expand |
+| Real-time script preview | Test run after generation is sufficient |
+| Runtime dependency on Yigthinker | Scripts must be self-contained |
+| Require API access for deployment | guided mode works with zero API access |
 | Speculation/prediction engine | High complexity, requires stable core first |
 | Advisor dual-model architecture | Requires stable core + proven Session Memory |
-| Voice/Whisper integration | WhisperProvider fundamentally broken, defer |
-| APScheduler report scheduling | Enterprise feature, no scheduler implemented |
-| Real HashiCorp Vault integration | Env var alias sufficient for current scale |
-| Mobile app | Web/TUI first |
-| OAuth login for Gateway | Token auth sufficient for local/team use |
-| Feishu adapter | Deferred to v2 -- prioritize Teams for this milestone |
-| Google Chat adapter | Deferred to v2 -- limited to Workspace users only |
-| Session hibernation | Deferred to v2 -- focus on core loop stability first |
+| Voice/Whisper integration | WhisperProvider fundamentally broken |
 
 ## Traceability
 
@@ -154,66 +166,54 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOOP-01 | Phase 1 | Complete |
-| LOOP-02 | Phase 1 | Complete |
-| LOOP-03 | Phase 1 | Complete |
-| LOOP-04 | Phase 1 | Complete |
-| LOOP-05 | Phase 1 | Complete |
-| LOOP-06 | Phase 1 | Complete |
-| LOOP-07 | Phase 1 | Complete |
-| LOOP-08 | Phase 1 | Complete |
-| LOOP-09 | Phase 1 | Complete |
-| GW-01 | Phase 2 | Complete |
-| GW-02 | Phase 2 | Complete |
-| GW-03 | Phase 2 | Complete |
-| GW-04 | Phase 2 | Complete |
-| GW-05 | Phase 2 | Complete |
-| GW-06 | Phase 2 | Complete |
-| TUI-01 | Phase 3 | Complete |
-| TUI-02 | Phase 3 | Complete |
-| TUI-03 | Phase 3 | Complete |
-| TUI-04 | Phase 3 | Complete |
-| TUI-05 | Phase 3 | Complete |
-| TUI-06 | Phase 3 | Complete |
-| TUI-07 | Phase 3 | Complete |
-| STRM-01 | Phase 4 | Complete |
-| STRM-02 | Phase 4 | Complete |
-| STRM-03 | Phase 4 | Complete |
-| STRM-04 | Phase 4 | Complete |
-| TEAMS-01 | Phase 4 | Complete |
-| TEAMS-02 | Phase 4 | Complete |
-| TEAMS-03 | Phase 4 | Complete |
-| MEM-01 | Phase 5 | Complete |
-| MEM-02 | Phase 5 | Complete |
-| MEM-03 | Phase 5 | Complete |
-| MEM-04 | Phase 5 | Complete |
-| SPAWN-01 | Phase 7 | Not Started |
-| SPAWN-02 | Phase 7 | Not Started |
-| SPAWN-03 | Phase 7 | Not Started |
-| SPAWN-04 | Phase 7 | Not Started |
-| SPAWN-05 | Phase 7 | Not Started |
-| SPAWN-06 | Phase 7 | Not Started |
-| SPAWN-07 | Phase 7 | Not Started |
-| SPAWN-08 | Phase 7 | Not Started |
-| SPAWN-09 | Phase 7 | Not Started |
-| SPAWN-10 | Phase 7 | Not Started |
-| SPAWN-11 | Phase 7 | Not Started |
-| SPAWN-12 | Phase 7 | Not Started |
-| SPAWN-13 | Phase 7 | Not Started |
-| SPAWN-14 | Phase 7 | Not Started |
-| SPAWN-15 | Phase 7 | Not Started |
-| SPAWN-16 | Phase 7 | Not Started |
-| SPAWN-17 | Phase 7 | Not Started |
-| SPAWN-18 | Phase 7 | Not Started |
-| SPAWN-19 | Phase 7 | Not Started |
-| SPAWN-20 | Phase 7 | Not Started |
+| LOOP-01 through LOOP-09 | Phase 1 (v1.0) | Complete |
+| GW-01 through GW-06 | Phase 2 (v1.0) | Complete |
+| TUI-01 through TUI-07 | Phase 3 (v1.0) | Complete |
+| STRM-01 through STRM-04 | Phase 4 (v1.0) | Complete |
+| TEAMS-01 through TEAMS-03 | Phase 4 (v1.0) | Complete |
+| MEM-01 through MEM-04 | Phase 5 (v1.0) | Complete |
+| SPAWN-01 through SPAWN-20 | Phase 7 (v1.0) | Complete |
+| WFG-01 | Phase 8 | Complete |
+| WFG-02 | Phase 8 | Complete |
+| WFG-03 | Phase 8 | Complete |
+| WFG-04 | Phase 8 | Complete |
+| WFG-05 | Phase 8 | Complete |
+| WFG-06 | Phase 8 | Complete |
+| WFG-07 | Phase 8 | Complete |
+| GW-RPA-05 | Phase 8 | Complete |
+| DEP-01 | Phase 9 | Pending |
+| DEP-02 | Phase 9 | Pending |
+| DEP-03 | Phase 9 | Pending |
+| DEP-04 | Phase 9 | Pending |
+| DEP-05 | Phase 9 | Pending |
+| LCM-01 | Phase 9 | Pending |
+| LCM-02 | Phase 9 | Pending |
+| LCM-03 | Phase 9 | Pending |
+| LCM-04 | Phase 9 | Pending |
+| LCM-05 | Phase 9 | Pending |
+| LCM-06 | Phase 9 | Pending |
+| GW-RPA-01 | Phase 10 | Pending |
+| GW-RPA-02 | Phase 10 | Pending |
+| GW-RPA-03 | Phase 10 | Pending |
+| GW-RPA-04 | Phase 10 | Pending |
+| BHV-01 | Phase 10 | Pending |
+| BHV-02 | Phase 10 | Pending |
+| BHV-03 | Phase 10 | Pending |
+| BHV-04 | Phase 10 | Pending |
+| BHV-05 | Phase 10 | Pending |
+| MCP-UI-01 | Phase 11 | Pending |
+| MCP-UI-02 | Phase 11 | Pending |
+| MCP-UI-03 | Phase 11 | Pending |
+| MCP-PA-01 | Phase 12 | Pending |
+| MCP-PA-02 | Phase 12 | Pending |
+| MCP-PA-03 | Phase 12 | Pending |
 
 **Coverage:**
-- v1 requirements: 33 total, all mapped
-- v1.1 requirements: 20 total (SPAWN-01 through SPAWN-20)
-- Mapped to phases: 53
+- v1.0 requirements: 53 total (all complete)
+- v1.1 requirements: 34 total
+- Mapped to phases: 34/34
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-02*
-*Last updated: 2026-04-08 after expanding Phase 7 with Claude Code design principles*
+*Last updated: 2026-04-10 after v1.1 roadmap creation*

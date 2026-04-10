@@ -110,8 +110,8 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 08-01-PLAN.md -- WorkflowRegistry: versioned file storage with filelock + atomic writes
-- [ ] 08-02-PLAN.md -- Jinja2 templates: inheritance chain, SandboxedEnvironment, AST validation
+- [x] 08-01-PLAN.md -- WorkflowRegistry: versioned file storage with filelock + atomic writes
+- [x] 08-02-PLAN.md -- Jinja2 templates: inheritance chain, SandboxedEnvironment, AST validation
 - [ ] 08-03-PLAN.md -- workflow_generate tool: step rendering, from_history, registry wiring
 
 ### Phase 9: Deployment & Lifecycle
@@ -171,7 +171,7 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12
 | 4. Streaming & Teams Adapter | v1.0 | 3/3 | Complete | 2026-04-05 |
 | 5. Session Memory & Auto Dream | v1.0 | 2/2 | Complete | 2026-04-06 |
 | 7. Spawn Agent | v1.0 | 5/5 | Complete | 2026-04-08 |
-| 8. Workflow Foundation | v1.1 | 0/3 | Planning | - |
+| 8. Workflow Foundation | v1.1 | 0/3 | Planned    |  |
 | 9. Deployment & Lifecycle | v1.1 | 0/TBD | Not started | - |
 | 10. Gateway RPA & Behavior Layer | v1.1 | 0/TBD | Not started | - |
 | 11. UiPath MCP Server | v1.1 | 0/TBD | Not started | - |
