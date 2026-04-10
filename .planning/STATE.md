@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
-status: Ready to execute
-stopped_at: Completed 09-03-PLAN.md
-last_updated: "2026-04-10T16:21:18.642Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 09-02-PLAN.md
+last_updated: "2026-04-10T16:26:56.998Z"
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -49,6 +49,7 @@ Plan: 3 of 3
 | Phase 08 P03 | 4min | 2 tasks | 4 files |
 | Phase 09-deployment-lifecycle P01 | 90min | 3 tasks | 11 files |
 | Phase 09-deployment-lifecycle P03 | ~6 min | 3 tasks | 4 files |
+| Phase 09 P02 | 35 | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,9 @@ Recent decisions affecting current work:
 - [Phase 09-deployment-lifecycle]: Rolling back to the currently-active version returns is_error=True (not no-op) for loud-failure safety
 - [Phase 09-deployment-lifecycle]: workflow_manage pause/resume/rollback return instructional next_step dicts keyed by deploy target; tool is architect-not-executor per D-02/D-15
 - [Phase 09-deployment-lifecycle]: health_check excludes retired workflows from rows but includes paused workflows with overdue=False (D-16 + plan review note #2)
+- [Phase 09]: Guided mode builds bundles at runtime via TemplateEngine.render_text + zipfile — no pre-canned artifacts shipped
+- [Phase 09]: Auto mode uses importlib.util.find_spec to inspect MCP package availability — never imports the module (architect-not-executor invariant)
+- [Phase 09]: cron_to_pa_recurrence supports 4 canonical shapes (daily/weekly/monthly/every-N-hours); irregular crons fall back to Day/1 with needs_manual_review=True
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-10T16:21:09.983Z
-Stopped at: Completed 09-03-PLAN.md
+Last session: 2026-04-10T16:26:56.995Z
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
