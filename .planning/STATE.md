@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
 status: Ready to execute
-stopped_at: Completed 09-01-PLAN.md
-last_updated: "2026-04-10T12:16:28.121Z"
+stopped_at: Completed 09-03-PLAN.md
+last_updated: "2026-04-10T16:21:18.642Z"
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 09 (deployment-lifecycle) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Plan: 2 of 3
 | Phase 08 P02 | 4min | 1 tasks | 9 files |
 | Phase 08 P03 | 4min | 2 tasks | 4 files |
 | Phase 09-deployment-lifecycle P01 | 90min | 3 tasks | 11 files |
+| Phase 09-deployment-lifecycle P03 | ~6 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,9 @@ Recent decisions affecting current work:
 - [Phase 09-deployment-lifecycle]: save_index switched to per-entry merge so Phase 9 patches preserve Phase 8 fields (latest_version, created_at)
 - [Phase 09-deployment-lifecycle]: Dual python_exe context (python_exe_windows + python_exe_posix) so crontab never leaks Windows backslashes (Pitfall 7)
 - [Phase 09-deployment-lifecycle]: Lazy-default-on-read upgrade pattern: _fill_*_defaults() helpers + per-entry merge save, no disk migration needed for Phase 8→Phase 9 schema bump (D-13)
+- [Phase 09-deployment-lifecycle]: Rolling back to the currently-active version returns is_error=True (not no-op) for loud-failure safety
+- [Phase 09-deployment-lifecycle]: workflow_manage pause/resume/rollback return instructional next_step dicts keyed by deploy target; tool is architect-not-executor per D-02/D-15
+- [Phase 09-deployment-lifecycle]: health_check excludes retired workflows from rows but includes paused workflows with overdue=False (D-16 + plan review note #2)
 
 ### Pending Todos
 
@@ -87,6 +91,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-10T12:16:17.672Z
-Stopped at: Completed 09-01-PLAN.md
+Last session: 2026-04-10T16:21:09.983Z
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None

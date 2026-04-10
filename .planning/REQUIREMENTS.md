@@ -85,12 +85,12 @@ Requirements for Workflow & RPA Bridge milestone. Each maps to roadmap phases.
 
 ### Lifecycle Management
 
-- [ ] **LCM-01**: workflow_manage list action shows all workflows with status, version, schedule, last run
-- [ ] **LCM-02**: workflow_manage inspect action shows detailed manifest for a specific workflow
-- [ ] **LCM-03**: workflow_manage pause/resume actions control scheduled triggers
-- [ ] **LCM-04**: workflow_manage rollback action reverts to a previous version
-- [ ] **LCM-05**: workflow_manage retire action permanently deactivates a workflow (preserves files)
-- [ ] **LCM-06**: workflow_manage health_check action checks run health of all active workflows
+- [x] **LCM-01**: workflow_manage list action shows all workflows with status, version, schedule, last run
+- [x] **LCM-02**: workflow_manage inspect action shows detailed manifest for a specific workflow
+- [x] **LCM-03**: workflow_manage pause/resume actions control scheduled triggers
+- [x] **LCM-04**: workflow_manage rollback action reverts to a previous version
+- [x] **LCM-05**: workflow_manage retire action permanently deactivates a workflow (preserves files)
+- [x] **LCM-06**: workflow_manage health_check action checks run health of all active workflows
 
 ### Gateway RPA Endpoints
 
@@ -186,12 +186,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEP-03 | Phase 9 | Pending |
 | DEP-04 | Phase 9 | Complete |
 | DEP-05 | Phase 9 | Complete |
-| LCM-01 | Phase 9 | Pending |
-| LCM-02 | Phase 9 | Pending |
-| LCM-03 | Phase 9 | Pending |
-| LCM-04 | Phase 9 | Pending |
-| LCM-05 | Phase 9 | Pending |
-| LCM-06 | Phase 9 | Pending |
+| LCM-01 | Phase 9 | Complete |
+| LCM-02 | Phase 9 | Complete |
+| LCM-03 | Phase 9 | Complete |
+| LCM-04 | Phase 9 | Complete |
+| LCM-05 | Phase 9 | Complete |
+| LCM-06 | Phase 9 | Complete |
 | GW-RPA-01 | Phase 10 | Pending |
 | GW-RPA-02 | Phase 10 | Pending |
 | GW-RPA-03 | Phase 10 | Pending |
