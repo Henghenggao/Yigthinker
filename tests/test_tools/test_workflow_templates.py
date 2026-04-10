@@ -392,3 +392,162 @@ def test_local_scheduler_templates() -> None:
     assert "schtasks /create /xml" in guide
     assert "crontab crontab.txt" in guide
     assert "monthly_ar_aging" in guide
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 Plan 02: PA + UiPath guided bundle templates (DEP-02)
+# ---------------------------------------------------------------------------
+
+import json
+import xml.etree.ElementTree as ET
+import zipfile
+from pathlib import Path
+
+
+class TestPABundleTemplates:
+    """DEP-02: Power Automate guided bundle templates."""
+
+    @pytest.fixture
+    def engine(self):
+        from yigthinker.tools.workflow.template_engine import TemplateEngine
+        return TemplateEngine()
+
+    @pytest.fixture
+    def pa_vars(self):
+        return {
+            "workflow_name": "monthly_report",
+            "display_name": "Monthly Report",
+            "description": "Send monthly AR aging summary",
+            "cron_expression": "0 8 5 * *",
+            "recurrence_frequency": "Month",
+            "recurrence_interval": 1,
+            "registration_date": "2026-04-15T10:00:00Z",
+        }
+
+    def test_workflow_json_shape(self, engine, pa_vars):
+        content = engine.render_text("pa/workflow.json.j2", pa_vars)
+        data = json.loads(content)
+        # The envelope key for the display name lives under properties.
+        assert data["properties"]["displayName"] == "Monthly Report"
+        assert "iconUri" in data["properties"]
+        # runtimeConfiguration.flowState is a string such as "Started"
+        assert isinstance(
+            data.get("runtimeConfiguration", {}).get("flowState"), str,
+        )
+
+    def test_api_properties_shape(self, engine, pa_vars):
+        content = engine.render_text("pa/apiProperties.json.j2", pa_vars)
+        data = json.loads(content)
+        assert "properties" in data
+        assert data["properties"]["connectionParameters"] == {}
+
+    def test_definition_has_recurrence_trigger(self, engine, pa_vars):
+        content = engine.render_text("pa/definition.json.j2", pa_vars)
+        data = json.loads(content)
+        trig = data["definition"]["triggers"]
+        # Recurrence trigger by convention - key name can be any
+        trigger_values = list(trig.values())
+        assert any(
+            "Recurrence" in str(v.get("type", ""))
+            for v in trigger_values
+        )
+
+    def test_guided_pa_bundle(self, engine, pa_vars, tmp_path):
+        """test_guided_pa_bundle - canonical test row 09-02-01."""
+        from yigthinker.tools.workflow.pa_bundle import build_pa_bundle
+        bundle_path = build_pa_bundle(
+            workflow_name="monthly_report",
+            variables=pa_vars,
+            engine=engine,
+            output_dir=tmp_path,
+        )
+        assert bundle_path.exists()
+        assert bundle_path.name == "flow_import.zip"
+
+        with zipfile.ZipFile(bundle_path) as zf:
+            names = zf.namelist()
+            assert "workflow.json" in names
+            assert "apiProperties.json" in names
+            assert (
+                "Microsoft.Flow/flows/monthly_report/definition.json"
+                in names
+            )
+
+
+class TestUiPathBundleTemplates:
+    """DEP-02: UiPath guided bundle templates."""
+
+    @pytest.fixture
+    def engine(self):
+        from yigthinker.tools.workflow.template_engine import TemplateEngine
+        return TemplateEngine()
+
+    @pytest.fixture
+    def uipath_vars(self):
+        return {
+            "workflow_name": "monthly_report",
+            "display_name": "Monthly Report",
+            "description": "Send monthly AR aging summary",
+            "python_exe": "python",
+            "registration_date": "2026-04-15T10:00:00Z",
+        }
+
+    def test_project_json_shape(self, engine, uipath_vars):
+        content = engine.render_text("uipath/project.json.j2", uipath_vars)
+        data = json.loads(content)
+        assert data["name"] == "monthly_report"
+        assert data["projectVersion"] == "1.0.0"
+        assert data["targetFramework"] == "Windows"
+        assert data["schemaVersion"].startswith("4.")
+
+    def test_main_xaml_is_valid_xml(self, engine, uipath_vars):
+        content = engine.render_text("uipath/main.xaml.j2", uipath_vars)
+        root = ET.fromstring(content)  # raises if malformed
+        assert root.tag.endswith("}Activity") or root.tag == "Activity"
+        children = list(root)
+        assert any("Sequence" in child.tag for child in children), (
+            f"Expected Sequence in Main.xaml, got children: "
+            f"{[c.tag for c in children]}"
+        )
+
+    def test_uipath_reference_fixture_parses(self):
+        """Sanity check: our fixture is valid XML."""
+        fixture = (
+            Path(__file__).parent.parent
+            / "fixtures"
+            / "uipath_reference"
+            / "main.xaml"
+        )
+        assert fixture.exists()
+        ET.fromstring(fixture.read_text(encoding="utf-8"))
+
+    def test_guided_uipath_bundle(self, engine, uipath_vars, tmp_path):
+        """test_guided_uipath_bundle - canonical test row 09-02-02."""
+        from yigthinker.tools.workflow.uipath_bundle import build_uipath_bundle
+        bundle_path = build_uipath_bundle(
+            workflow_name="monthly_report",
+            variables=uipath_vars,
+            engine=engine,
+            output_dir=tmp_path,
+        )
+        assert bundle_path.exists()
+        assert bundle_path.name == "process_package.zip"
+
+        with zipfile.ZipFile(bundle_path) as zf:
+            names = zf.namelist()
+            assert "project.json" in names
+            assert "Main.xaml" in names
+
+    def test_flow_import_zip_structure(self, engine, uipath_vars, tmp_path):
+        """Sanity check: ZIP has no traversal paths or absolute paths."""
+        from yigthinker.tools.workflow.uipath_bundle import build_uipath_bundle
+        bundle = build_uipath_bundle(
+            workflow_name="x",
+            variables={**uipath_vars, "workflow_name": "x"},
+            engine=engine,
+            output_dir=tmp_path,
+        )
+        with zipfile.ZipFile(bundle) as zf:
+            for name in zf.namelist():
+                assert not name.startswith("/")
+                assert ".." not in name

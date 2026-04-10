@@ -260,3 +260,246 @@ async def test_deploy_writes_manifest_metadata(workflow_registry, ctx, tmp_path)
     assert v1["deploy_mode"] == "local"
     assert v1["status"] == "active"
     assert v1["deploy_id"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 Plan 02: Guided mode (DEP-02)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowDeployGuided:
+    """DEP-02: guided mode for PA + UiPath."""
+
+    async def test_guided_mode_power_automate(
+        self, workflow_registry, ctx, tmp_path,
+    ):
+        """test_guided_mode - canonical row 09-02-03."""
+        from yigthinker.tools.workflow.workflow_deploy import (
+            WorkflowDeployInput,
+            WorkflowDeployTool,
+        )
+        await _generate_sample_workflow(workflow_registry, ctx)
+        tool = WorkflowDeployTool(registry=workflow_registry)
+
+        result = await tool.execute(
+            WorkflowDeployInput(
+                workflow_name="monthly_ar_aging",
+                target="power_automate",
+                deploy_mode="guided",
+                schedule="0 8 5 * *",
+            ),
+            ctx,
+        )
+        assert not result.is_error, result.content
+        content = result.content
+        assert content["mode"] == "guided"
+        assert content["target"] == "power_automate"
+        bundle = Path(content["artifacts_ready"]["bundle"])
+        assert bundle.exists()
+        assert bundle.name == "flow_import.zip"
+
+    async def test_guided_mode_uipath(
+        self, workflow_registry, ctx, tmp_path,
+    ):
+        from yigthinker.tools.workflow.workflow_deploy import (
+            WorkflowDeployInput,
+            WorkflowDeployTool,
+        )
+        await _generate_sample_workflow(workflow_registry, ctx)
+        tool = WorkflowDeployTool(registry=workflow_registry)
+        result = await tool.execute(
+            WorkflowDeployInput(
+                workflow_name="monthly_ar_aging",
+                target="uipath",
+                deploy_mode="guided",
+                schedule="0 8 * * *",
+            ),
+            ctx,
+        )
+        assert not result.is_error, result.content
+        content = result.content
+        assert content["mode"] == "guided"
+        assert content["target"] == "uipath"
+        bundle = Path(content["artifacts_ready"]["bundle"])
+        assert bundle.exists()
+        assert bundle.name == "process_package.zip"
+
+    async def test_guided_updates_registry_metadata(
+        self, workflow_registry, ctx, tmp_path,
+    ):
+        from yigthinker.tools.workflow.workflow_deploy import (
+            WorkflowDeployInput,
+            WorkflowDeployTool,
+        )
+        await _generate_sample_workflow(workflow_registry, ctx)
+        tool = WorkflowDeployTool(registry=workflow_registry)
+        await tool.execute(
+            WorkflowDeployInput(
+                workflow_name="monthly_ar_aging",
+                target="power_automate",
+                deploy_mode="guided",
+                schedule="0 8 * * *",
+            ),
+            ctx,
+        )
+        idx = workflow_registry.load_index()
+        entry = idx["workflows"]["monthly_ar_aging"]
+        assert entry["target"] == "power_automate"
+        assert entry["deploy_mode"] == "guided"
+        assert entry["schedule"] == "0 8 * * *"
+        assert entry["last_deployed"] is not None
+        assert entry["deploy_id"].startswith("monthly_ar_aging-v1-guided-")
+        manifest = workflow_registry.get_manifest("monthly_ar_aging")
+        v1 = manifest["versions"][0]
+        assert v1["deployed_to"] == "power_automate"
+        assert v1["deploy_mode"] == "guided"
+        assert v1["status"] == "active"
+        assert v1["deploy_id"].startswith("monthly_ar_aging-v1-guided-")
+
+    async def test_guided_mode_local_target_rejected(
+        self, workflow_registry, ctx,
+    ):
+        """target=local with deploy_mode=guided is rejected (D-23)."""
+        from yigthinker.tools.workflow.workflow_deploy import (
+            WorkflowDeployInput,
+            WorkflowDeployTool,
+        )
+        await _generate_sample_workflow(workflow_registry, ctx)
+        tool = WorkflowDeployTool(registry=workflow_registry)
+        result = await tool.execute(
+            WorkflowDeployInput(
+                workflow_name="monthly_ar_aging",
+                target="local",
+                deploy_mode="guided",
+                schedule="0 8 * * *",
+            ),
+            ctx,
+        )
+        assert result.is_error
+        assert "local" in str(result.content).lower()
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 Plan 02: Auto mode (DEP-03)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowDeployAuto:
+    """DEP-03: auto-mode MCP detection handshake."""
+
+    async def test_auto_mode(
+        self, workflow_registry, ctx, monkeypatch,
+    ):
+        """test_auto_mode - canonical row 09-02-04. MCP present path."""
+        from yigthinker.tools.workflow import mcp_detection
+        monkeypatch.setattr(
+            mcp_detection, "check_mcp_installed", lambda pkg: True,
+        )
+        from yigthinker.tools.workflow.workflow_deploy import (
+            WorkflowDeployInput,
+            WorkflowDeployTool,
+        )
+        await _generate_sample_workflow(workflow_registry, ctx)
+        tool = WorkflowDeployTool(registry=workflow_registry)
+        result = await tool.execute(
+            WorkflowDeployInput(
+                workflow_name="monthly_ar_aging",
+                target="power_automate",
+                deploy_mode="auto",
+                schedule="0 8 * * *",
+            ),
+            ctx,
+        )
+        assert not result.is_error, result.content
+        content = result.content
+        assert content["mode"] == "auto"
+        assert content["mcp_installed"] is True
+        assert "next_steps" in content
+        assert (
+            content["next_steps"]["suggested_tool"]
+            == "power_automate_create_flow"
+        )
+        assert (
+            content["next_steps"]["mcp_package"] == "yigthinker_pa_mcp"
+        )
+
+    async def test_auto_mode_returns_next_steps(
+        self, workflow_registry, ctx, monkeypatch,
+    ):
+        from yigthinker.tools.workflow import mcp_detection
+        monkeypatch.setattr(
+            mcp_detection, "check_mcp_installed", lambda pkg: True,
+        )
+        from yigthinker.tools.workflow.workflow_deploy import (
+            WorkflowDeployInput,
+            WorkflowDeployTool,
+        )
+        await _generate_sample_workflow(workflow_registry, ctx)
+        tool = WorkflowDeployTool(registry=workflow_registry)
+        result = await tool.execute(
+            WorkflowDeployInput(
+                workflow_name="monthly_ar_aging",
+                target="uipath",
+                deploy_mode="auto",
+                schedule="0 8 * * *",
+            ),
+            ctx,
+        )
+        assert not result.is_error, result.content
+        assert (
+            result.content["next_steps"]["suggested_tool"]
+            == "uipath_publish_package"
+        )
+        assert (
+            result.content["next_steps"]["mcp_package"]
+            == "yigthinker_uipath_mcp"
+        )
+
+    async def test_auto_mode_mcp_missing_error(
+        self, workflow_registry, ctx, monkeypatch,
+    ):
+        """When MCP package is missing, is_error=True with install hint."""
+        from yigthinker.tools.workflow import mcp_detection
+        monkeypatch.setattr(
+            mcp_detection, "check_mcp_installed", lambda pkg: False,
+        )
+        from yigthinker.tools.workflow.workflow_deploy import (
+            WorkflowDeployInput,
+            WorkflowDeployTool,
+        )
+        await _generate_sample_workflow(workflow_registry, ctx)
+        tool = WorkflowDeployTool(registry=workflow_registry)
+        result = await tool.execute(
+            WorkflowDeployInput(
+                workflow_name="monthly_ar_aging",
+                target="power_automate",
+                deploy_mode="auto",
+                schedule="0 8 * * *",
+            ),
+            ctx,
+        )
+        assert result.is_error
+        msg = str(result.content).lower()
+        assert "yigthinker_pa_mcp" in msg or "pa-mcp" in msg
+        assert "guided" in msg  # suggests fallback
+
+    async def test_auto_mode_local_target_rejected(
+        self, workflow_registry, ctx,
+    ):
+        """target=local with deploy_mode=auto rejected (D-23)."""
+        from yigthinker.tools.workflow.workflow_deploy import (
+            WorkflowDeployInput,
+            WorkflowDeployTool,
+        )
+        await _generate_sample_workflow(workflow_registry, ctx)
+        tool = WorkflowDeployTool(registry=workflow_registry)
+        result = await tool.execute(
+            WorkflowDeployInput(
+                workflow_name="monthly_ar_aging",
+                target="local",
+                deploy_mode="auto",
+                schedule="0 8 * * *",
+            ),
+            ctx,
+        )
+        assert result.is_error
