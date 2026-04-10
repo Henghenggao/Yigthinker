@@ -26,6 +26,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "agent_teams": True,
         "advisor": False,
         "voice": False,
+        "behavior": True,   # Phase 10 — enables PatternStore + suggest_automation + BHV-01/02 directives
     },
     "gateway": {
         "host": "127.0.0.1",
