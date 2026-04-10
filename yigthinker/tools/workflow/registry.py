@@ -8,6 +8,52 @@ from pathlib import Path
 
 from filelock import FileLock
 
+# ---------------------------------------------------------------------------
+# Phase 9 lazy-default fields (D-13)
+# ---------------------------------------------------------------------------
+# These defaults are filled into workflow entries and manifest version entries
+# on READ only. The first Phase 9 write (via save_index / save_manifest) that
+# supplies real values upgrades the on-disk state; until then, Phase 8 entries
+# stay untouched on disk but look Phase-9-shaped to callers.
+#
+# DO NOT reference these from outside this module except in tests.
+_PHASE9_WORKFLOW_DEFAULTS: dict = {
+    "target": None,
+    "deploy_mode": None,
+    "schedule": None,
+    "last_deployed": None,
+    "last_run": None,
+    "last_run_status": None,
+    "failure_count_30d": 0,
+    "run_count_30d": 0,
+    "deploy_id": None,
+    "current_version": None,  # None means "fallback to latest_version"
+}
+
+_PHASE9_VERSION_DEFAULTS: dict = {
+    "deployed_to": None,
+    "deploy_mode": None,
+    "deploy_id": None,
+    "status": "active",
+}
+
+
+def _fill_workflow_entry_defaults(entry: dict) -> dict:
+    """Fill missing Phase 9 fields on a single registry workflow entry.
+
+    Does NOT write back. Does NOT catch JSON errors. Pure in-memory dict fill.
+    """
+    for key, default in _PHASE9_WORKFLOW_DEFAULTS.items():
+        entry.setdefault(key, default)
+    return entry
+
+
+def _fill_version_entry_defaults(version: dict) -> dict:
+    """Fill missing Phase 9 fields on a manifest version entry."""
+    for key, default in _PHASE9_VERSION_DEFAULTS.items():
+        version.setdefault(key, default)
+    return version
+
 
 class WorkflowRegistry:
     """File-based versioned storage for generated workflows.
@@ -26,10 +72,19 @@ class WorkflowRegistry:
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
     def load_index(self) -> dict:
-        """Load the global registry index. Returns empty structure if missing."""
+        """Load the global registry index. Returns empty structure if missing.
+
+        Phase 9: fills Phase 9 default fields on every workflow entry via
+        ``_fill_workflow_entry_defaults`` (lazy default on read, D-13).
+        ``JSONDecodeError`` on a corrupted file PROPAGATES (Pitfall 5) —
+        callers surface it as ``ToolResult(is_error=True)``.
+        """
         if not self._index_path.exists():
             return {"workflows": {}, "suppressed_suggestions": []}
-        return json.loads(self._index_path.read_text(encoding="utf-8"))
+        data = json.loads(self._index_path.read_text(encoding="utf-8"))
+        for entry in data.get("workflows", {}).values():
+            _fill_workflow_entry_defaults(entry)
+        return data
 
     def save_index(self, data: dict) -> None:
         """Atomically write registry index with filelock protection.
@@ -48,7 +103,12 @@ class WorkflowRegistry:
                     if self._index_path.exists()
                     else {"workflows": {}, "suppressed_suggestions": []}
                 )
-                current["workflows"].update(data.get("workflows", {}))
+                # Per-entry merge: patches preserve existing fields instead
+                # of replacing the whole entry (Phase 9 write-through).
+                for wf_name, wf_patch in data.get("workflows", {}).items():
+                    existing = current["workflows"].get(wf_name, {})
+                    existing.update(wf_patch)
+                    current["workflows"][wf_name] = existing
                 if "suppressed_suggestions" in data:
                     current["suppressed_suggestions"] = data["suppressed_suggestions"]
                 fd, tmp_path = tempfile.mkstemp(
@@ -77,11 +137,17 @@ class WorkflowRegistry:
         return len(manifest["versions"]) + 1
 
     def get_manifest(self, name: str) -> dict | None:
-        """Read the per-workflow manifest. Returns None if workflow doesn't exist."""
+        """Read the per-workflow manifest. Returns None if workflow doesn't exist.
+
+        Phase 9: fills Phase 9 default fields on every version entry (D-13).
+        """
         manifest_path = self._base_dir / name / "manifest.json"
         if not manifest_path.exists():
             return None
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for version in manifest.get("versions", []):
+            _fill_version_entry_defaults(version)
+        return manifest
 
     def save_manifest(self, name: str, manifest: dict) -> None:
         """Atomically write a per-workflow manifest."""

@@ -1,0 +1,56 @@
+# Deploy Guide: {{ workflow_name }}
+
+**Description:** {{ description }}
+**Schedule:** `{{ schedule }}`
+**Generated:** {{ registration_date }}
+
+This guide walks you through installing `{{ workflow_name }}` as a scheduled task on **either** Windows or Linux/macOS. Pick the section that matches your host.
+
+***
+
+## Option A — Windows Task Scheduler
+
+1. Open an **elevated** `cmd.exe` (right-click → Run as administrator).
+2. Register the task from the generated XML:
+   ```
+   schtasks /create /xml "task_scheduler.xml" /tn "Yigthinker\{{ workflow_name }}"
+   ```
+3. Verify the task appeared:
+   ```
+   schtasks /query /tn "Yigthinker\{{ workflow_name }}"
+   ```
+4. Trigger a test run immediately:
+   ```
+   schtasks /run /tn "Yigthinker\{{ workflow_name }}"
+   ```
+5. Check `{{ working_dir_windows }}\run.log` (or the Task Scheduler GUI → History tab) for output.
+
+**Note:** the generated XML uses `<Command>{{ python_exe }}</Command>`. If Python is installed elsewhere on your host, edit the XML `<Command>` before registration.
+
+***
+
+## Option B — Linux / macOS crontab
+
+1. Open a shell on your host.
+2. Install the cron entry (this **replaces** your current crontab — back it up first if needed):
+   ```
+   crontab -l > crontab.backup  # optional backup
+   crontab crontab.txt
+   ```
+3. Verify the entry is installed:
+   ```
+   crontab -l
+   ```
+4. Check `{{ working_dir_posix }}/run.log` after the next scheduled run.
+
+**Note:** the crontab hard-codes `{{ python_exe }}`. Adjust the path if your Python lives elsewhere (`which python3`).
+
+***
+
+## Files in this deploy bundle
+
+- `task_scheduler.xml` — Windows Task Scheduler import (Option A)
+- `crontab.txt` — POSIX cron entry (Option B)
+- `setup_guide.md` — this file
+
+The actual workflow script (`main.py`, `checkpoint_utils.py`, `config.yaml`, `requirements.txt`) lives in the parent directory: `{{ working_dir_windows }}`.

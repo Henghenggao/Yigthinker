@@ -143,6 +143,38 @@ class TemplateEngine:
         template = self._env.get_template("base/requirements.txt.j2")
         return template.render(**context)
 
+    def render_text(self, template_path: str, context: dict) -> str:
+        """Render a non-Python template through the SandboxedEnvironment.
+
+        Use for XML, crontab, markdown, PowerShell, JSON, or any artifact
+        that is NOT valid Python source. Runs the Phase 8 credential pattern
+        scanner but skips the Python AST validator (which would raise
+        SyntaxError on non-Python output).
+
+        Args:
+            template_path: Path relative to the templates/ dir, e.g.
+                "local/task_scheduler.xml.j2".
+            context: Template variables.
+
+        Returns:
+            Rendered text.
+
+        Raises:
+            ValueError: If rendered output contains plaintext credential
+                patterns.
+        """
+        template = self._env.get_template(template_path)
+        rendered = template.render(**context)
+
+        issues = _scan_credential_patterns(rendered)
+        if issues:
+            raise ValueError(
+                f"Rendered {template_path} contains credential patterns: "
+                f"{issues}"
+            )
+
+        return rendered
+
     @staticmethod
     def compute_dependencies(steps: list[dict]) -> list[str]:
         """Map step actions to pip package dependencies.
