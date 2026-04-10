@@ -48,9 +48,11 @@ def _register_workflow_tools(
     """Register workflow tools only when Jinja2 is installed."""
     try:
         from yigthinker.tools.workflow.workflow_generate import WorkflowGenerateTool
+        from yigthinker.tools.workflow.workflow_deploy import WorkflowDeployTool
     except ModuleNotFoundError:
         return
     registry.register(WorkflowGenerateTool(registry=workflow_registry))
+    registry.register(WorkflowDeployTool(registry=workflow_registry))
 
 
 def build_tool_registry(
