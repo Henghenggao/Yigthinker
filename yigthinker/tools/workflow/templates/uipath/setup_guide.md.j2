@@ -1,0 +1,48 @@
+# UiPath Deploy Guide: {{ display_name }}
+
+**Workflow:** `{{ workflow_name }}`
+**Description:** {{ description }}
+**Python interpreter:** `{{ python_exe }}`
+**Generated:** {{ registration_date }}
+
+Yigthinker emits a minimal UiPath process that you complete in **UiPath Studio**. The generated package is a `.nupkg` stub - after opening it in Studio you'll add a **Python Scope** activity pointing at your `main.py`.
+
+***
+
+## Step 1 - Rename and open
+
+1. Find `process_package.zip` in the deploy bundle.
+2. **Rename** it to `process_package.nupkg` (Studio only accepts the `.nupkg` extension).
+3. Double-click to open in UiPath Studio **or** use **Studio > Manage Packages > Install from File**.
+
+## Step 2 - Wire the Python Scope
+
+The generated `Main.xaml` contains an empty `<Sequence>` with instructional comments. Add:
+
+1. From the **Activities** panel, drag **App Integration > Python > Python Scope** into the Sequence.
+2. Set the scope properties:
+   - **Path:** full path to the directory containing `main.py` (use the Yigthinker workflow version folder).
+   - **Python Version:** `Python_313` (adjust if your runner uses a different version).
+   - **Target:** `x64`.
+3. Inside the scope, drag **Run Python Script**:
+   - **File:** `main.py`.
+
+## Step 3 - Publish or run locally
+
+- **Local test:** F5 in Studio to run once.
+- **Orchestrator publish:** **Publish** button > select your Orchestrator feed. Orchestrator will re-pack the `.nupkg` with a proper `.nuspec`.
+
+***
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Studio rejects the file | Confirm the extension is `.nupkg` (not `.zip`). |
+| Python Scope fails | Verify `{{ python_exe }}` is on PATH and the target venv has the required packages. |
+| Main.xaml shows "Invalid XAML" | Re-open from File > Open and let Studio regenerate view state. |
+
+## Files in this bundle
+
+- `process_package.zip` - rename to `.nupkg` to import in Studio.
+- `setup_guide.md` - this file.

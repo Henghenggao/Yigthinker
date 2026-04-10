@@ -1,0 +1,36 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "triggers": {
+      "Recurrence": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": {{ recurrence_frequency | tojson }},
+          "interval": {{ recurrence_interval }}
+        },
+        "metadata": {
+          "cron_expression": {{ cron_expression | tojson }},
+          "generated_by": "Yigthinker Phase 9"
+        }
+      }
+    },
+    "actions": {
+      "Run_Yigthinker_Workflow": {
+        "type": "Http",
+        "inputs": {
+          "method": "POST",
+          "uri": "https://example.invalid/placeholder",
+          "body": {
+            "workflow_name": {{ workflow_name | tojson }},
+            "note": "REPLACE THIS ACTION - see setup_guide.md for how to wire Run-Python-script or a Dataverse job."
+          }
+        },
+        "runAfter": {},
+        "description": "PLACEHOLDER - user must replace with a real action (Dataverse job, HTTP to Yigthinker Gateway, etc.)"
+      }
+    },
+    "outputs": {}
+  }
+}

@@ -1,0 +1,53 @@
+# Power Automate Deploy Guide: {{ display_name }}
+
+**Workflow:** `{{ workflow_name }}`
+**Description:** {{ description }}
+**Cron schedule:** `{{ cron_expression }}` (translated to PA Recurrence: every {{ recurrence_interval }} {{ recurrence_frequency | lower }})
+**Generated:** {{ registration_date }}
+
+This guide walks you through importing `flow_import.zip` into Microsoft Power Automate and wiring the placeholder action to your real system.
+
+***
+
+## Step 1 - Import the ZIP
+
+1. Open https://flow.microsoft.com and sign in to the environment where you want the flow to live.
+2. Navigate to **My flows** (left nav) > **Import** > **Import Package (Legacy)**.
+3. Upload `flow_import.zip`.
+4. On the **Import setup** screen, confirm the flow name (`{{ display_name }}`) and click **Import**.
+5. Power Automate creates the flow in a **Saved** state.
+
+## Step 2 - Wire the placeholder action
+
+The generated flow contains a placeholder HTTP action named `Run_Yigthinker_Workflow`. Replace it:
+
+- **Option A (recommended):** Delete the placeholder and add a **Run a Child Flow** action pointing to your existing data-processing flow.
+- **Option B (Dataverse):** Replace with a **Perform an unbound action** targeting your Dataverse automation.
+- **Option C (HTTP to Yigthinker Gateway):** Keep the HTTP action and update the URI to your Yigthinker Gateway endpoint.
+
+## Step 3 - Turn the flow on
+
+1. Open the flow in Power Automate.
+2. Click **Edit** > **Save**.
+3. Back on the flow detail page, click **Turn on**.
+4. Wait for the next scheduled trigger or click **Run** > **Run now** to test.
+
+## Step 4 - Monitor runs
+
+- **Runs history:** flow detail page > **All runs** tab.
+- **Failures:** PA sends an email to the flow owner if 3 consecutive runs fail.
+
+***
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Import fails with "Invalid package" | Confirm the ZIP contains `Microsoft.Flow/flows/{{ workflow_name }}/definition.json` (use `unzip -l flow_import.zip`). |
+| Flow is Saved but not running | Click **Turn on** - imported flows default to off. |
+| Trigger never fires | Double-check the Recurrence settings match `{{ cron_expression }}` after import. |
+
+## Files in this bundle
+
+- `flow_import.zip` - Power Automate import package (drop into flow.microsoft.com).
+- `setup_guide.md` - this file.
