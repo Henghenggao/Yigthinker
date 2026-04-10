@@ -444,3 +444,70 @@ def test_normalize_step_params():
     assert result["float_val"] == 3.14
     assert isinstance(result["float_val"], float)
     assert result["normal_str"] == "hello"
+
+
+# ---------------------------------------------------------------------------
+# Test: CORR-01 regression — generated checkpoint_utils.py POSTs to
+# /api/rpa/callback (not /api/rpa/heal) with the D-08 payload shape.
+# ---------------------------------------------------------------------------
+
+def test_checkpoint_posts_to_callback_endpoint(tmp_path: Path) -> None:
+    """CORR-01 regression: generated checkpoint_utils.py POSTs to /api/rpa/callback with D-08 payload shape."""
+    import asyncio
+
+    from yigthinker.session import SessionContext
+    from yigthinker.stats import StatsAccumulator
+    from yigthinker.tools.workflow.registry import WorkflowRegistry
+    from yigthinker.tools.workflow.workflow_generate import (
+        WorkflowGenerateInput,
+        WorkflowGenerateTool,
+        WorkflowStep,
+    )
+
+    registry = WorkflowRegistry(base_dir=tmp_path / "workflows")
+    gen = WorkflowGenerateTool(registry=registry)
+    ctx = SessionContext(
+        session_id="t",
+        messages=[],
+        settings={},
+        stats=StatsAccumulator(),
+    )
+
+    result = asyncio.run(gen.execute(
+        WorkflowGenerateInput(
+            name="corr01_wf",
+            description="CORR-01 regression",
+            steps=[
+                WorkflowStep(
+                    id="step_1",
+                    action="sql_query",
+                    params={"query": "SELECT 1"},
+                )
+            ],
+            target="python",
+            schedule="0 0 * * *",
+        ),
+        ctx,
+    ))
+    assert not result.is_error, result.content
+
+    output_dir = Path(result.content["output_dir"])
+    ckpt_file = output_dir / "checkpoint_utils.py"
+    assert ckpt_file.exists()
+    text = ckpt_file.read_text(encoding="utf-8")
+
+    # Must POST to /api/rpa/callback (not /api/rpa/heal)
+    assert "/api/rpa/callback" in text
+    assert "/api/rpa/heal" not in text
+    # Must include D-08 callback payload keys
+    assert "callback_id" in text
+    assert "workflow_name" in text
+    assert "checkpoint_id" in text
+    assert "attempt_number" in text
+    assert "error_type" in text
+    assert "step_context" in text
+    # report_status must POST to /api/rpa/report with D-09 keys
+    assert "/api/rpa/report" in text
+    assert "run_id" in text
+    assert "started_at" in text
+    assert "finished_at" in text
