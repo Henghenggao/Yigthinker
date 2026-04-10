@@ -31,11 +31,12 @@ def main():
         config = yaml.safe_load(f)
 
     logger.info("Starting workflow: {{ workflow_name }}")
+    report_status("success", config, start=True)
 {% for step in steps %}
-    result_{{ step.id }} = checkpoint("{{ step.id }}")(step_{{ step.id }})({% for inp in step.inputs %}{{ inp }}_result=result_{{ inp }}, {% endfor %}**config)
+    result_{{ step.id }} = checkpoint("{{ step.id }}", config=config)(step_{{ step.id }})({% for inp in step.inputs %}{{ inp }}_result=result_{{ inp }}, {% endfor %}**config)
 {% endfor %}
 
-    report_status("completed", config)
+    report_status("success", config)
     logger.info("Workflow {{ workflow_name }} completed successfully")
 
 

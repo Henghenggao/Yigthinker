@@ -225,6 +225,7 @@ class WorkflowGenerateTool:
             "description": input.description,
             "steps": step_dicts,
             "version": version,
+            "workflow_version": version,  # CORR-01: checkpoint_utils template reads this
             "schedule": input.schedule,
             "connections": connections,
             "dependencies": deps,
