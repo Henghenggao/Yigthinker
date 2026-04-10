@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
-status: Ready to plan
-stopped_at: Completed 09-02-PLAN.md
-last_updated: "2026-04-10T16:42:24.090Z"
+status: Executing Phase 10
+stopped_at: Completed 10-03-PLAN.md (Wave 1 parallel with 10-01)
+last_updated: "2026-04-10T22:04:49.348Z"
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 10
+  completed_plans: 7
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-09)
 
 **Core value:** A user can interact via CLI REPL, IM channels, or TUI connected to the Gateway, having AI-assisted data analysis conversations with tool calls -- same agent, multiple surfaces. Repeatable analysis patterns become automated workflows deployed to RPA platforms.
-**Current focus:** Phase 09 — deployment-lifecycle
+**Current focus:** Phase 10 — gateway-rpa-behavior
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
+Phase: 10 (gateway-rpa-behavior) — EXECUTING
+Plan: 1 of 4
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Plan: Not started
 | Phase 09-deployment-lifecycle P01 | 90min | 3 tasks | 11 files |
 | Phase 09-deployment-lifecycle P03 | ~6 min | 3 tasks | 4 files |
 | Phase 09 P02 | 35 | 3 tasks | 13 files |
+| Phase 10 P03 | 7min | 7 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,9 @@ Recent decisions affecting current work:
 - [Phase 09]: Guided mode builds bundles at runtime via TemplateEngine.render_text + zipfile — no pre-canned artifacts shipped
 - [Phase 09]: Auto mode uses importlib.util.find_spec to inspect MCP package availability — never imports the module (architect-not-executor invariant)
 - [Phase 09]: cron_to_pa_recurrence supports 4 canonical shapes (daily/weekly/monthly/every-N-hours); irregular crons fall back to Day/1 with needs_manual_review=True
+- [Phase 10]: [Phase 10-03]: PatternStore _save_locked helper prevents FileLock reentrancy deadlock in suppress() (Pitfall 5)
+- [Phase 10]: [Phase 10-03]: CORR-04a lazy suppression pruning happens inside list_active under the existing lock — no background sweeper
+- [Phase 10]: [Phase 10-03]: suggest_automation can_deploy_to via importlib.util.find_spec only — never imports MCP packages
 
 ### Pending Todos
 
@@ -95,6 +99,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-10T16:26:56.995Z
-Stopped at: Completed 09-02-PLAN.md
+Last session: 2026-04-10T22:04:43.674Z
+Stopped at: Completed 10-03-PLAN.md (Wave 1 parallel with 10-01)
 Resume file: None
