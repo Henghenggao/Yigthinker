@@ -94,10 +94,10 @@ Requirements for Workflow & RPA Bridge milestone. Each maps to roadmap phases.
 
 ### Gateway RPA Endpoints
 
-- [ ] **GW-RPA-01**: /api/rpa/callback endpoint receives self-healing requests with Bearer token auth, returns fix_applied/skip/escalate decisions
-- [ ] **GW-RPA-02**: /api/rpa/callback uses callback_id deduplication via sqlite3 (matching the EventDeduplicator pattern at `yigthinker/channels/feishu/dedup.py`)
-- [ ] **GW-RPA-03**: /api/rpa/report endpoint accepts execution status reports (no LLM cost, pure data write)
-- [ ] **GW-RPA-04**: Circuit breaker limits self-healing: 3 attempts per checkpoint per 24h, 10 LLM calls per workflow per day
+- [x] **GW-RPA-01**: /api/rpa/callback endpoint receives self-healing requests with Bearer token auth, returns fix_applied/skip/escalate decisions
+- [x] **GW-RPA-02**: /api/rpa/callback uses callback_id deduplication via sqlite3 (matching the EventDeduplicator pattern at `yigthinker/channels/feishu/dedup.py`)
+- [x] **GW-RPA-03**: /api/rpa/report endpoint accepts execution status reports (no LLM cost, pure data write)
+- [x] **GW-RPA-04**: Circuit breaker limits self-healing: 3 attempts per checkpoint per 24h, 10 LLM calls per workflow per day
 - [x] **GW-RPA-05**: Generated scripts treat Gateway as optional — ConnectionError falls back to escalate
 
 ### Behavior Layer
@@ -192,10 +192,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LCM-04 | Phase 9 | Complete |
 | LCM-05 | Phase 9 | Complete |
 | LCM-06 | Phase 9 | Complete |
-| GW-RPA-01 | Phase 10 | Pending |
-| GW-RPA-02 | Phase 10 | Pending |
-| GW-RPA-03 | Phase 10 | Pending |
-| GW-RPA-04 | Phase 10 | Pending |
+| GW-RPA-01 | Phase 10 | Complete |
+| GW-RPA-02 | Phase 10 | Complete |
+| GW-RPA-03 | Phase 10 | Complete |
+| GW-RPA-04 | Phase 10 | Complete |
 | BHV-01 | Phase 10 | Pending |
 | BHV-02 | Phase 10 | Pending |
 | BHV-03 | Phase 10 | Complete |

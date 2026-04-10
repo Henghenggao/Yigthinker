@@ -137,7 +137,7 @@ Plans:
   4. After the agent completes a data analysis task, it evaluates the task for automation potential and suggests workflows with estimated time saved, frequency, and required connections
   5. Cross-session pattern detection flags tool sequences repeated in 2+ sessions as automation-worthy; declined suggestions are stored with 3-month expiry and not re-suggested
 **Plans**: 4 plans
-  - [ ] 10-01-PLAN.md -- Gateway RPA endpoints + sqlite state store + circuit breaker (Wave 1)
+  - [x] 10-01-PLAN.md -- Gateway RPA endpoints + sqlite state store + circuit breaker (Wave 1)
   - [ ] 10-02-PLAN.md -- Extraction-only LLM callback + prompt parsing (Wave 2, depends on 10-01)
   - [x] 10-03-PLAN.md -- PatternStore + suggest_automation tool + behavior gate (Wave 1)
   - [ ] 10-04-PLAN.md -- Behavior Layer wiring: BHV-01 directive + BHV-02 startup alerts + BHV-05 AutoDream pattern extraction (Wave 2, depends on 10-01 + 10-03)
@@ -177,6 +177,6 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12
 | 7. Spawn Agent | v1.0 | 5/5 | Complete | 2026-04-08 |
 | 8. Workflow Foundation | v1.1 | 0/3 | Planned    |  |
 | 9. Deployment & Lifecycle | v1.1 | 0/TBD | Not started | - |
-| 10. Gateway RPA & Behavior Layer | v1.1 | 1/4 | In Progress|  |
+| 10. Gateway RPA & Behavior Layer | v1.1 | 2/4 | In Progress|  |
 | 11. UiPath MCP Server | v1.1 | 0/TBD | Not started | - |
 | 12. Power Automate MCP Server | v1.1 | 0/TBD | Not started | - |
