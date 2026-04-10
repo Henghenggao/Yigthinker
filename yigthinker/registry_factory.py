@@ -44,6 +44,7 @@ def _register_forecast_tools(registry: ToolRegistry) -> None:
 def _register_workflow_tools(
     registry: ToolRegistry,
     workflow_registry: "WorkflowRegistry",
+    pattern_store: "PatternStore | None" = None,
 ) -> None:
     """Register workflow tools only when Jinja2 is installed."""
     try:
@@ -56,10 +57,18 @@ def _register_workflow_tools(
     registry.register(WorkflowDeployTool(registry=workflow_registry))
     registry.register(WorkflowManageTool(registry=workflow_registry))
 
+    # Phase 10 / BHV-03: suggest_automation is part of the workflow tool family
+    # but requires its own PatternStore dependency. Register it only when the
+    # behavior subsystem is on (pattern_store is not None).
+    if pattern_store is not None:
+        from yigthinker.tools.workflow.suggest_automation import SuggestAutomationTool
+        registry.register(SuggestAutomationTool(store=pattern_store))
+
 
 def build_tool_registry(
     pool: ConnectionPool,
     workflow_registry: "WorkflowRegistry | None" = None,
+    pattern_store: "PatternStore | None" = None,
 ) -> ToolRegistry:
     """Register all available Yigthinker tools."""
     registry = ToolRegistry()
@@ -83,7 +92,7 @@ def build_tool_registry(
     _register_forecast_tools(registry)
 
     if workflow_registry is not None:
-        _register_workflow_tools(registry, workflow_registry)
+        _register_workflow_tools(registry, workflow_registry, pattern_store=pattern_store)
 
     registry.register(ExploreOverviewTool())
     registry.register(ExploreDrilldownTool())
