@@ -77,11 +77,11 @@ Requirements for Workflow & RPA Bridge milestone. Each maps to roadmap phases.
 
 ### Deployment
 
-- [ ] **DEP-01**: workflow_deploy local mode generates Windows Task Scheduler XML or crontab entry
+- [x] **DEP-01**: workflow_deploy local mode generates Windows Task Scheduler XML or crontab entry
 - [ ] **DEP-02**: workflow_deploy guided mode generates paste-ready artifacts (setup_guide.md, flow_import.zip, task_scheduler.xml, test_trigger.ps1) with IM-native step-by-step instructions
 - [ ] **DEP-03**: workflow_deploy auto mode returns structured next-step instructions for LLM to call MCP tools through normal AgentLoop cycle
-- [ ] **DEP-04**: LLM auto-selects deploy mode based on environment (MCP available → auto, PA/UiPath mentioned but no API → guided, no RPA → local); user can override
-- [ ] **DEP-05**: After deployment (any mode), metadata written to Workflow Registry (manifest.json + registry.json)
+- [x] **DEP-04**: LLM auto-selects deploy mode based on environment (MCP available → auto, PA/UiPath mentioned but no API → guided, no RPA → local); user can override
+- [x] **DEP-05**: After deployment (any mode), metadata written to Workflow Registry (manifest.json + registry.json)
 
 ### Lifecycle Management
 
@@ -181,11 +181,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WFG-06 | Phase 8 | Complete |
 | WFG-07 | Phase 8 | Complete |
 | GW-RPA-05 | Phase 8 | Complete |
-| DEP-01 | Phase 9 | Pending |
+| DEP-01 | Phase 9 | Complete |
 | DEP-02 | Phase 9 | Pending |
 | DEP-03 | Phase 9 | Pending |
-| DEP-04 | Phase 9 | Pending |
-| DEP-05 | Phase 9 | Pending |
+| DEP-04 | Phase 9 | Complete |
+| DEP-05 | Phase 9 | Complete |
 | LCM-01 | Phase 9 | Pending |
 | LCM-02 | Phase 9 | Pending |
 | LCM-03 | Phase 9 | Pending |
