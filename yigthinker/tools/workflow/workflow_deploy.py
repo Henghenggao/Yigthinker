@@ -4,7 +4,17 @@ Local mode (Plan 09-01): renders task_scheduler.xml + crontab.txt + setup_guide.
 and writes them to <version_dir>/local_guided/. Updates registry.json + manifest.json
 with Phase 9 deploy metadata under the existing Phase 8 filelock contract.
 
-Guided and auto modes are implemented in Plan 09-02.
+Guided mode (Plan 09-02): renders a paste-ready bundle ZIP (flow_import.zip for
+Power Automate, process_package.zip for UiPath) plus a target-specific
+setup_guide.md into <version_dir>/<target>_guided/. Uses pa_bundle +
+uipath_bundle helpers.
+
+Auto mode (Plan 09-02): informational-only. Uses mcp_detection.check_mcp_installed
+to see whether the expected MCP package is importable (via importlib.util.find_spec,
+never an actual import). On success, builds the guided bundle as a hand-off
+artifact and returns structured next_steps naming the MCP tool + bundle path.
+On missing package, returns is_error=True with pip extras hint. Per D-02 the
+tool NEVER calls MCP tools directly or subprocess-execs anything.
 """
 from __future__ import annotations
 
@@ -116,6 +126,107 @@ def cron_to_ts_trigger(schedule: str, start_ref: datetime) -> dict[str, Any]:
     return {
         "kind": "calendar_daily",
         "start_boundary": next_run.isoformat(),
+        "needs_manual_review": True,
+    }
+
+
+def cron_to_pa_recurrence(cron_expr: str) -> dict[str, Any]:
+    """Translate a 5-field cron expression to PA Recurrence {frequency, interval}.
+
+    Per Phase 9 Research Pattern 7, maps the four canonical cron shapes:
+
+      "0 8 * * *"    -> frequency=Day,   interval=1
+      "0 8 * * 1"    -> frequency=Week,  interval=1
+      "0 8 5 * *"    -> frequency=Month, interval=1
+      "0 */4 * * *"  -> frequency=Hour,  interval=4
+
+    For anything we cannot map cleanly (ranges, lists, steps on non-trivial
+    fields) we fall back to Day/1 and set ``needs_manual_review=True`` - the
+    setup_guide tells the user to fix it in flow.microsoft.com after import.
+
+    Raises:
+        ValueError: if the cron expression is not valid per croniter.
+    """
+    from croniter import croniter
+
+    # croniter() raises ValueError on garbage; propagate to caller.
+    croniter(cron_expr)
+
+    parts = cron_expr.strip().split()
+    if len(parts) != 5:
+        return {
+            "frequency": "Day",
+            "interval": 1,
+            "needs_manual_review": True,
+        }
+    minute, hour, dom, mon, dow = parts
+
+    # Hour: "0 */N * * *"
+    if (
+        dom == "*"
+        and mon == "*"
+        and dow == "*"
+        and hour.startswith("*/")
+    ):
+        try:
+            n = int(hour[2:])
+            return {
+                "frequency": "Hour",
+                "interval": n,
+                "needs_manual_review": False,
+            }
+        except ValueError:
+            pass
+
+    # Day: plain "M H * * *" (no step / range in hour)
+    if (
+        dom == "*"
+        and mon == "*"
+        and dow == "*"
+        and "/" not in hour
+        and "-" not in hour
+        and "," not in hour
+    ):
+        return {
+            "frequency": "Day",
+            "interval": 1,
+            "needs_manual_review": False,
+        }
+
+    # Week: "M H * * D" with single weekday digit
+    if (
+        dom == "*"
+        and mon == "*"
+        and dow != "*"
+        and "/" not in dow
+        and "-" not in dow
+        and "," not in dow
+    ):
+        return {
+            "frequency": "Week",
+            "interval": 1,
+            "needs_manual_review": False,
+        }
+
+    # Month: "M H D * *" with single day-of-month digit
+    if (
+        dom != "*"
+        and mon == "*"
+        and dow == "*"
+        and "/" not in dom
+        and "-" not in dom
+        and "," not in dom
+    ):
+        return {
+            "frequency": "Month",
+            "interval": 1,
+            "needs_manual_review": False,
+        }
+
+    # Fallback - exotic shape; user must fix after import.
+    return {
+        "frequency": "Day",
+        "interval": 1,
         "needs_manual_review": True,
     }
 
@@ -244,14 +355,20 @@ class WorkflowDeployTool:
         # 6. Dispatch by mode
         if input.deploy_mode == "local":
             return self._deploy_local(input, version, version_dir, schedule)
+        if input.deploy_mode == "guided":
+            return self._dispatch_guided(
+                input, version, version_dir, schedule,
+            )
+        if input.deploy_mode == "auto":
+            return await self._dispatch_auto(
+                input, version, version_dir, schedule,
+            )
 
-        # Guided + auto delegated to Plan 09-02.
+        # Unreachable - Pydantic Literal validation guards the schema,
+        # but keep an explicit fallback for forward compatibility.
         return ToolResult(
             tool_use_id="",
-            content=(
-                f"deploy_mode='{input.deploy_mode}' is not yet implemented "
-                f"in Plan 09-01 - see Plan 09-02."
-            ),
+            content=f"Unknown deploy_mode: {input.deploy_mode}",
             is_error=True,
         )
 
@@ -367,6 +484,294 @@ class WorkflowDeployTool:
                     f"Install via Windows Task Scheduler (schtasks /create /xml "
                     f"task_scheduler.xml) or POSIX cron (crontab crontab.txt). "
                     f"See setup_guide.md for step-by-step instructions."
+                ),
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # Plan 09-02: guided dispatcher
+    # ------------------------------------------------------------------
+
+    def _dispatch_guided(
+        self,
+        input: WorkflowDeployInput,
+        version: int,
+        version_dir: Path,
+        schedule: str,
+    ) -> ToolResult:
+        """Render a paste-ready bundle ZIP for a PA or UiPath target.
+
+        Writes <version_dir>/<target>_guided/<bundle>.zip + setup_guide.md
+        and updates registry.json + manifest.json per D-11/D-12.
+
+        Returns an is_error ToolResult if ``target == "local"`` — that
+        combination is rejected upstream in ``_do_execute`` via the
+        target/mode combo validation, but we guard it here too for
+        defense-in-depth.
+        """
+        from yigthinker.tools.workflow.pa_bundle import build_pa_bundle
+        from yigthinker.tools.workflow.uipath_bundle import build_uipath_bundle
+
+        if input.target == "local":
+            return ToolResult(
+                tool_use_id="",
+                content=(
+                    "target='local' is only valid with deploy_mode='local' "
+                    "(see D-23). Use deploy_mode='local' for OS scheduler "
+                    "bundles."
+                ),
+                is_error=True,
+            )
+
+        target_dir_name = (
+            "power_automate_guided"
+            if input.target == "power_automate"
+            else "uipath_guided"
+        )
+        output_dir = version_dir / target_dir_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        now = datetime.now(timezone.utc)
+        registration_date = now.isoformat()
+        deploy_id = _make_deploy_id(
+            input.workflow_name, version, "guided",
+        )
+
+        # Pull description from the manifest (set by workflow_generate).
+        manifest = self._registry.get_manifest(input.workflow_name)
+        assert manifest is not None  # _do_execute already verified
+        description = (
+            manifest.get("description")
+            or input.notify_on_complete
+            or f"Yigthinker workflow {input.workflow_name} v{version}"
+        )
+        display_name = f"Yigthinker: {input.workflow_name}"
+
+        if input.target == "power_automate":
+            recurrence = cron_to_pa_recurrence(schedule)
+            tpl_vars: dict[str, Any] = {
+                "workflow_name": input.workflow_name,
+                "display_name": display_name,
+                "description": description,
+                "cron_expression": schedule,
+                "recurrence_frequency": recurrence["frequency"],
+                "recurrence_interval": recurrence["interval"],
+                "registration_date": registration_date,
+            }
+            bundle_path = build_pa_bundle(
+                workflow_name=input.workflow_name,
+                variables=tpl_vars,
+                engine=self._engine,
+                output_dir=output_dir,
+            )
+            setup_guide = self._engine.render_text(
+                "pa/setup_guide.md.j2", tpl_vars,
+            )
+            needs_manual_review = bool(
+                recurrence.get("needs_manual_review"),
+            )
+        else:  # uipath
+            tpl_vars = {
+                "workflow_name": input.workflow_name,
+                "display_name": display_name,
+                "description": description,
+                "python_exe": sys.executable,
+                "registration_date": registration_date,
+            }
+            bundle_path = build_uipath_bundle(
+                workflow_name=input.workflow_name,
+                variables=tpl_vars,
+                engine=self._engine,
+                output_dir=output_dir,
+            )
+            setup_guide = self._engine.render_text(
+                "uipath/setup_guide.md.j2", tpl_vars,
+            )
+            # UiPath always needs the user to wire a Python Scope, but that's
+            # documented in the setup_guide and not a cron translation gap.
+            needs_manual_review = False
+
+        setup_path = output_dir / "setup_guide.md"
+        setup_path.write_text(setup_guide, encoding="utf-8")
+
+        # Registry writeback (D-11 / D-14)
+        self._registry.save_index(
+            {
+                "workflows": {
+                    input.workflow_name: {
+                        "target": input.target,
+                        "deploy_mode": "guided",
+                        "schedule": schedule,
+                        "last_deployed": registration_date,
+                        "deploy_id": deploy_id,
+                        "current_version": version,
+                    }
+                }
+            }
+        )
+
+        # Manifest writeback (D-12)
+        updated = self._registry.get_manifest(input.workflow_name)
+        assert updated is not None
+        for v in updated["versions"]:
+            if v["version"] == version:
+                v["deployed_to"] = input.target
+                v["deploy_mode"] = "guided"
+                v["deploy_id"] = deploy_id
+                v["status"] = "active"
+                break
+        self._registry.save_manifest(input.workflow_name, updated)
+
+        return ToolResult(
+            tool_use_id="",
+            content={
+                "mode": "guided",
+                "target": input.target,
+                "workflow_name": input.workflow_name,
+                "version": version,
+                "deploy_id": deploy_id,
+                "artifacts_ready": {
+                    "bundle": str(bundle_path),
+                    "setup_guide": str(setup_path),
+                },
+                "needs_manual_review": needs_manual_review,
+                "message": (
+                    f"Guided bundle ready at {bundle_path}. "
+                    f"Open {setup_path} for step-by-step import instructions."
+                ),
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # Plan 09-02: auto dispatcher (informational, never calls MCP)
+    # ------------------------------------------------------------------
+
+    async def _dispatch_auto(
+        self,
+        input: WorkflowDeployInput,
+        version: int,
+        version_dir: Path,
+        schedule: str,
+    ) -> ToolResult:
+        """Inspect MCP installation and return instructional next_steps.
+
+        Per D-02 this method NEVER calls the MCP. It only tells the LLM
+        whether the MCP package is importable and what tool to invoke.
+        Detection uses importlib.util.find_spec via mcp_detection.check_mcp_installed
+        which never imports the module.
+
+        On success, we also build the guided bundle as a hand-off artifact
+        (so the LLM has a concrete bundle_path to pass to the MCP tool),
+        then rewrite the registry row to deploy_mode=auto and status
+        pending_auto_deploy.
+        """
+        from yigthinker.tools.workflow import mcp_detection
+
+        if input.target == "local":
+            return ToolResult(
+                tool_use_id="",
+                content=(
+                    "target='local' is only valid with deploy_mode='local' "
+                    "(see D-23). Auto mode requires a cloud target."
+                ),
+                is_error=True,
+            )
+
+        mcp_package = mcp_detection.MCP_PACKAGE_MAP[input.target]
+        tool_info = mcp_detection.MCP_TOOL_MAP[input.target]
+
+        if not mcp_detection.check_mcp_installed(mcp_package):
+            return ToolResult(
+                tool_use_id="",
+                content=(
+                    f"Auto mode requires the {mcp_package} package. "
+                    f"Install with '{tool_info['install_hint']}' or use "
+                    f"deploy_mode='guided' for a paste-ready bundle "
+                    f"instead."
+                ),
+                is_error=True,
+            )
+
+        # MCP is present — build the bundle via the guided dispatcher so
+        # the LLM has something concrete to hand to the MCP tool. This
+        # also writes the guided entry to the registry; we flip it to
+        # auto/pending_auto_deploy immediately after.
+        guided_result = self._dispatch_guided(
+            input, version, version_dir, schedule,
+        )
+        if guided_result.is_error:
+            return guided_result
+
+        assert isinstance(guided_result.content, dict)
+        bundle_path = guided_result.content["artifacts_ready"]["bundle"]
+        setup_guide_path = guided_result.content["artifacts_ready"][
+            "setup_guide"
+        ]
+
+        now = datetime.now(timezone.utc)
+        registration_date = now.isoformat()
+        deploy_id_auto = _make_deploy_id(
+            input.workflow_name, version, "auto",
+        )
+
+        # Flip the registry row to auto / pending_auto_deploy.
+        self._registry.save_index(
+            {
+                "workflows": {
+                    input.workflow_name: {
+                        "target": input.target,
+                        "deploy_mode": "auto",
+                        "schedule": schedule,
+                        "last_deployed": registration_date,
+                        "deploy_id": deploy_id_auto,
+                        "current_version": version,
+                    }
+                }
+            }
+        )
+        updated = self._registry.get_manifest(input.workflow_name)
+        assert updated is not None
+        for v in updated["versions"]:
+            if v["version"] == version:
+                v["deploy_mode"] = "auto"
+                v["deploy_id"] = deploy_id_auto
+                v["status"] = "pending_auto_deploy"
+                break
+        self._registry.save_manifest(input.workflow_name, updated)
+
+        return ToolResult(
+            tool_use_id="",
+            content={
+                "mode": "auto",
+                "target": input.target,
+                "workflow_name": input.workflow_name,
+                "version": version,
+                "deploy_id": deploy_id_auto,
+                "mcp_installed": True,
+                "mcp_package": mcp_package,
+                "artifacts_ready": {
+                    "bundle": bundle_path,
+                    "setup_guide": setup_guide_path,
+                },
+                "next_steps": {
+                    "suggested_tool": tool_info["suggested_tool"],
+                    "mcp_package": mcp_package,
+                    "bundle_path": bundle_path,
+                    "instructions": (
+                        f"The {mcp_package} MCP package is installed. To "
+                        f"complete the deploy, ask Claude to call the "
+                        f"'{tool_info['suggested_tool']}' tool (exposed by "
+                        f"the MCP server) with bundle_path='{bundle_path}' "
+                        f"and any auth credentials required by your "
+                        f"environment. Yigthinker will NOT call this tool "
+                        f"directly (per D-02 Yigthinker generates, never "
+                        f"executes deploys)."
+                    ),
+                },
+                "message": (
+                    f"Auto mode ready. MCP package {mcp_package} detected; "
+                    f"bundle staged at {bundle_path}. Status set to "
+                    f"pending_auto_deploy until the MCP tool confirms."
                 ),
             },
         )
