@@ -37,6 +37,21 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_hibernate_size_mb": 500,
         "session_scope": "per-sender",
         "eviction_interval_seconds": 60,
+        "rpa": {
+            "max_attempts_24h": 3,
+            "max_llm_calls_day": 10,
+            "db_path": "~/.yigthinker/rpa/state.db",
+        },
+    },
+    "behavior": {
+        "enabled": True,
+        "health_check_threshold": {
+            "alert_on_overdue": True,
+            "alert_on_failure_rate_pct": 20.0,
+        },
+        "suggest_automation": {
+            "enabled": True,
+        },
     },
     "channels": {
         "feishu": {

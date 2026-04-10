@@ -78,6 +78,9 @@ class GatewayServer:
         self._app = FastAPI(title="Yigthinker Gateway", lifespan=self._lifespan)
         self._agent_loop: Any = None
         self._pool: Any = None
+        # Phase 10 / 10-01: populated by start() after build_app returns.
+        # Route closures read this lazily at request time (see _mount_routes).
+        self._rpa_controller: Any = None
         self._started_at = time.monotonic()
         self._ws_clients: list[_WSClient] = []
         self._eviction_task: asyncio.Task | None = None
@@ -119,6 +122,19 @@ class GatewayServer:
         app_ctx = await build_app(self._settings, ask_fn=None)
         self._agent_loop = app_ctx.agent_loop
         self._pool = app_ctx.pool
+        # Phase 10 / 10-01: build RPAController now that build_app has
+        # resolved the provider. Route closures read self._rpa_controller
+        # lazily at request time.
+        if (
+            getattr(app_ctx, "rpa_state", None) is not None
+            and getattr(app_ctx, "workflow_registry", None) is not None
+        ):
+            from yigthinker.gateway.rpa_controller import RPAController
+            self._rpa_controller = RPAController(
+                state=app_ctx.rpa_state,
+                registry=app_ctx.workflow_registry,
+                provider=self._agent_loop._provider,
+            )
         eviction_interval = self._settings.get("gateway", {}).get("eviction_interval_seconds", 60)
         self._eviction_task = asyncio.create_task(self._eviction_loop(eviction_interval))
         for adapter in self._adapters:
@@ -156,6 +172,14 @@ class GatewayServer:
             await self._pool.dispose_all()
             self._pool = None
         self._agent_loop = None
+
+        # Phase 10 / 10-01: close the RPA state sqlite handle.
+        if self._rpa_controller is not None:
+            try:
+                self._rpa_controller._state.close()
+            except Exception:
+                pass
+            self._rpa_controller = None
 
         logger.info("Gateway stopped")
 
@@ -301,6 +325,49 @@ class GatewayServer:
 
             await self._registry.hibernate(key)
             return {"ok": True, "key": key}
+
+        # ── Phase 10 / 10-01: RPA callback + report endpoints ─────────────
+        # The controller is built in start() after build_app resolves the
+        # provider. Route closures read self._rpa_controller lazily so that
+        # tests can inject a pre-built controller without running start().
+
+        @app.post("/api/rpa/callback")
+        async def rpa_callback(request: Request):
+            if self._rpa_controller is None:
+                return JSONResponse(
+                    {"error": "gateway not ready"}, status_code=503,
+                )
+            token = _extract_token(request)
+            if not self._auth.verify(token):
+                return JSONResponse(
+                    {"error": "unauthorized"}, status_code=401,
+                )
+            try:
+                body = await request.json()
+            except Exception:
+                return JSONResponse(
+                    {"error": "invalid JSON body"}, status_code=400,
+                )
+            return await self._rpa_controller.handle_callback(body)
+
+        @app.post("/api/rpa/report")
+        async def rpa_report(request: Request):
+            if self._rpa_controller is None:
+                return JSONResponse(
+                    {"error": "gateway not ready"}, status_code=503,
+                )
+            token = _extract_token(request)
+            if not self._auth.verify(token):
+                return JSONResponse(
+                    {"error": "unauthorized"}, status_code=401,
+                )
+            try:
+                body = await request.json()
+            except Exception:
+                return JSONResponse(
+                    {"error": "invalid JSON body"}, status_code=400,
+                )
+            return await self._rpa_controller.handle_report(body)
 
         @app.websocket("/ws")
         async def websocket_endpoint(ws: WebSocket):

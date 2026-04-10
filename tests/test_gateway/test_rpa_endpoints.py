@@ -24,7 +24,11 @@ def _fake_settings() -> dict:
 
 
 def _build_server_with_rpa(tmp_path: Path) -> GatewayServer:
-    """Build a GatewayServer and manually wire an RPAController (skipping real build_app)."""
+    """Build a GatewayServer and manually wire an RPAController (skipping real build_app).
+
+    Overrides start()/stop() so the FastAPI lifespan context manager
+    does not attempt to run build_app (which needs a real LLM provider).
+    """
     srv = GatewayServer(_fake_settings())
     state = RPAStateStore(db_path=tmp_path / "state.db")
     registry = MagicMock()
@@ -40,7 +44,39 @@ def _build_server_with_rpa(tmp_path: Path) -> GatewayServer:
     }
     provider = MagicMock()
     provider.chat = AsyncMock()
-    srv._rpa_controller = RPAController(state=state, registry=registry, provider=provider)
+    controller = RPAController(state=state, registry=registry, provider=provider)
+
+    async def _fake_start() -> None:
+        srv._rpa_controller = controller
+
+    async def _fake_stop() -> None:
+        # Close sqlite handle so pytest tmp_path can tear down on Windows.
+        try:
+            state.close()
+        except Exception:
+            pass
+        srv._rpa_controller = None
+
+    srv.start = _fake_start  # type: ignore[method-assign]
+    srv.stop = _fake_stop  # type: ignore[method-assign]
+    return srv
+
+
+def _build_server_without_rpa(tmp_path: Path) -> GatewayServer:
+    """Build a GatewayServer with lifespan replaced so start() is a no-op.
+
+    Used for the 503-when-controller-missing test path.
+    """
+    srv = GatewayServer(_fake_settings())
+
+    async def _fake_start() -> None:
+        pass
+
+    async def _fake_stop() -> None:
+        pass
+
+    srv.start = _fake_start  # type: ignore[method-assign]
+    srv.stop = _fake_stop  # type: ignore[method-assign]
     return srv
 
 
@@ -60,8 +96,7 @@ def test_report_requires_auth(tmp_path: Path) -> None:
 
 def test_callback_503_when_controller_missing(tmp_path: Path) -> None:
     """Before GatewayServer.start() wires _rpa_controller, callback route returns 503."""
-    srv = GatewayServer(_fake_settings())
-    # Intentionally do NOT set _rpa_controller
+    srv = _build_server_without_rpa(tmp_path)
     with TestClient(srv.app) as client:
         headers = {"Authorization": f"Bearer {srv.auth.token}"}
         r = client.post("/api/rpa/callback", json={}, headers=headers)
@@ -169,8 +204,8 @@ def test_circuit_breaker_llm_cap(tmp_path: Path) -> None:
 
 def test_report_updates_registry(tmp_path: Path) -> None:
     srv = _build_server_with_rpa(tmp_path)
-    registry = srv._rpa_controller._registry
     with TestClient(srv.app) as client:
+        registry = srv._rpa_controller._registry
         headers = {"Authorization": f"Bearer {srv.auth.token}"}
         r = client.post("/api/rpa/report", json={
             "workflow_name": "wf-a",
@@ -188,8 +223,8 @@ def test_report_updates_registry(tmp_path: Path) -> None:
 
 def test_report_no_llm_call(tmp_path: Path) -> None:
     srv = _build_server_with_rpa(tmp_path)
-    provider = srv._rpa_controller._provider
     with TestClient(srv.app) as client:
+        provider = srv._rpa_controller._provider
         headers = {"Authorization": f"Bearer {srv.auth.token}"}
         client.post("/api/rpa/report", json={
             "workflow_name": "wf-a",
@@ -200,7 +235,7 @@ def test_report_no_llm_call(tmp_path: Path) -> None:
             "status": "success",
             "error_summary": None,
         }, headers=headers)
-    provider.chat.assert_not_called()
+        provider.chat.assert_not_called()
 
 
 @pytest.mark.skipif(
@@ -228,13 +263,15 @@ def test_breaker_persists_across_restart(tmp_path: Path) -> None:
     srv1._rpa_controller._state.close()
 
     # Second server: same db_path → 4th attempt should trip breaker
-    srv2 = GatewayServer(_fake_settings())
+    srv2 = _build_server_without_rpa(tmp_path)
     state2 = RPAStateStore(db_path=tmp_path / "state.db")
     registry2 = MagicMock()
     registry2.load_index.return_value = {"workflows": {}}
     provider2 = MagicMock()
     provider2.chat = AsyncMock()
-    srv2._rpa_controller = RPAController(state=state2, registry=registry2, provider=provider2)
+    srv2._rpa_controller = RPAController(
+        state=state2, registry=registry2, provider=provider2,
+    )
     with TestClient(srv2.app) as client:
         headers = {"Authorization": f"Bearer {srv2.auth.token}"}
         r = client.post("/api/rpa/callback", json={

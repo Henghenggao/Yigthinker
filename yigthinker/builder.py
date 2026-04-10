@@ -75,6 +75,19 @@ async def build_app(
         from yigthinker.memory.patterns import PatternStore
         pattern_store = PatternStore()
 
+    # --- RPA state (Phase 10 / 10-01) ---
+    rpa_state: Any | None = None
+    try:
+        from yigthinker.gateway.rpa_state import RPAStateStore
+        gateway_cfg = settings.get("gateway", {})
+        rpa_cfg = gateway_cfg.get("rpa", {})
+        db_path_str = rpa_cfg.get("db_path", "~/.yigthinker/rpa/state.db")
+        db_path = Path(db_path_str).expanduser()
+        rpa_state = RPAStateStore(db_path=db_path)
+    except Exception:
+        # If RPAStateStore cannot be built, gateway RPA endpoints return 503.
+        rpa_state = None
+
     tools = build_tool_registry(
         pool=pool,
         workflow_registry=workflow_registry,
@@ -162,4 +175,6 @@ async def build_app(
         pool=pool,
         memory_manager=memory_manager,
         pattern_store=pattern_store,
+        rpa_state=rpa_state,
+        workflow_registry=workflow_registry,
     )
