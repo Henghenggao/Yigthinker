@@ -95,7 +95,7 @@ Requirements for Workflow & RPA Bridge milestone. Each maps to roadmap phases.
 ### Gateway RPA Endpoints
 
 - [ ] **GW-RPA-01**: /api/rpa/callback endpoint receives self-healing requests with Bearer token auth, returns fix_applied/skip/escalate decisions
-- [ ] **GW-RPA-02**: /api/rpa/callback uses callback_id deduplication via existing aiosqlite event dedup store
+- [ ] **GW-RPA-02**: /api/rpa/callback uses callback_id deduplication via sqlite3 (matching the EventDeduplicator pattern at `yigthinker/channels/feishu/dedup.py`)
 - [ ] **GW-RPA-03**: /api/rpa/report endpoint accepts execution status reports (no LLM cost, pure data write)
 - [ ] **GW-RPA-04**: Circuit breaker limits self-healing: 3 attempts per checkpoint per 24h, 10 LLM calls per workflow per day
 - [x] **GW-RPA-05**: Generated scripts treat Gateway as optional — ConnectionError falls back to escalate
@@ -105,7 +105,7 @@ Requirements for Workflow & RPA Bridge milestone. Each maps to roadmap phases.
 - [ ] **BHV-01**: System prompt directive instructs LLM to evaluate tasks for automation potential after completing work
 - [ ] **BHV-02**: SessionStart hook performs registry health check (failure rate, overdue executions) and injects alerts into context
 - [ ] **BHV-03**: Proactive suggestions include estimated time saved, execution frequency, and required connections
-- [ ] **BHV-04**: Declined suggestions stored in registry.json under suppressed_suggestions with pattern, reason, and 3-month expiry
+- [ ] **BHV-04**: Declined suggestions stored in patterns.json (not registry.json) under suppressed_suggestions with pattern, reason, and 3-month expiry
 - [ ] **BHV-05**: Cross-session pattern detection via AutoDream memory (same tool sequence in 2+ sessions flags as automation-worthy)
 
 ### MCP Server: UiPath
