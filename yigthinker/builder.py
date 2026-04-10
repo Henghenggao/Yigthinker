@@ -54,7 +54,16 @@ async def build_app(
     for name, cfg in settings.get("connections", {}).items():
         pool.add_from_config(name, cfg)
 
-    tools = build_tool_registry(pool=pool)
+    # --- Workflow subsystem ---
+    workflow_registry = None
+    if gate("workflow", settings=settings):
+        try:
+            from yigthinker.tools.workflow.registry import WorkflowRegistry
+            workflow_registry = WorkflowRegistry()
+        except ModuleNotFoundError:
+            pass  # jinja2/croniter not installed
+
+    tools = build_tool_registry(pool=pool, workflow_registry=workflow_registry)
 
     mcp_config = Path.cwd() / ".mcp.json"
     if mcp_config.exists():

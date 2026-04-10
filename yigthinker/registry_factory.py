@@ -41,7 +41,22 @@ def _register_forecast_tools(registry: ToolRegistry) -> None:
     registry.register(ForecastEvaluateTool())
 
 
-def build_tool_registry(pool: ConnectionPool) -> ToolRegistry:
+def _register_workflow_tools(
+    registry: ToolRegistry,
+    workflow_registry: "WorkflowRegistry",
+) -> None:
+    """Register workflow tools only when Jinja2 is installed."""
+    try:
+        from yigthinker.tools.workflow.workflow_generate import WorkflowGenerateTool
+    except ModuleNotFoundError:
+        return
+    registry.register(WorkflowGenerateTool(registry=workflow_registry))
+
+
+def build_tool_registry(
+    pool: ConnectionPool,
+    workflow_registry: "WorkflowRegistry | None" = None,
+) -> ToolRegistry:
     """Register all available Yigthinker tools."""
     registry = ToolRegistry()
 
@@ -62,6 +77,9 @@ def build_tool_registry(pool: ConnectionPool) -> ToolRegistry:
     registry.register(ReportScheduleTool())
 
     _register_forecast_tools(registry)
+
+    if workflow_registry is not None:
+        _register_workflow_tools(registry, workflow_registry)
 
     registry.register(ExploreOverviewTool())
     registry.register(ExploreDrilldownTool())
