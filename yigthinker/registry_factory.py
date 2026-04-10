@@ -49,10 +49,12 @@ def _register_workflow_tools(
     try:
         from yigthinker.tools.workflow.workflow_generate import WorkflowGenerateTool
         from yigthinker.tools.workflow.workflow_deploy import WorkflowDeployTool
+        from yigthinker.tools.workflow.workflow_manage import WorkflowManageTool
     except ModuleNotFoundError:
         return
     registry.register(WorkflowGenerateTool(registry=workflow_registry))
     registry.register(WorkflowDeployTool(registry=workflow_registry))
+    registry.register(WorkflowManageTool(registry=workflow_registry))
 
 
 def build_tool_registry(
