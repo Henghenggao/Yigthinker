@@ -18,6 +18,12 @@ class AppContext:
     agent_loop: AgentLoop
     pool: ConnectionPool
     memory_manager: "MemoryManager | None" = None
+    pattern_store: "PatternStore | None" = None  # Phase 10 / 10-03
+    # Phase 10 / 10-01: expose RPA state store + workflow registry so
+    # GatewayServer.start() can assemble an RPAController after build_app
+    # has already resolved the LLM provider.
+    rpa_state: "Any | None" = None
+    workflow_registry: "Any | None" = None
 
 
 async def build_app(
@@ -63,7 +69,17 @@ async def build_app(
         except ModuleNotFoundError:
             pass  # jinja2/croniter not installed
 
-    tools = build_tool_registry(pool=pool, workflow_registry=workflow_registry)
+    # --- Behavior subsystem (Phase 10 / 10-03) ---
+    pattern_store = None
+    if gate("behavior", settings=settings):
+        from yigthinker.memory.patterns import PatternStore
+        pattern_store = PatternStore()
+
+    tools = build_tool_registry(
+        pool=pool,
+        workflow_registry=workflow_registry,
+        pattern_store=pattern_store,
+    )
 
     mcp_config = Path.cwd() / ".mcp.json"
     if mcp_config.exists():
@@ -141,4 +157,9 @@ async def build_app(
 
         hook_registry.register("SessionEnd", "*", dream_hook)
 
-    return AppContext(agent_loop=agent, pool=pool, memory_manager=memory_manager)
+    return AppContext(
+        agent_loop=agent,
+        pool=pool,
+        memory_manager=memory_manager,
+        pattern_store=pattern_store,
+    )
