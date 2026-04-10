@@ -217,3 +217,117 @@ def test_list_workflows(registry: WorkflowRegistry) -> None:
         assert "status" in wf
         assert "latest_version" in wf
         assert "name" in wf
+
+
+# ---------------------------------------------------------------------------
+# Phase 9: lazy-default reads (D-13)
+# ---------------------------------------------------------------------------
+
+
+def test_lazy_defaults_on_read(registry: WorkflowRegistry, tmp_path: Path) -> None:
+    """D-13: load_index/get_manifest fill Phase 9 defaults on Phase 8 entries."""
+    # Manually write a Phase-8-shaped registry.json (no Phase 9 fields)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "registry.json").write_text(
+        json.dumps(
+            {
+                "workflows": {
+                    "legacy_wf": {
+                        "status": "active",
+                        "latest_version": 2,
+                        "description": "Phase 8 workflow",
+                        "created_at": "2026-04-05T00:00:00+00:00",
+                        "updated_at": "2026-04-05T00:00:00+00:00",
+                    }
+                },
+                "suppressed_suggestions": [],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    # Manually write a Phase-8-shaped manifest.json (no per-version Phase 9 fields)
+    (tmp_path / "legacy_wf").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "legacy_wf" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": "legacy_wf",
+                "versions": [
+                    {
+                        "version": 1,
+                        "created_at": "2026-04-05T00:00:00+00:00",
+                        "description": "v1",
+                        "files": ["main.py"],
+                    },
+                    {
+                        "version": 2,
+                        "created_at": "2026-04-05T00:00:00+00:00",
+                        "description": "v2",
+                        "files": ["main.py"],
+                    },
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    index = registry.load_index()
+    entry = index["workflows"]["legacy_wf"]
+    # All Phase 9 fields present with sensible defaults
+    assert entry["target"] is None
+    assert entry["deploy_mode"] is None
+    assert entry["schedule"] is None
+    assert entry["last_deployed"] is None
+    assert entry["last_run"] is None
+    assert entry["last_run_status"] is None
+    assert entry["failure_count_30d"] == 0
+    assert entry["run_count_30d"] == 0
+    assert entry["deploy_id"] is None
+    assert entry["current_version"] is None
+
+    manifest = registry.get_manifest("legacy_wf")
+    assert manifest is not None
+    for v in manifest["versions"]:
+        assert v["deployed_to"] is None
+        assert v["deploy_mode"] is None
+        assert v["deploy_id"] is None
+        assert v["status"] == "active"
+
+
+def test_lazy_defaults_do_not_swallow_corruption(
+    registry: WorkflowRegistry, tmp_path: Path
+) -> None:
+    """Pitfall 5: JSONDecodeError must propagate on corrupted registry."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "registry.json").write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(json.JSONDecodeError):
+        registry.load_index()
+
+
+def test_extended_fields_write_through(
+    registry: WorkflowRegistry, tmp_path: Path
+) -> None:
+    """Writing a patch with Phase 9 fields merges cleanly into existing entries."""
+    registry.create(name="wf", description="x", version_data={"main.py": "pass"})
+    patch = {
+        "workflows": {
+            "wf": {
+                "target": "local",
+                "deploy_mode": "local",
+                "schedule": "0 8 * * *",
+                "deploy_id": "wf-v1-local-1712755200",
+                "current_version": 1,
+                "last_deployed": "2026-04-10T00:00:00+00:00",
+            }
+        }
+    }
+    registry.save_index(patch)
+    index = registry.load_index()
+    entry = index["workflows"]["wf"]
+    assert entry["target"] == "local"
+    assert entry["deploy_id"] == "wf-v1-local-1712755200"
+    assert entry["current_version"] == 1
+    # Phase 8 fields preserved
+    assert entry["latest_version"] == 1
+    assert entry["status"] == "active"

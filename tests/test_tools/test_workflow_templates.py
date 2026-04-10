@@ -311,3 +311,84 @@ def test_compute_dependencies() -> None:
     assert "sqlalchemy" in dep_str
     assert "pandas" in dep_str
     assert "plotly" in dep_str
+
+
+# ---------------------------------------------------------------------------
+# Phase 9: render_text() for non-Python templates (D-09, Pattern 1)
+# ---------------------------------------------------------------------------
+
+
+def test_render_text_skips_ast() -> None:
+    """render_text renders non-Python templates without AST validation."""
+    from yigthinker.tools.workflow.template_engine import TemplateEngine
+
+    engine = TemplateEngine()
+    # task_scheduler.xml.j2 must not explode even though it is XML (not Python)
+    out = engine.render_text(
+        "local/task_scheduler.xml.j2",
+        {
+            "workflow_name": "monthly_ar_aging",
+            "description": "test",
+            "python_exe": "C:\\Python311\\python.exe",
+            "working_dir": "C:\\workflows\\monthly_ar_aging\\v1",
+            "registration_date": "2026-04-10T00:00:00",
+            "trigger": {
+                "kind": "calendar_daily",
+                "start_boundary": "2026-04-11T08:00:00",
+            },
+        },
+    )
+    assert "<?xml" in out
+    assert 'xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"' in out
+
+
+def test_render_text_runs_credential_scanner() -> None:
+    """render_text must reject plaintext credential patterns just like render_config."""
+    from yigthinker.tools.workflow.template_engine import TemplateEngine
+
+    engine = TemplateEngine()
+    # setup_guide.md.j2 receives a context with a fake plaintext connection string
+    with pytest.raises(ValueError, match="credential"):
+        engine.render_text(
+            "local/setup_guide.md.j2",
+            {
+                "workflow_name": "leak",
+                "description": "postgres://admin:s3cret@db.example.com/prod",
+                "schedule": "0 8 * * *",
+                "working_dir": "/tmp/leak",
+                "python_exe": "/usr/bin/python3",
+            },
+        )
+
+
+def test_local_scheduler_templates() -> None:
+    """All three local-mode templates render without errors for a typical workflow."""
+    from yigthinker.tools.workflow.template_engine import TemplateEngine
+
+    engine = TemplateEngine()
+    ctx = {
+        "workflow_name": "monthly_ar_aging",
+        "description": "Monthly AR aging",
+        "schedule": "0 8 5 * *",
+        "python_exe": "/usr/bin/python3",
+        "working_dir": "/home/u/.yigthinker/workflows/monthly_ar_aging/v1",
+        "registration_date": "2026-04-10T00:00:00",
+        "trigger": {
+            "kind": "calendar_monthly",
+            "day_of_month": 5,
+            "start_boundary": "2026-05-05T08:00:00",
+        },
+    }
+    xml = engine.render_text("local/task_scheduler.xml.j2", ctx)
+    assert "<ScheduleByMonth>" in xml
+    assert "<Day>5</Day>" in xml
+
+    cron = engine.render_text("local/crontab.txt.j2", ctx)
+    assert "PATH=" in cron
+    assert "0 8 5 * *" in cron
+    assert cron.endswith("\n")
+
+    guide = engine.render_text("local/setup_guide.md.j2", ctx)
+    assert "schtasks /create /xml" in guide
+    assert "crontab crontab.txt" in guide
+    assert "monthly_ar_aging" in guide

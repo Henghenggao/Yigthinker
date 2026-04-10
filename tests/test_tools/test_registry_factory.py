@@ -23,3 +23,15 @@ def test_registry_exports_valid_schemas():
         assert "name" in schema
         assert "description" in schema
         assert "input_schema" in schema
+
+
+def test_workflow_deploy_registered(tmp_path):
+    """workflow_deploy must be registered alongside workflow_generate under the same gate."""
+    from yigthinker.tools.workflow.registry import WorkflowRegistry
+
+    pool = ConnectionPool()
+    wf_reg = WorkflowRegistry(base_dir=tmp_path / "wf_registry")
+    registry = build_tool_registry(pool=pool, workflow_registry=wf_reg)
+    names = registry.names()
+    assert "workflow_generate" in names
+    assert "workflow_deploy" in names
