@@ -43,33 +43,51 @@ def controller(tmp_path: Path):
     state.close()
 
 
-# ───────────── Plan 10-01 coverage: stubbed extraction + dedup + breaker ─────────────
+# ───────────── Plan 10-02 coverage: real extraction LLM call + dedup + breaker ─────────────
 
-async def test_callback_stub_returns_escalate(controller: RPAController) -> None:
-    """Plan 10-01: extraction is stubbed to always return escalate/extraction_not_implemented."""
+async def test_extraction_calls_provider_and_returns_decision(controller: RPAController) -> None:
+    """Plan 10-02: extraction path calls provider.chat exactly once and parses the JSON response."""
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text='{"action": "fix_applied", "instruction": "Retry after brief delay.", "retry_delay_s": 5, "reason": "transient_network"}',
+        tool_uses=[],
+    )
     decision = await controller.handle_callback(_fake_payload())
-    assert decision["action"] == "escalate"
-    assert decision["reason"] == "extraction_not_implemented"
-    # Stub must NOT call the provider in Plan 10-01.
-    controller._provider.chat.assert_not_called()
+    assert decision["action"] == "fix_applied"
+    assert decision["retry_delay_s"] == 5
+    assert decision["reason"] == "transient_network"
+    controller._provider.chat.assert_called_once()
 
 
 async def test_callback_dedup_returns_cached(controller: RPAController) -> None:
     """Duplicate callback_id returns the same decision without re-processing."""
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text='{"action": "escalate", "instruction": "Unknown error.", "reason": "unclassified"}',
+        tool_uses=[],
+    )
     d1 = await controller.handle_callback(_fake_payload(callback_id="dup-1"))
     d2 = await controller.handle_callback(_fake_payload(callback_id="dup-1"))
     assert d1 == d2
-    # Provider still never called (stub).
-    controller._provider.chat.assert_not_called()
+    # Provider called exactly once — second call hits the dedup cache.
+    assert controller._provider.chat.call_count == 1
 
 
 async def test_circuit_breaker_checkpoint_attempts(controller: RPAController) -> None:
     """4th attempt on same (wf, ckpt) within 24h → escalate + reason='breaker_exceeded'."""
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text='{"action": "escalate", "instruction": "x", "reason": "programming_error"}',
+        tool_uses=[],
+    )
     for i in range(MAX_ATTEMPTS_24H):
         d = await controller.handle_callback(_fake_payload(callback_id=f"cb-{i}"))
-        # First 3 hit the stubbed extraction path
+        # First 3 hit the real extraction path (mocked) → escalate/programming_error
         assert d["action"] == "escalate"
-    # 4th attempt trips breaker
+    # 4th attempt trips breaker BEFORE calling LLM
     d4 = await controller.handle_callback(_fake_payload(callback_id="cb-4"))
     assert d4["action"] == "escalate"
     assert d4["reason"] == "breaker_exceeded"
@@ -77,7 +95,13 @@ async def test_circuit_breaker_checkpoint_attempts(controller: RPAController) ->
 
 async def test_circuit_breaker_llm_cap(controller: RPAController) -> None:
     """11th LLM call for same workflow in UTC day → escalate with reason='breaker_exceeded'."""
-    # Note: each handle_callback under stub still increments llm_calls counter (D-07)
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text='{"action": "escalate", "instruction": "x", "reason": "programming_error"}',
+        tool_uses=[],
+    )
+    # Each handle_callback increments llm_calls counter (D-07)
     for i in range(MAX_LLM_CALLS_DAY):
         await controller.handle_callback(_fake_payload(
             callback_id=f"cb-llm-{i}", checkpoint_id=f"ckpt-{i}",  # avoid breaker on attempts
@@ -200,3 +224,121 @@ async def test_lazy_30d_rollover(controller: RPAController) -> None:
     # Window rolled over → counts reset based on this write
     assert entry["run_count_30d"] == 1
     assert entry["failure_count_30d"] == 0
+
+
+# ────── Plan 10-02: extraction-only LLM callback ──────
+
+async def test_extraction_no_tools(controller: RPAController) -> None:
+    """D-05: provider.chat is called with tools=[] and system=EXTRACTION_SYSTEM."""
+    from yigthinker.types import LLMResponse
+    from yigthinker.gateway.extraction_prompt import EXTRACTION_SYSTEM
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text='{"action": "escalate", "instruction": "Unknown error.", "reason": "unclassified"}',
+        tool_uses=[],
+    )
+    await controller.handle_callback(_fake_payload(callback_id="cb-no-tools"))
+
+    controller._provider.chat.assert_called_once()
+    call = controller._provider.chat.call_args
+    # tools=[] required (either positional or kwarg)
+    kwargs = call.kwargs
+    args = call.args
+    tools_arg = kwargs.get("tools") if "tools" in kwargs else (args[1] if len(args) > 1 else None)
+    assert tools_arg == [], f"Expected tools=[], got {tools_arg!r}"
+    # system prompt must be EXTRACTION_SYSTEM
+    system_arg = kwargs.get("system") if "system" in kwargs else (args[2] if len(args) > 2 else None)
+    assert system_arg == EXTRACTION_SYSTEM
+
+
+async def test_extraction_parse_fallback_malformed_json(controller: RPAController) -> None:
+    """CORR-04b: unparseable LLM JSON → silent escalate with reason='extraction_failed'. No heuristic fallback."""
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text="This is not JSON at all. The error looks like a network issue maybe.",
+        tool_uses=[],
+    )
+    decision = await controller.handle_callback(_fake_payload(callback_id="cb-malformed"))
+    assert decision["action"] == "escalate"
+    assert decision["reason"] == "extraction_failed"
+    # NO keyword heuristic: even though the text mentioned "network", we escalate
+    assert decision.get("retry_delay_s") is None
+
+
+async def test_extraction_parse_fallback_markdown_fenced(controller: RPAController) -> None:
+    """Layered fallback: strip ```json fences and still parse successfully."""
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text='```json\n{"action": "skip", "instruction": "Optional file missing.", "reason": "missing_optional_file"}\n```',
+        tool_uses=[],
+    )
+    decision = await controller.handle_callback(_fake_payload(callback_id="cb-fenced"))
+    assert decision["action"] == "skip"
+    assert decision["reason"] == "missing_optional_file"
+
+
+async def test_extraction_unknown_action_escalates(controller: RPAController) -> None:
+    """CORR-04b: LLM returns valid JSON but with an unknown 'action' value → escalate."""
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text='{"action": "try_harder", "instruction": "Just retry forever", "reason": "optimism"}',
+        tool_uses=[],
+    )
+    decision = await controller.handle_callback(_fake_payload(callback_id="cb-unknown-action"))
+    assert decision["action"] == "escalate"
+    assert decision["reason"] == "extraction_failed"
+
+
+async def test_extraction_empty_text_escalates(controller: RPAController) -> None:
+    """Empty LLM response → escalate with reason='extraction_failed'."""
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text="",
+        tool_uses=[],
+    )
+    decision = await controller.handle_callback(_fake_payload(callback_id="cb-empty"))
+    assert decision["action"] == "escalate"
+    assert decision["reason"] == "extraction_failed"
+
+
+async def test_extraction_truncates_long_traceback(controller: RPAController) -> None:
+    """D-05 budget: traceback in user message is capped at 2000 chars to keep extraction prompt small."""
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text='{"action": "escalate", "instruction": "x", "reason": "programming_error"}',
+        tool_uses=[],
+    )
+    big_tb = "TracebackLineX\n" * 500   # ~7000 chars
+    await controller.handle_callback(_fake_payload(callback_id="cb-big-tb", traceback=big_tb))
+    call = controller._provider.chat.call_args
+    kwargs = call.kwargs
+    args = call.args
+    messages_arg = kwargs.get("messages") if "messages" in kwargs else (args[0] if args else None)
+    assert messages_arg is not None and len(messages_arg) == 1
+    user_content = messages_arg[0].content if hasattr(messages_arg[0], "content") else messages_arg[0]["content"]
+    assert len(user_content) < 5000, f"User message should be truncated, got {len(user_content)} chars"
+
+
+async def test_breaker_prevents_llm_call(controller: RPAController) -> None:
+    """Regression: when breaker trips, provider.chat is NOT called (10-01 behavior preserved in 10-02)."""
+    from yigthinker.types import LLMResponse
+    controller._provider.chat.return_value = LLMResponse(
+        stop_reason="end_turn",
+        text='{"action": "escalate", "instruction": "x", "reason": "programming_error"}',
+        tool_uses=[],
+    )
+    # Fire MAX_ATTEMPTS_24H attempts on the same checkpoint first
+    for i in range(MAX_ATTEMPTS_24H):
+        await controller.handle_callback(_fake_payload(callback_id=f"cb-pre-{i}"))
+    precall_count = controller._provider.chat.call_count
+    # 4th attempt must trip breaker and NOT call LLM
+    d = await controller.handle_callback(_fake_payload(callback_id="cb-tripped"))
+    assert d["reason"] == "breaker_exceeded"
+    assert controller._provider.chat.call_count == precall_count, (
+        "provider.chat must not be called when breaker trips"
+    )
