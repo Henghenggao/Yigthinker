@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
-status: Executing Phase 11
-stopped_at: Completed 11-03-PLAN.md
-last_updated: "2026-04-11T21:45:00.000Z"
+status: Ready to execute
+stopped_at: Completed 11-05-PLAN.md
+last_updated: "2026-04-11T19:48:36.186Z"
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 18
-  completed_plans: 13
+  completed_plans: 15
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 11 (uipath-mcp-server) — EXECUTING
-Plan: 3 of 8
+Plan: 5 of 8
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Plan: 3 of 8
 | Phase 11-uipath-mcp-server P02 | 15min | 2 tasks | 2 files |
 | Phase 11-uipath-mcp-server P04 | ~2.5min | 2 tasks | 2 files |
 | Phase 11-uipath-mcp-server P03 | ~10min | 2 tasks | 2 files |
+| Phase 11-uipath-mcp-server P05 | ~8min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,10 @@ Recent decisions affecting current work:
 - [Phase 11-uipath-mcp-server]: Plan 11-03 retry loop uses `enumerate(RETRY_BACKOFFS)` with explicit `is_last_attempt` check to avoid double-counting; 5xx and httpx.NetworkError retry, 4xx fails immediately via raise_for_status (D-13)
 - [Phase 11-uipath-mcp-server]: Plan 11-03 RESEARCH.md Open Question 3 disposition — `resolve_folder_id` does NOT inject X-UIPATH-OrganizationUnitId (Folders is organization-scoped); all other folder-scoped helpers including the two new lookup helpers (`get_release_key_by_process`, `get_schedule_id_by_name`) DO inject the header
 - [Phase 11-uipath-mcp-server]: Plan 11-03 `start_job` serializes InputArguments as `json.dumps(input_arguments or {})` (JSON STRING inside `startInfo`) per RESEARCH.md Finding 3 critical note — UiPath rejects StartJobs with nested-object InputArguments; guarded by `test_start_job_serializes_input_arguments_as_json_string`
+- [Phase 11-uipath-mcp-server]: Plan 11-05 TOOL_REGISTRY populated with 5 (InputModel, handler) tuples — stable contract handoff for Plan 11-06 MCP server wiring
+- [Phase 11-uipath-mcp-server]: Plan 11-05 handlers align to ACTUAL client.py contract (Plan 11-03 owner) not plan draft examples — UiPath.Server.Jobs.StartJobs URL, list_jobs returning list[dict] not value-envelope, get_queue_id raises ValueError not LookupError
+- [Phase 11-uipath-mcp-server]: Plan 11-05 ui_manage_trigger cross-field validation (missing_cron/missing_trigger_name) fires BEFORE resolve_folder_id — bad input short-circuits with zero HTTP; test guards with folders_route.call_count == 0
+- [Phase 11-uipath-mcp-server]: Plan 11-05 scaffold test updated: test_tool_registry_empty -> test_tool_registry_populated (asserts 5 expected keys + callable handlers) — Rule 3 deviation, necessary to unblock full suite after populating the registry that was intentionally empty in Plan 11-01
 
 ### Pending Todos
 
@@ -129,6 +134,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-11T21:45:00.000Z
-Stopped at: Completed 11-03-PLAN.md
+Last session: 2026-04-11T19:48:17.684Z
+Stopped at: Completed 11-05-PLAN.md
 Resume file: None
