@@ -52,12 +52,32 @@ class AgentLoop:
         self._memory_manager: MemoryManager | None = None
         self._compact: SmartCompact | None = None
         self._background_tasks: set[asyncio.Task] = set()
+        # Phase 10 / BHV-02 (CORR-02): per-run callback invoked inside the system
+        # prompt assembly block on iteration == 1. Wired by builder.py; never by
+        # SessionStart hooks (HookResult has no context-injection variant).
+        self._startup_alert_provider: Callable[[], str | None] | None = None
 
     def set_memory_manager(self, mm: MemoryManager) -> None:
         self._memory_manager = mm
 
     def set_compact(self, compact: SmartCompact) -> None:
         self._compact = compact
+
+    def set_startup_alert_provider(
+        self,
+        fn: Callable[[], str | None] | None,
+    ) -> None:
+        """Register a BHV-02 startup alert provider (called once per run).
+
+        The provider is invoked inside the first iteration of the main loop as part
+        of system_prompt assembly. Returning a non-empty string prepends that string
+        to system_prompt as a `[Workflow Health Alert]` block. Returning None or an
+        empty string skips the alert.
+
+        The provider is wrapped in try/except inside `run()` -- a crashing provider
+        MUST NOT break `AgentLoop.run()`.
+        """
+        self._startup_alert_provider = fn
 
     async def run(
         self,
@@ -112,6 +132,33 @@ class AgentLoop:
                                 system_prompt += f"\n\n[Subagent Notifications]\n{notif_text}"
                             else:
                                 system_prompt = f"[Subagent Notifications]\n{notif_text}"
+
+                    # Phase 10 / BHV-01: automation awareness directive (D-23 / D-24).
+                    # Always render on every iteration -- the directive is stateless.
+                    try:
+                        directive = ctx.context_manager.build_automation_directive(
+                            getattr(ctx, "settings", None) or {}
+                        )
+                    except Exception:
+                        directive = None
+                    if directive:
+                        if system_prompt:
+                            system_prompt += f"\n\n{directive}"
+                        else:
+                            system_prompt = directive
+
+                    # Phase 10 / BHV-02 (CORR-02): first-iteration startup alert provider.
+                    # Called EXACTLY ONCE per run, gated on iteration == 1, defensively wrapped.
+                    if iteration == 1 and self._startup_alert_provider is not None:
+                        try:
+                            alert = self._startup_alert_provider()
+                        except Exception:
+                            alert = None  # Pitfall 3: provider exceptions NEVER break the run
+                        if alert:
+                            if system_prompt:
+                                system_prompt = f"{alert}\n\n{system_prompt}"
+                            else:
+                                system_prompt = alert
 
                     if self._compact is not None:
                         token_est = self._estimate_tokens(messages)
