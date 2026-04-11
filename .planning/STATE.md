@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
 status: Ready to execute
-stopped_at: Completed 11-05-PLAN.md
-last_updated: "2026-04-11T19:48:36.186Z"
+stopped_at: Completed 11-06-PLAN.md
+last_updated: "2026-04-11T19:54:17.000Z"
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 18
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 11 (uipath-mcp-server) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Plan: 5 of 8
 | Phase 11-uipath-mcp-server P04 | ~2.5min | 2 tasks | 2 files |
 | Phase 11-uipath-mcp-server P03 | ~10min | 2 tasks | 2 files |
 | Phase 11-uipath-mcp-server P05 | ~8min | 2 tasks | 13 files |
+| Phase 11-uipath-mcp-server P06 | ~2min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,10 @@ Recent decisions affecting current work:
 - [Phase 11-uipath-mcp-server]: Plan 11-05 handlers align to ACTUAL client.py contract (Plan 11-03 owner) not plan draft examples — UiPath.Server.Jobs.StartJobs URL, list_jobs returning list[dict] not value-envelope, get_queue_id raises ValueError not LookupError
 - [Phase 11-uipath-mcp-server]: Plan 11-05 ui_manage_trigger cross-field validation (missing_cron/missing_trigger_name) fires BEFORE resolve_folder_id — bad input short-circuits with zero HTTP; test guards with folders_route.call_count == 0
 - [Phase 11-uipath-mcp-server]: Plan 11-05 scaffold test updated: test_tool_registry_empty -> test_tool_registry_populated (asserts 5 expected keys + callable handlers) — Rule 3 deviation, necessary to unblock full suite after populating the registry that was intentionally empty in Plan 11-01
+- [Phase 11-uipath-mcp-server]: Plan 11-06 wires mcp.server.lowlevel.Server (NOT FastMCP per D-04) with @app.list_tools() + @app.call_tool() decorators iterating TOOL_REGISTRY; tool results serialized as single TextContent(type='text', text=json.dumps(result, default=str)) per D-20 + Finding 6
+- [Phase 11-uipath-mcp-server]: Plan 11-06 UipathConfig dataclass has 6 fields (client_id, client_secret, tenant_name, organization, scope, base_url); from_env raises RuntimeError listing ALL missing required vars; UIPATH_SCOPE is optional with DEFAULT_SCOPE fallback — smoke test intentionally omits it to exercise the fallback path
+- [Phase 11-uipath-mcp-server]: Plan 11-06 lazy OrchestratorClient construction via _ensure_client closure — list_tools never creates httpx.AsyncClient so smoke tests with dummy creds don't leak network attempts
+- [Phase 11-uipath-mcp-server]: Plan 11-06 test_scaffold.test_main_entry_raises_until_06 replaced with test_server_exposes_build_server_after_06 — Rule 3 deviation: old test asserted server.main raised NotImplementedError, but Plan 11-06 moved main() to __main__.py and exposes build_server+run_stdio on server.py instead
 
 ### Pending Todos
 
@@ -134,6 +139,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-11T19:48:17.684Z
-Stopped at: Completed 11-05-PLAN.md
+Last session: 2026-04-11T19:54:17.000Z
+Stopped at: Completed 11-06-PLAN.md
 Resume file: None
