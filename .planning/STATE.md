@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
-status: Ready to execute
-stopped_at: Completed 10-04-PLAN.md
-last_updated: "2026-04-11T07:54:10.915Z"
+status: Executing Phase 11
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-04-11T19:45:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 18
+  completed_plans: 11
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-09)
 
 **Core value:** A user can interact via CLI REPL, IM channels, or TUI connected to the Gateway, having AI-assisted data analysis conversations with tool calls -- same agent, multiple surfaces. Repeatable analysis patterns become automated workflows deployed to RPA platforms.
-**Current focus:** Phase 10 — gateway-rpa-behavior
+**Current focus:** Phase 11 — uipath-mcp-server
 
 ## Current Position
 
-Phase: 10 (gateway-rpa-behavior) — EXECUTING
-Plan: 4 of 4
+Phase: 11 (uipath-mcp-server) — EXECUTING
+Plan: 2 of 8
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Plan: 4 of 4
 | Phase 10-gateway-rpa-behavior P01 | 60min | 6 tasks | 14 files |
 | Phase 10-gateway-rpa-behavior P02 | 6min | 4 tasks | 3 files |
 | Phase 10-gateway-rpa-behavior P04 | 15min | 6 tasks | 7 files |
+| Phase 11-uipath-mcp-server P01 | 4min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Recent decisions affecting current work:
 - [Phase 10-gateway-rpa-behavior]: BHV-05 CANDIDATE_PATTERNS extension appended at call site (CORR-04c), DREAM_PROMPT constant preserved byte-identical for Phase 5 regression safety
 - [Phase 10-gateway-rpa-behavior]: Pitfall 3 double-defense: startup alert provider wrapped in try/except at both closure definition and AgentLoop.run call site
 - [Phase 10-gateway-rpa-behavior]: AutoDream pattern_store is optional kwarg (default None) to avoid breaking existing tests; disabled stores silently discard parsed patterns
+- [Phase 11-uipath-mcp-server]: Plan 11-01 scaffold ships 9 module stubs + 3 test files; server.main() raises NotImplementedError with active test guard until Plan 11-06 replaces it
+- [Phase 11-uipath-mcp-server]: conftest.py exposes sample_uipath_env with UIPATH_SCOPE singular key per D-10 (flat underscore keys, NOT slash-separated)
+- [Phase 11-uipath-mcp-server]: config.py stub deferred to Plan 11-06 alongside server wiring (plan file is authoritative over VALIDATION.md Wave 0 list for file scope)
 
 ### Pending Todos
 
@@ -113,6 +117,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-11T07:54:10.913Z
-Stopped at: Completed 10-04-PLAN.md
+Last session: 2026-04-11T19:45:00.000Z
+Stopped at: Completed 11-01-PLAN.md
 Resume file: None
