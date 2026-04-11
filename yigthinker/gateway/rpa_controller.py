@@ -1,14 +1,22 @@
 """RPAController — orchestrates the /api/rpa/callback and /api/rpa/report flows.
 
-Plan 10-01: Full dedup + circuit breaker + handle_report; handle_callback's
-extraction step is stubbed (always returns escalate/extraction_not_implemented).
-Plan 10-02: Replace _extract_decision_stub with real LLMProvider.chat extraction.
+Plan 10-01: Full dedup + circuit breaker + handle_report landed.
+Plan 10-02: Real extraction-only LLM call in _extract_decision via
+LLMProvider.chat(messages, tools=[], system=EXTRACTION_SYSTEM). CORR-04b:
+parse/network failures silently escalate with reason='extraction_failed'.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
+
+from yigthinker.gateway.extraction_prompt import (
+    EXTRACTION_SYSTEM,
+    parse_extraction_response,
+)
+from yigthinker.types import Message
 
 if TYPE_CHECKING:
     from yigthinker.gateway.rpa_state import RPAStateStore
@@ -93,26 +101,53 @@ class RPAController:
             self._state.record_callback(callback_id, decision)
             return decision
 
-        # 4. STUB: Plan 10-02 replaces this with real extraction LLM call
-        decision = await self._extract_decision_stub(payload)
+        # 4. Real extraction LLM call (Plan 10-02, D-05)
+        decision = await self._extract_decision(payload)
 
         # 5. Cache for future dedup hits
         self._state.record_callback(callback_id, decision)
         return decision
 
-    async def _extract_decision_stub(
+    async def _extract_decision(
         self, payload: dict[str, Any],
     ) -> dict[str, Any]:
-        """STUB: Plan 10-02 replaces this with real LLMProvider.chat extraction.
+        """Call the LLM with NO tools to classify the checkpoint error.
 
-        Do NOT rename — Plan 10-02 deletes this method by name.
+        Uniform across all 4 providers (Claude/OpenAI/Ollama/Azure) via
+        `LLMProvider.chat(messages, tools=[], system=...)`. CORR-04b: on any
+        parse or network failure, silently escalate with reason='extraction_failed'.
         """
-        return {
-            "action": "escalate",
-            "instruction": "Manual intervention needed",
-            "retry_delay_s": None,
-            "reason": "extraction_not_implemented",
+        # Build the classification-only user message. Include exactly the
+        # fields the extraction rules need — not workflow_name / callback_id
+        # (those are routing keys, not classification signals).
+        traceback_raw = str(payload.get("traceback") or "")
+        user_payload = {
+            "error_type": payload.get("error_type"),
+            "error_message": payload.get("error_message"),
+            "traceback": traceback_raw[:2000],   # D-05 budget cap
+            "checkpoint_id": payload.get("checkpoint_id"),
+            "attempt_number": payload.get("attempt_number"),
+            "step_context": payload.get("step_context", {}),
         }
+        user_msg = json.dumps(user_payload, ensure_ascii=False)
+
+        try:
+            response = await self._provider.chat(
+                messages=[Message(role="user", content=user_msg)],
+                tools=[],
+                system=EXTRACTION_SYSTEM,
+            )
+        except Exception as exc:
+            logger.warning("Extraction LLM call failed: %s", exc)
+            return {
+                "action": "escalate",
+                "instruction": f"Extraction LLM call failed: {type(exc).__name__}",
+                "retry_delay_s": None,
+                "reason": "extraction_failed",
+            }
+
+        response_text = getattr(response, "text", None) or ""
+        return parse_extraction_response(response_text)
 
     # ──────────────────────────────────────────────────────────────────
     # /api/rpa/report — telemetry write-path (NO LLM)
