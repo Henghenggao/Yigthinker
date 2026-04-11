@@ -56,6 +56,7 @@ Plan: 2 of 8
 | Phase 10-gateway-rpa-behavior P04 | 15min | 6 tasks | 7 files |
 | Phase 11-uipath-mcp-server P01 | 4min | 2 tasks | 12 files |
 | Phase 11-uipath-mcp-server P02 | 15min | 2 tasks | 2 files |
+| Phase 11-uipath-mcp-server P04 | ~2.5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,7 @@ Recent decisions affecting current work:
 - [Phase 11-uipath-mcp-server]: Plan 11-02 asyncio.Lock uses field(default_factory=asyncio.Lock), NOT default=asyncio.Lock() — latter would share one lock across instances; Pitfall 4 thundering-herd guarded by test_concurrent_get_token_one_request
 - [Phase 11-uipath-mcp-server]: Plan 11-02 exports TOKEN_URL = "https://cloud.uipath.com/identity_/connect/token" and SAFETY_MARGIN_S = 60 at module level for Plan 11-03 OrchestratorClient consumption
 - [Phase 11-uipath-mcp-server]: Plan 11-02 uses time.monotonic() (monkeypatchable via yigthinker_mcp_uipath.auth.time.monotonic) — not time.time() — so expiry tests can advance a fake clock without wall-time drift
+- [Phase 11-uipath-mcp-server]: Plan 11-04 build_nupkg is a pure function (no output disk I/O) using stdlib zipfile + ZIP_DEFLATED; 4 verbatim templates from UiPath cli_pack.py; operate.json (NOT project.json — D-16 correction per RESEARCH.md Finding 4); Pitfall 6 guard asserted at test layer
 
 ### Pending Todos
 
