@@ -90,6 +90,33 @@ class ContextManager:
 
         return f"\n\n--- Accumulated Knowledge (factual summaries only) ---\n{content}\n--- End Knowledge ---\n"
 
+    def build_automation_directive(self, settings: dict[str, Any]) -> str | None:
+        """Return the BHV-01 automation awareness directive for the system prompt.
+
+        D-23: the directive text is locked exactly as written in CONTEXT.md -- this
+        method is a pure renderer that reads the D-24 gate and returns either the
+        full directive string or None.
+
+        D-24: controlled by `settings['behavior']['suggest_automation']['enabled']`.
+        Default is True when the key is missing, so users on old settings.json files
+        still get the directive without explicit opt-in.
+        """
+        behavior_cfg = settings.get("behavior", {}) if settings else {}
+        suggest_cfg = behavior_cfg.get("suggest_automation", {})
+        enabled = suggest_cfg.get("enabled", True)
+        if not enabled:
+            return None
+
+        # D-23 locked text -- do NOT paraphrase.
+        return (
+            "**Automation awareness**: When the user completes a data analysis "
+            "task, briefly consider whether the work is likely to repeat (daily "
+            "reports, monthly closes, recurring investigations). If so, call "
+            "`suggest_automation` to see detected patterns and offer to generate "
+            "a workflow via `workflow_generate`. Do not suggest automation for "
+            "one-off or exploratory analyses."
+        )
+
     def summarize_dataframe_result(self, df: pd.DataFrame) -> dict[str, Any]:
         """Return full records for small DataFrames; summary for large ones.
 
