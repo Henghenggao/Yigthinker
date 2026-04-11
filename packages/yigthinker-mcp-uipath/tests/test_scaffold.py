@@ -38,11 +38,23 @@ def test_tool_registry_populated() -> None:
         assert callable(handler), f"{name}: handler must be callable"
 
 
-def test_main_entry_raises_until_06() -> None:
-    # Plan 11-06 will replace this NotImplementedError with the real server.
-    # Until then, calling main() must raise loudly so accidental Plan 11-01
-    # ship-and-call does not silently succeed.
-    from yigthinker_mcp_uipath.server import main
-    import pytest as _pytest
-    with _pytest.raises(NotImplementedError):
-        main()
+def test_server_exposes_build_server_after_06() -> None:
+    # Plan 11-06 replaced the Plan 11-01 NotImplementedError stub with the
+    # real low-level MCP server. ``build_server`` must now be importable and
+    # must construct a :class:`mcp.server.lowlevel.Server` without raising
+    # when given a valid :class:`UipathConfig`.
+    from mcp.server.lowlevel import Server
+
+    from yigthinker_mcp_uipath.config import UipathConfig
+    from yigthinker_mcp_uipath.server import build_server
+
+    cfg = UipathConfig(
+        client_id="scaffold-id",
+        client_secret="scaffold-secret",
+        tenant_name="DefaultTenant",
+        organization="scaffoldcorp",
+        scope="OR.Execution",
+        base_url="https://cloud.uipath.com/scaffoldcorp/DefaultTenant/orchestrator_",
+    )
+    app = build_server(cfg)
+    assert isinstance(app, Server)
