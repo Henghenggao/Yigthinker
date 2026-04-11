@@ -57,3 +57,43 @@ to the current plan's scope.
   Suggested fix: increase `time.sleep(0.01)` to `time.sleep(0.05)` or
   use explicit mtime stamping via `os.utime()` rather than relying on
   filesystem mtime granularity.
+
+## From Plan 10-02 (Wave 2, parallel with 10-04)
+
+### 1. 10-04 in-flight RED tests failing in full suite
+
+- **Files:**
+  - `tests/test_agent_memory.py::test_session_start_injects_health_alerts`
+  - `tests/test_agent_memory.py::test_session_start_silent_empty_registry`
+  - `tests/test_agent_memory.py::test_session_start_silent_healthy`
+  - `tests/test_agent_memory.py::test_session_start_resilient_bad_registry`
+  - `tests/test_memory/test_auto_dream.py::test_prompt_includes_pattern_section`
+  - `tests/test_memory/test_auto_dream.py::test_candidate_patterns_persisted`
+  - `tests/test_memory/test_auto_dream.py::test_candidate_patterns_parse_failure`
+- **Observed during:** Plan 10-02 Task 3 full-suite regression (2026-04-11)
+- **Symptoms:**
+  - `AttributeError: 'AgentLoop' object has no attribute 'set_startup_alert_provider'`
+  - `AssertionError: 'CANDIDATE_PATTERNS' in prompt` — pattern section not yet appended
+  - `TypeError: AutoDream.__init__() got an unexpected keyword argument 'pattern_store'`
+- **Root cause:** These tests were added in commit `3e4043a`
+  (`test(10-04): add BHV-01/02/05 tests to existing test files (RED)`) —
+  Plan 10-04's intentional RED phase. They expect code that 10-04 is
+  concurrently implementing in `yigthinker/agent.py`, `yigthinker/memory/auto_dream.py`,
+  and `yigthinker/builder.py`. The executor running 10-04 will turn them green.
+- **Ownership:** Plan 10-04 (Behavior Layer: BHV-01 prompt directive,
+  BHV-02 startup alert provider via CORR-02, BHV-05 cross-session pattern
+  detector via CORR-04c).
+- **Scope boundary:** Out of scope for Plan 10-02. My plan touches
+  `yigthinker/gateway/extraction_prompt.py` (new),
+  `yigthinker/gateway/rpa_controller.py` (replace `_extract_decision_stub`),
+  and `tests/test_gateway/test_rpa_controller.py` (extension). Zero file
+  overlap with 10-04.
+- **Resolution:** Will turn green when 10-04 completes its Task 1-3
+  (set_startup_alert_provider setter + AutoDream pattern_store kwarg +
+  CANDIDATE_PATTERNS prompt section).
+
+### 2. test_list_sessions_excludes_old_files still flaky
+
+- **File:** `tests/test_memory/test_auto_dream.py::test_list_sessions_excludes_old_files`
+- Same pre-existing Windows NTFS flake documented above under Plan 10-01.
+  Out of scope for 10-02 (no session memory / AutoDream files touched).
