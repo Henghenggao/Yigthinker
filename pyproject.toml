@@ -72,6 +72,9 @@ workflow = [
     "jinja2>=3.1.6",
     "croniter>=6.0.0",
 ]
+rpa-uipath = [
+    "yigthinker-mcp-uipath",
+]
 all-channels = [
     "fastapi>=0.111.0",
     "uvicorn>=0.30.0",
