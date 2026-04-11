@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
 status: Executing Phase 11
-stopped_at: Completed 11-02-PLAN.md
-last_updated: "2026-04-11T21:30:00.000Z"
+stopped_at: Completed 11-03-PLAN.md
+last_updated: "2026-04-11T21:45:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 18
-  completed_plans: 12
+  completed_plans: 13
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 11 (uipath-mcp-server) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Plan: 2 of 8
 | Phase 11-uipath-mcp-server P01 | 4min | 2 tasks | 12 files |
 | Phase 11-uipath-mcp-server P02 | 15min | 2 tasks | 2 files |
 | Phase 11-uipath-mcp-server P04 | ~2.5min | 2 tasks | 2 files |
+| Phase 11-uipath-mcp-server P03 | ~10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,10 @@ Recent decisions affecting current work:
 - [Phase 11-uipath-mcp-server]: Plan 11-02 exports TOKEN_URL = "https://cloud.uipath.com/identity_/connect/token" and SAFETY_MARGIN_S = 60 at module level for Plan 11-03 OrchestratorClient consumption
 - [Phase 11-uipath-mcp-server]: Plan 11-02 uses time.monotonic() (monkeypatchable via yigthinker_mcp_uipath.auth.time.monotonic) — not time.time() — so expiry tests can advance a fake clock without wall-time drift
 - [Phase 11-uipath-mcp-server]: Plan 11-04 build_nupkg is a pure function (no output disk I/O) using stdlib zipfile + ZIP_DEFLATED; 4 verbatim templates from UiPath cli_pack.py; operate.json (NOT project.json — D-16 correction per RESEARCH.md Finding 4); Pitfall 6 guard asserted at test layer
+- [Phase 11-uipath-mcp-server]: Plan 11-03 OrchestratorClient constructor locked at `(auth: UipathAuth, base_url: str)` per D-13 — exactly 2 args, httpx.AsyncClient created internally in __init__, no `http` kwarg; Plan 11-05 handler tests MUST match this shape
+- [Phase 11-uipath-mcp-server]: Plan 11-03 retry loop uses `enumerate(RETRY_BACKOFFS)` with explicit `is_last_attempt` check to avoid double-counting; 5xx and httpx.NetworkError retry, 4xx fails immediately via raise_for_status (D-13)
+- [Phase 11-uipath-mcp-server]: Plan 11-03 RESEARCH.md Open Question 3 disposition — `resolve_folder_id` does NOT inject X-UIPATH-OrganizationUnitId (Folders is organization-scoped); all other folder-scoped helpers including the two new lookup helpers (`get_release_key_by_process`, `get_schedule_id_by_name`) DO inject the header
+- [Phase 11-uipath-mcp-server]: Plan 11-03 `start_job` serializes InputArguments as `json.dumps(input_arguments or {})` (JSON STRING inside `startInfo`) per RESEARCH.md Finding 3 critical note — UiPath rejects StartJobs with nested-object InputArguments; guarded by `test_start_job_serializes_input_arguments_as_json_string`
 
 ### Pending Todos
 
@@ -124,6 +129,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-11T21:30:00.000Z
-Stopped at: Completed 11-02-PLAN.md
+Last session: 2026-04-11T21:45:00.000Z
+Stopped at: Completed 11-03-PLAN.md
 Resume file: None
