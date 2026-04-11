@@ -17,10 +17,25 @@ def test_stub_modules_importable() -> None:
     assert server is not None
 
 
-def test_tool_registry_empty() -> None:
+def test_tool_registry_populated() -> None:
+    # Plan 11-01 shipped TOOL_REGISTRY as an empty dict. Plan 11-05
+    # populates it with the 5 UiPath tools per D-19. Once 11-05 has landed,
+    # the registry MUST contain exactly these 5 tools — no more, no less.
     from yigthinker_mcp_uipath.tools import TOOL_REGISTRY
     assert isinstance(TOOL_REGISTRY, dict)
-    assert TOOL_REGISTRY == {}
+    assert set(TOOL_REGISTRY.keys()) == {
+        "ui_deploy_process",
+        "ui_trigger_job",
+        "ui_job_history",
+        "ui_manage_trigger",
+        "ui_queue_status",
+    }
+    # Each entry must be a (input_model_cls, async_handler) tuple.
+    for name, (model_cls, handler) in TOOL_REGISTRY.items():
+        assert isinstance(model_cls, type), (
+            f"{name}: input model must be a class"
+        )
+        assert callable(handler), f"{name}: handler must be callable"
 
 
 def test_main_entry_raises_until_06() -> None:
