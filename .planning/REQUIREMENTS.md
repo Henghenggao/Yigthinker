@@ -102,11 +102,11 @@ Requirements for Workflow & RPA Bridge milestone. Each maps to roadmap phases.
 
 ### Behavior Layer
 
-- [ ] **BHV-01**: System prompt directive instructs LLM to evaluate tasks for automation potential after completing work
-- [ ] **BHV-02**: SessionStart hook performs registry health check (failure rate, overdue executions) and injects alerts into context
+- [x] **BHV-01**: System prompt directive instructs LLM to evaluate tasks for automation potential after completing work
+- [x] **BHV-02**: SessionStart hook performs registry health check (failure rate, overdue executions) and injects alerts into context
 - [x] **BHV-03**: Proactive suggestions include estimated time saved, execution frequency, and required connections
 - [x] **BHV-04**: Declined suggestions stored in patterns.json (not registry.json) under suppressed_suggestions with pattern, reason, and 3-month expiry
-- [ ] **BHV-05**: Cross-session pattern detection via AutoDream memory (same tool sequence in 2+ sessions flags as automation-worthy)
+- [x] **BHV-05**: Cross-session pattern detection via AutoDream memory (same tool sequence in 2+ sessions flags as automation-worthy)
 
 ### MCP Server: UiPath
 
@@ -196,11 +196,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GW-RPA-02 | Phase 10 | Complete |
 | GW-RPA-03 | Phase 10 | Complete |
 | GW-RPA-04 | Phase 10 | Complete |
-| BHV-01 | Phase 10 | Pending |
-| BHV-02 | Phase 10 | Pending |
+| BHV-01 | Phase 10 | Complete |
+| BHV-02 | Phase 10 | Complete |
 | BHV-03 | Phase 10 | Complete |
 | BHV-04 | Phase 10 | Complete |
-| BHV-05 | Phase 10 | Pending |
+| BHV-05 | Phase 10 | Complete |
 | MCP-UI-01 | Phase 11 | Pending |
 | MCP-UI-02 | Phase 11 | Pending |
 | MCP-UI-03 | Phase 11 | Pending |

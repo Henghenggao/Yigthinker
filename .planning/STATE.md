@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
 status: Ready to execute
-stopped_at: Completed 10-01-PLAN.md (Gateway RPA endpoint foundation)
-last_updated: "2026-04-10T22:12:42.491Z"
+stopped_at: Completed 10-02-PLAN.md (Gateway RPA extraction LLM)
+last_updated: "2026-04-11T07:48:40.455Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 10 (gateway-rpa-behavior) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Plan: 2 of 4
 | Phase 09 P02 | 35 | 3 tasks | 13 files |
 | Phase 10 P03 | 7min | 7 tasks | 8 files |
 | Phase 10-gateway-rpa-behavior P01 | 60min | 6 tasks | 14 files |
+| Phase 10-gateway-rpa-behavior P02 | 6min | 4 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,9 @@ Recent decisions affecting current work:
 - [Phase 10-gateway-rpa-behavior]: Lazy controller wiring: GatewayServer routes read self._rpa_controller at request time via closure; start() builds the controller AFTER build_app() resolves the LLM provider, returning 503 while still None
 - [Phase 10-gateway-rpa-behavior]: Stubbed extraction at _extract_decision_stub (exact name) — dedup + circuit breaker + counters fully work without LLM; Plan 10-02 replaces method by name
 - [Phase 10-gateway-rpa-behavior]: CORR-01 template rewrite: checkpoint_utils.py.j2 POSTs to /api/rpa/callback with D-08 shape (fresh uuid4/attempt, Bearer auth via config.gateway_token) and /api/rpa/report with D-09 shape (run_id/started_at/finished_at); GW-RPA-05 ConnectionError fallback preserved
+- [Phase 10-gateway-rpa-behavior]: Plan 10-02: parse_extraction_response is sync — no await path, CORR-04b layered fallback (direct → strip fences → regex) all routes converge to extraction_failed escalate dict
+- [Phase 10-gateway-rpa-behavior]: Plan 10-02: extraction LLM user message excludes workflow_name / callback_id / version (routing keys, not classification signals); traceback truncated to 2000 chars pre-serialization to fit D-05's ~500-token budget
+- [Phase 10-gateway-rpa-behavior]: Plan 10-02: fix_applied action without a valid integer retry_delay_s escalates with extraction_failed — refuses to retry blindly when LLM violates schema
 
 ### Pending Todos
 
@@ -104,6 +108,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-10T22:12:42.488Z
-Stopped at: Completed 10-01-PLAN.md (Gateway RPA endpoint foundation)
+Last session: 2026-04-11T07:48:40.453Z
+Stopped at: Completed 10-02-PLAN.md (Gateway RPA extraction LLM)
 Resume file: None
