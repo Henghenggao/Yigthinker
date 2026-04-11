@@ -55,6 +55,7 @@ Plan: 2 of 8
 | Phase 10-gateway-rpa-behavior P02 | 6min | 4 tasks | 3 files |
 | Phase 10-gateway-rpa-behavior P04 | 15min | 6 tasks | 7 files |
 | Phase 11-uipath-mcp-server P01 | 4min | 2 tasks | 12 files |
+| Phase 11-uipath-mcp-server P04 | ~2.5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,7 @@ Recent decisions affecting current work:
 - [Phase 11-uipath-mcp-server]: Plan 11-01 scaffold ships 9 module stubs + 3 test files; server.main() raises NotImplementedError with active test guard until Plan 11-06 replaces it
 - [Phase 11-uipath-mcp-server]: conftest.py exposes sample_uipath_env with UIPATH_SCOPE singular key per D-10 (flat underscore keys, NOT slash-separated)
 - [Phase 11-uipath-mcp-server]: config.py stub deferred to Plan 11-06 alongside server wiring (plan file is authoritative over VALIDATION.md Wave 0 list for file scope)
+- [Phase 11-uipath-mcp-server]: Plan 11-04 build_nupkg is a pure function (no output disk I/O) using stdlib zipfile + ZIP_DEFLATED; 4 verbatim templates from UiPath cli_pack.py; operate.json (NOT project.json — D-16 correction per RESEARCH.md Finding 4); Pitfall 6 guard asserted at test layer
 
 ### Pending Todos
 
