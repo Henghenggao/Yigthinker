@@ -261,3 +261,96 @@ async def test_extraction_uses_message_snapshot():
     snapshot = captured_snapshots[0]
     # The snapshot should be a list but NOT the same object as ctx.messages
     assert isinstance(snapshot, list)
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 / BHV-02: startup alert provider (CORR-02 -- NOT a SessionStart hook)
+# ---------------------------------------------------------------------------
+
+async def test_session_start_injects_health_alerts():
+    """BHV-02: when the startup_alert_provider returns a non-empty string, AgentLoop.run
+    prepends it to the system_prompt as a `[Workflow Health Alert]` block exactly ONCE
+    per run (gated on iteration == 1)."""
+    loop, ctx, mock_provider = _make_loop([
+        LLMResponse(stop_reason="end_turn", text="ok"),
+    ])
+
+    alert_text = (
+        "[Workflow Health Alert] 1 active workflow needs attention:\n"
+        "  * monthly_sales_report: overdue (last_run=2026-03-01T00:00:00Z, schedule='0 0 1 * *')\n"
+        "Use workflow_manage(action=\"inspect\", ...) for details."
+    )
+    call_count = {"n": 0}
+
+    def provider_fn() -> str | None:
+        call_count["n"] += 1
+        return alert_text
+
+    loop.set_startup_alert_provider(provider_fn)
+
+    await loop.run("Show me the budget variance.", ctx)
+
+    # Provider must be invoked exactly once per run, not per iteration.
+    assert call_count["n"] == 1, f"Expected 1 provider call, got {call_count['n']}"
+
+    # The chat call must have received system prompt containing the alert header.
+    chat_call = mock_provider.chat.call_args_list[0]
+    # mock_provider.chat is called with positional args (messages, tools) and keyword `system`
+    system_kwarg = chat_call.kwargs.get("system")
+    assert system_kwarg is not None
+    assert "[Workflow Health Alert]" in system_kwarg
+    assert "monthly_sales_report" in system_kwarg
+
+
+async def test_session_start_silent_empty_registry():
+    """BHV-02: when the provider returns None, NO alert block appears in system_prompt."""
+    loop, ctx, mock_provider = _make_loop([
+        LLMResponse(stop_reason="end_turn", text="ok"),
+    ])
+
+    def empty_provider() -> str | None:
+        return None
+
+    loop.set_startup_alert_provider(empty_provider)
+    await loop.run("hello", ctx)
+
+    chat_call = mock_provider.chat.call_args_list[0]
+    system_kwarg = chat_call.kwargs.get("system")
+    # Either None OR a string that does NOT contain the alert marker.
+    if system_kwarg is not None:
+        assert "[Workflow Health Alert]" not in system_kwarg
+
+
+async def test_session_start_silent_healthy():
+    """BHV-02: when the provider returns an empty string '' (treated same as None), no alert block."""
+    loop, ctx, mock_provider = _make_loop([
+        LLMResponse(stop_reason="end_turn", text="ok"),
+    ])
+
+    def empty_string_provider() -> str | None:
+        return ""
+
+    loop.set_startup_alert_provider(empty_string_provider)
+    await loop.run("hello", ctx)
+
+    chat_call = mock_provider.chat.call_args_list[0]
+    system_kwarg = chat_call.kwargs.get("system")
+    if system_kwarg is not None:
+        assert "[Workflow Health Alert]" not in system_kwarg
+
+
+async def test_session_start_resilient_bad_registry():
+    """BHV-02 / Pitfall 3: a crashing startup_alert_provider MUST NOT break AgentLoop.run()."""
+    loop, ctx, mock_provider = _make_loop([
+        LLMResponse(stop_reason="end_turn", text="survived"),
+    ])
+
+    def crashing_provider() -> str | None:
+        raise RuntimeError("registry.json is corrupted")
+
+    loop.set_startup_alert_provider(crashing_provider)
+
+    # Must complete normally despite the provider exception.
+    result = await loop.run("hello", ctx)
+    assert result == "survived"
+    assert mock_provider.chat.called

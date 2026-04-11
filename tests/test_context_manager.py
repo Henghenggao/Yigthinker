@@ -31,3 +31,36 @@ def test_boundary_at_10_rows(cm):
     df_11 = pd.DataFrame({"x": range(11)})
     assert cm.summarize_dataframe_result(df_10)["type"] == "dataframe"
     assert cm.summarize_dataframe_result(df_11)["type"] == "dataframe_summary"
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 / BHV-01: automation awareness directive
+# ---------------------------------------------------------------------------
+
+def test_build_automation_directive_enabled(cm):
+    """D-23 + D-24: returns the locked directive text when behavior.suggest_automation.enabled=True."""
+    settings = {
+        "behavior": {"suggest_automation": {"enabled": True}},
+    }
+    directive = cm.build_automation_directive(settings)
+    assert directive is not None
+    assert isinstance(directive, str)
+    # Locked D-23 text -- the exact wording is CONTEXT-locked and must appear verbatim.
+    assert "Automation awareness" in directive
+    assert "suggest_automation" in directive
+    assert "workflow_generate" in directive
+    assert "one-off or exploratory" in directive.lower()
+
+
+def test_build_automation_directive_disabled(cm):
+    """D-24: returns None when the feature flag is disabled so system_prompt stays clean."""
+    settings_off = {
+        "behavior": {"suggest_automation": {"enabled": False}},
+    }
+    assert cm.build_automation_directive(settings_off) is None
+
+    # Also: missing settings block altogether -> default is ENABLED (D-24 says default=True)
+    settings_missing: dict = {}
+    directive_default = cm.build_automation_directive(settings_missing)
+    assert directive_default is not None
+    assert "Automation awareness" in directive_default
