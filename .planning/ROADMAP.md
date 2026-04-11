@@ -91,7 +91,7 @@ Plans:
 
 - [x] **Phase 8: Workflow Foundation** - Registry, templates, and workflow_generate tool with versioning and security
 - [x] **Phase 9: Deployment & Lifecycle** - workflow_deploy (local/guided/auto) and workflow_manage (list/inspect/pause/resume/rollback/retire/health)
-- [ ] **Phase 10: Gateway RPA & Behavior Layer** - Self-healing endpoints, status reporting, proactive automation suggestions, and cross-session pattern detection
+- [x] **Phase 10: Gateway RPA & Behavior Layer** - Self-healing endpoints, status reporting, proactive automation suggestions, and cross-session pattern detection (completed 2026-04-11)
 - [ ] **Phase 11: UiPath MCP Server** - Independent yigthinker-mcp-uipath package with OAuth2 and 5 tools
 - [ ] **Phase 12: Power Automate MCP Server** - Independent yigthinker-mcp-powerautomate package with MSAL auth and 5 tools
 
@@ -140,7 +140,7 @@ Plans:
   - [x] 10-01-PLAN.md -- Gateway RPA endpoints + sqlite state store + circuit breaker (Wave 1)
   - [x] 10-02-PLAN.md -- Extraction-only LLM callback + prompt parsing (Wave 2, depends on 10-01)
   - [x] 10-03-PLAN.md -- PatternStore + suggest_automation tool + behavior gate (Wave 1)
-  - [ ] 10-04-PLAN.md -- Behavior Layer wiring: BHV-01 directive + BHV-02 startup alerts + BHV-05 AutoDream pattern extraction (Wave 2, depends on 10-01 + 10-03)
+  - [x] 10-04-PLAN.md -- Behavior Layer wiring: BHV-01 directive + BHV-02 startup alerts + BHV-05 AutoDream pattern extraction (Wave 2, depends on 10-01 + 10-03)
 
 ### Phase 11: UiPath MCP Server
 **Goal**: Users with UiPath Orchestrator can auto-deploy workflows via a standalone MCP server package that Yigthinker calls through the standard MCP protocol
@@ -177,6 +177,6 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12
 | 7. Spawn Agent | v1.0 | 5/5 | Complete | 2026-04-08 |
 | 8. Workflow Foundation | v1.1 | 0/3 | Planned    |  |
 | 9. Deployment & Lifecycle | v1.1 | 0/TBD | Not started | - |
-| 10. Gateway RPA & Behavior Layer | v1.1 | 3/4 | In Progress|  |
+| 10. Gateway RPA & Behavior Layer | v1.1 | 4/4 | Complete   | 2026-04-11 |
 | 11. UiPath MCP Server | v1.1 | 0/TBD | Not started | - |
 | 12. Power Automate MCP Server | v1.1 | 0/TBD | Not started | - |

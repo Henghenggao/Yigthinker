@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
 status: Ready to execute
-stopped_at: Completed 10-02-PLAN.md (Gateway RPA extraction LLM)
-last_updated: "2026-04-11T07:48:40.455Z"
+stopped_at: Completed 10-04-PLAN.md
+last_updated: "2026-04-11T07:54:10.915Z"
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 10 (gateway-rpa-behavior) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Plan: 3 of 4
 | Phase 10 P03 | 7min | 7 tasks | 8 files |
 | Phase 10-gateway-rpa-behavior P01 | 60min | 6 tasks | 14 files |
 | Phase 10-gateway-rpa-behavior P02 | 6min | 4 tasks | 3 files |
+| Phase 10-gateway-rpa-behavior P04 | 15min | 6 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,10 @@ Recent decisions affecting current work:
 - [Phase 10-gateway-rpa-behavior]: Plan 10-02: parse_extraction_response is sync — no await path, CORR-04b layered fallback (direct → strip fences → regex) all routes converge to extraction_failed escalate dict
 - [Phase 10-gateway-rpa-behavior]: Plan 10-02: extraction LLM user message excludes workflow_name / callback_id / version (routing keys, not classification signals); traceback truncated to 2000 chars pre-serialization to fit D-05's ~500-token budget
 - [Phase 10-gateway-rpa-behavior]: Plan 10-02: fix_applied action without a valid integer retry_delay_s escalates with extraction_failed — refuses to retry blindly when LLM violates schema
+- [Phase 10-gateway-rpa-behavior]: BHV-02 uses startup alert provider callback (CORR-02), not SessionStart hook — HookResult has no context-injection variant
+- [Phase 10-gateway-rpa-behavior]: BHV-05 CANDIDATE_PATTERNS extension appended at call site (CORR-04c), DREAM_PROMPT constant preserved byte-identical for Phase 5 regression safety
+- [Phase 10-gateway-rpa-behavior]: Pitfall 3 double-defense: startup alert provider wrapped in try/except at both closure definition and AgentLoop.run call site
+- [Phase 10-gateway-rpa-behavior]: AutoDream pattern_store is optional kwarg (default None) to avoid breaking existing tests; disabled stores silently discard parsed patterns
 
 ### Pending Todos
 
@@ -108,6 +113,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-11T07:48:40.453Z
-Stopped at: Completed 10-02-PLAN.md (Gateway RPA extraction LLM)
+Last session: 2026-04-11T07:54:10.913Z
+Stopped at: Completed 10-04-PLAN.md
 Resume file: None
