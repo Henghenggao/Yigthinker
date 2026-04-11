@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
 status: Executing Phase 11
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-04-11T19:45:00.000Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-04-11T21:30:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 18
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 # Project State
@@ -55,6 +55,7 @@ Plan: 2 of 8
 | Phase 10-gateway-rpa-behavior P02 | 6min | 4 tasks | 3 files |
 | Phase 10-gateway-rpa-behavior P04 | 15min | 6 tasks | 7 files |
 | Phase 11-uipath-mcp-server P01 | 4min | 2 tasks | 12 files |
+| Phase 11-uipath-mcp-server P02 | 15min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,10 @@ Recent decisions affecting current work:
 - [Phase 11-uipath-mcp-server]: Plan 11-01 scaffold ships 9 module stubs + 3 test files; server.main() raises NotImplementedError with active test guard until Plan 11-06 replaces it
 - [Phase 11-uipath-mcp-server]: conftest.py exposes sample_uipath_env with UIPATH_SCOPE singular key per D-10 (flat underscore keys, NOT slash-separated)
 - [Phase 11-uipath-mcp-server]: config.py stub deferred to Plan 11-06 alongside server wiring (plan file is authoritative over VALIDATION.md Wave 0 list for file scope)
+- [Phase 11-uipath-mcp-server]: Plan 11-02 locks UipathAuth(client_id, client_secret, tenant_name, organization, scope: str) per D-09; scope is a single space-separated str (RFC 6749), never a list — grep-guarded by test_form_body_uses_space_separated_scope
+- [Phase 11-uipath-mcp-server]: Plan 11-02 asyncio.Lock uses field(default_factory=asyncio.Lock), NOT default=asyncio.Lock() — latter would share one lock across instances; Pitfall 4 thundering-herd guarded by test_concurrent_get_token_one_request
+- [Phase 11-uipath-mcp-server]: Plan 11-02 exports TOKEN_URL = "https://cloud.uipath.com/identity_/connect/token" and SAFETY_MARGIN_S = 60 at module level for Plan 11-03 OrchestratorClient consumption
+- [Phase 11-uipath-mcp-server]: Plan 11-02 uses time.monotonic() (monkeypatchable via yigthinker_mcp_uipath.auth.time.monotonic) — not time.time() — so expiry tests can advance a fake clock without wall-time drift
 
 ### Pending Todos
 
@@ -117,6 +122,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-11T19:45:00.000Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-04-11T21:30:00.000Z
+Stopped at: Completed 11-02-PLAN.md
 Resume file: None
