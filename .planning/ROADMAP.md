@@ -92,7 +92,7 @@ Plans:
 - [x] **Phase 8: Workflow Foundation** - Registry, templates, and workflow_generate tool with versioning and security
 - [x] **Phase 9: Deployment & Lifecycle** - workflow_deploy (local/guided/auto) and workflow_manage (list/inspect/pause/resume/rollback/retire/health)
 - [x] **Phase 10: Gateway RPA & Behavior Layer** - Self-healing endpoints, status reporting, proactive automation suggestions, and cross-session pattern detection (completed 2026-04-11)
-- [ ] **Phase 11: UiPath MCP Server** - Independent yigthinker-mcp-uipath package with OAuth2 and 5 tools
+- [x] **Phase 11: UiPath MCP Server** - Independent yigthinker-mcp-uipath package with OAuth2 and 5 tools (completed 2026-04-11)
 - [ ] **Phase 12: Power Automate MCP Server** - Independent yigthinker-mcp-powerautomate package with MSAL auth and 5 tools
 
 ## Phase Details
@@ -154,13 +154,13 @@ Plans:
 
 Plans:
 - [x] 11-01-PLAN.md -- Package scaffold: pyproject, module stubs, conftest fixtures, scaffold smoke test (Wave 0)
-- [ ] 11-02-PLAN.md -- UipathAuth: OAuth2 client credentials with space-separated scopes, asyncio.Lock refresh guard (Wave 1, depends on 11-01)
-- [ ] 11-03-PLAN.md -- OrchestratorClient: 10 OData wrappers, 3-retry backoff, folder header, InputArguments JSON string (Wave 1, depends on 11-01)
-- [ ] 11-04-PLAN.md -- build_nupkg: stdlib zipfile with operate.json + entry-points.json + nuspec + psmdcp templates (Wave 1, depends on 11-01)
-- [ ] 11-05-PLAN.md -- 5 tool handlers: ui_deploy_process, ui_trigger_job, ui_job_history, ui_manage_trigger, ui_queue_status + TOOL_REGISTRY (Wave 2, depends on 11-02 + 11-03 + 11-04)
-- [ ] 11-06-PLAN.md -- MCP low-level Server wiring + stdio smoke test + UipathConfig env loader (Wave 3, depends on 11-05)
-- [ ] 11-07-PLAN.md -- Core drift cleanup: fix mcp_detection identifiers + add rpa-uipath extra + grep drift guard (Wave 3, depends on 11-05)
-- [ ] 11-08-PLAN.md -- Package README with install, config, tools, troubleshooting (Wave 4, depends on 11-06 + 11-07)
+- [x] 11-02-PLAN.md -- UipathAuth: OAuth2 client credentials with space-separated scopes, asyncio.Lock refresh guard (Wave 1, depends on 11-01)
+- [x] 11-03-PLAN.md -- OrchestratorClient: 10 OData wrappers, 3-retry backoff, folder header, InputArguments JSON string (Wave 1, depends on 11-01)
+- [x] 11-04-PLAN.md -- build_nupkg: stdlib zipfile with operate.json + entry-points.json + nuspec + psmdcp templates (Wave 1, depends on 11-01)
+- [x] 11-05-PLAN.md -- 5 tool handlers: ui_deploy_process, ui_trigger_job, ui_job_history, ui_manage_trigger, ui_queue_status + TOOL_REGISTRY (Wave 2, depends on 11-02 + 11-03 + 11-04)
+- [x] 11-06-PLAN.md -- MCP low-level Server wiring + stdio smoke test + UipathConfig env loader (Wave 3, depends on 11-05)
+- [x] 11-07-PLAN.md -- Core drift cleanup: fix mcp_detection identifiers + add rpa-uipath extra + grep drift guard (Wave 3, depends on 11-05)
+- [x] 11-08-PLAN.md -- Package README with install, config, tools, troubleshooting (Wave 4, depends on 11-06 + 11-07)
 
 ### Phase 12: Power Automate MCP Server
 **Goal**: Users with Microsoft Power Automate can auto-deploy workflows via a standalone MCP server package using MSAL authentication
@@ -188,5 +188,5 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12
 | 8. Workflow Foundation | v1.1 | 0/3 | Planned    |  |
 | 9. Deployment & Lifecycle | v1.1 | 0/TBD | Not started | - |
 | 10. Gateway RPA & Behavior Layer | v1.1 | 4/4 | Complete    | 2026-04-11 |
-| 11. UiPath MCP Server | v1.1 | 1/8 | Executing | - |
+| 11. UiPath MCP Server | v1.1 | 8/8 | Complete   | 2026-04-11 |
 | 12. Power Automate MCP Server | v1.1 | 0/TBD | Not started | - |

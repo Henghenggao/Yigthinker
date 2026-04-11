@@ -110,9 +110,9 @@ Requirements for Workflow & RPA Bridge milestone. Each maps to roadmap phases.
 
 ### MCP Server: UiPath
 
-- [ ] **MCP-UI-01**: Independent package yigthinker-mcp-uipath with 5 tools: ui_deploy_process, ui_trigger_job, ui_job_history, ui_manage_trigger, ui_queue_status
-- [ ] **MCP-UI-02**: OAuth2 client credentials authentication (no API key path)
-- [ ] **MCP-UI-03**: Configured via .mcp.json with vault:// environment variable references
+- [x] **MCP-UI-01**: Independent package yigthinker-mcp-uipath with 5 tools: ui_deploy_process, ui_trigger_job, ui_job_history, ui_manage_trigger, ui_queue_status
+- [x] **MCP-UI-02**: OAuth2 client credentials authentication (no API key path)
+- [x] **MCP-UI-03**: Configured via .mcp.json with vault:// environment variable references
 
 ### MCP Server: Power Automate
 
@@ -201,9 +201,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BHV-03 | Phase 10 | Complete |
 | BHV-04 | Phase 10 | Complete |
 | BHV-05 | Phase 10 | Complete |
-| MCP-UI-01 | Phase 11 | Pending |
-| MCP-UI-02 | Phase 11 | Pending |
-| MCP-UI-03 | Phase 11 | Pending |
+| MCP-UI-01 | Phase 11 | Complete |
+| MCP-UI-02 | Phase 11 | Complete |
+| MCP-UI-03 | Phase 11 | Complete |
 | MCP-PA-01 | Phase 12 | Pending |
 | MCP-PA-02 | Phase 12 | Pending |
 | MCP-PA-03 | Phase 12 | Pending |

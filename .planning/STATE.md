@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
 status: Ready to execute
-stopped_at: Completed 11-07-PLAN.md
-last_updated: "2026-04-11T20:05:00.000Z"
+stopped_at: Completed 11-08-PLAN.md
+last_updated: "2026-04-11T20:11:29.446Z"
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 11 (uipath-mcp-server) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Plan: 7 of 8
 | Phase 11-uipath-mcp-server P05 | ~8min | 2 tasks | 13 files |
 | Phase 11-uipath-mcp-server P06 | ~2min | 2 tasks | 5 files |
 | Phase 11-uipath-mcp-server P07 | ~6min | 2 tasks | 5 files |
+| Phase 11-uipath-mcp-server P08 | ~6min | 1 task tasks | 1 file files |
 
 ## Accumulated Context
 
@@ -129,6 +130,9 @@ Recent decisions affecting current work:
 - [Phase 11-uipath-mcp-server]: Plan 11-07 added rpa-uipath optional extra to core pyproject.toml pointing at yigthinker-mcp-uipath distribution — enables `pip install yigthinker[rpa-uipath]` once both packages are published
 - [Phase 11-uipath-mcp-server]: Plan 11-07 drift-guard test (tests/test_tools/test_mcp_detection.py) uses regex-only scan of yigthinker/tools/workflow/ — never imports yigthinker_mcp_uipath (D-15 architect-not-executor invariant preserved)
 - [Phase 11-uipath-mcp-server]: Plan 11-07 D-07 pin test relaxed from `canonical_hits == 1` to `>= 1` (Rule 3 deviation): suggest_automation.py has 2 canonical references (module docstring + find_spec call), both legitimate; exact find_spec call shape still asserted to hold the invariant
+- [Phase 11-uipath-mcp-server]: Plan 11-08 README uses UIPATH_SCOPE singular exclusively — the 'singular-not-plural' explanatory sentence was rewritten so the forbidden plural literal never appears in the file, satisfying VALIDATION Row 11-08-01 grep guard
+- [Phase 11-uipath-mcp-server]: Plan 11-08 README vault mapping section documents the exact _resolve_env transform (strip vault://, uppercase remainder) and explicitly warns against slash-style keys per D-10 — flat underscore is the only supported form
+- [Phase 11-uipath-mcp-server]: Plan 11-08 legacy identifier 'yigthinker_uipath_mcp' rewritten out of troubleshooting text — drift guards treat its presence as a regression regardless of context, so counter-examples must also omit the literal string
 
 ### Pending Todos
 
@@ -144,6 +148,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-11T20:05:00.000Z
-Stopped at: Completed 11-07-PLAN.md
+Last session: 2026-04-11T20:11:29.443Z
+Stopped at: Completed 11-08-PLAN.md
 Resume file: None
