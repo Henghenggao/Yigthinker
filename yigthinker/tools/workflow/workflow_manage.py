@@ -235,7 +235,7 @@ class WorkflowManageTool:
         if target == "uipath":
             return {
                 "instruction": (
-                    f"If the yigthinker_uipath_mcp MCP package is installed, "
+                    f"If the yigthinker_mcp_uipath MCP package is installed, "
                     f"call `ui_manage_trigger` with "
                     f"workflow_name='{workflow_name}' and action='{verb}'. "
                     f"Otherwise toggle the trigger from UiPath Orchestrator."

@@ -448,11 +448,11 @@ class TestWorkflowDeployAuto:
         assert not result.is_error, result.content
         assert (
             result.content["next_steps"]["suggested_tool"]
-            == "uipath_publish_package"
+            == "ui_deploy_process"
         )
         assert (
             result.content["next_steps"]["mcp_package"]
-            == "yigthinker_uipath_mcp"
+            == "yigthinker_mcp_uipath"
         )
 
     async def test_auto_mode_mcp_missing_error(

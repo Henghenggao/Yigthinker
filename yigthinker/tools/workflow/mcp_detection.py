@@ -16,7 +16,7 @@ import importlib.util
 # Target -> MCP package name mapping (Phase 9 Research Pattern 4).
 MCP_PACKAGE_MAP: dict[str, str] = {
     "power_automate": "yigthinker_pa_mcp",
-    "uipath": "yigthinker_uipath_mcp",
+    "uipath": "yigthinker_mcp_uipath",
 }
 
 # Target -> suggested MCP tool + pip extras hint.
@@ -26,8 +26,8 @@ MCP_TOOL_MAP: dict[str, dict[str, str]] = {
         "install_hint": "pip install yigthinker[pa-mcp]",
     },
     "uipath": {
-        "suggested_tool": "uipath_publish_package",
-        "install_hint": "pip install yigthinker[uipath-mcp]",
+        "suggested_tool": "ui_deploy_process",
+        "install_hint": "pip install yigthinker[rpa-uipath]",
     },
 }
 
