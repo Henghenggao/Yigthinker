@@ -155,7 +155,7 @@ async def build_app(
         agent.set_compact(compact)
 
     if gate("auto_dream", settings=settings) and memory_manager is not None:
-        auto_dream = AutoDream()
+        auto_dream = AutoDream(pattern_store=pattern_store)
 
         async def dream_hook(event: HookEvent) -> HookResult:
             if auto_dream.should_run(event.session_id):
@@ -169,6 +169,68 @@ async def build_app(
             return HookResult.ALLOW
 
         hook_registry.register("SessionEnd", "*", dream_hook)
+
+    # --- Phase 10 / BHV-02 (CORR-02): workflow health startup alert provider ---
+    if gate("behavior", settings=settings) and workflow_registry is not None:
+        try:
+            from yigthinker.tools.workflow.workflow_manage import (
+                WorkflowManageInput,
+                WorkflowManageTool,
+            )
+        except ModuleNotFoundError:
+            pass  # jinja2/croniter not installed -- no workflow tools, no alert
+        else:
+            _workflow_manage = WorkflowManageTool(registry=workflow_registry)
+            _behavior_cfg = settings.get("behavior", {}) or {}
+            _thresholds = _behavior_cfg.get("health_check_threshold", {}) or {}
+
+            def _startup_alert_provider() -> str | None:
+                """BHV-02: compute workflow health alerts. Returns None on any failure.
+
+                Called once per AgentLoop.run at iteration == 1. Closure captures
+                _workflow_manage, _thresholds. Must NEVER raise -- AgentLoop.run wraps
+                the call in try/except as a second line of defense, but this function
+                is the primary catcher.
+                """
+                try:
+                    result = _workflow_manage._health_check(
+                        WorkflowManageInput(action="health_check"),
+                    )
+                    if result.is_error:
+                        return None
+                    content = result.content if isinstance(result.content, dict) else {}
+                    rows = content.get("workflows", [])
+                    problems: list[str] = []
+                    alert_on_overdue = _thresholds.get("alert_on_overdue", True)
+                    threshold_pct = _thresholds.get("alert_on_failure_rate_pct")
+                    for row in rows:
+                        if alert_on_overdue and row.get("overdue"):
+                            problems.append(
+                                f"  * {row.get('name', '?')}: overdue "
+                                f"(last_run={row.get('last_run')}, "
+                                f"schedule={row.get('schedule')})"
+                            )
+                        if threshold_pct is not None:
+                            rate = row.get("failure_rate_pct")
+                            if rate is not None and rate >= threshold_pct:
+                                problems.append(
+                                    f"  * {row.get('name', '?')}: "
+                                    f"{rate:.0f}% failure rate in last 30d "
+                                    f"({row.get('failure_count_30d')}/"
+                                    f"{row.get('run_count_30d')} runs failed)"
+                                )
+                    if not problems:
+                        return None
+                    header = (
+                        f"[Workflow Health Alert] "
+                        f"{len(problems)} active workflow(s) need attention:"
+                    )
+                    footer = "Use workflow_manage(action=\"inspect\", ...) for details."
+                    return "\n".join([header, *problems, footer])
+                except Exception:
+                    return None
+
+            agent.set_startup_alert_provider(_startup_alert_provider)
 
     return AppContext(
         agent_loop=agent,
