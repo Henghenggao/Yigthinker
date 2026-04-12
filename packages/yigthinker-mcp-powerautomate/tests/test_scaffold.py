@@ -1,4 +1,7 @@
-"""Scaffold test: confirms Plan 12-01 produced importable stub modules."""
+"""Scaffold test: confirms Plan 12-01 produced importable stub modules.
+
+Updated in Plan 12-06 to add build_server integration check.
+"""
 from __future__ import annotations
 
 
@@ -42,3 +45,22 @@ def test_tool_registry_populated() -> None:
         model_cls, handler_fn = entry
         assert isinstance(model_cls, type), f"{name}: first element must be a type"
         assert callable(handler_fn), f"{name}: second element must be callable"
+
+
+def test_server_exposes_build_server() -> None:
+    """build_server(config) returns a mcp.server.lowlevel.Server instance."""
+    from mcp.server.lowlevel import Server
+
+    from yigthinker_mcp_powerautomate.config import PowerAutomateConfig
+    from yigthinker_mcp_powerautomate.server import build_server
+
+    cfg = PowerAutomateConfig(
+        tenant_id="t",
+        client_id="c",
+        client_secret="s",
+        scope="https://service.flow.microsoft.com//.default",
+        base_url="https://api.flow.microsoft.com",
+        authority="https://login.microsoftonline.com/t",
+    )
+    app = build_server(cfg)
+    assert isinstance(app, Server)
