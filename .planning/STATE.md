@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
 status: Ready to execute
-stopped_at: Completed 12-03-PLAN.md
-last_updated: "2026-04-12T09:33:01.724Z"
+stopped_at: Completed 12-05-PLAN.md
+last_updated: "2026-04-12T09:43:10.906Z"
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 26
-  completed_plans: 20
+  completed_plans: 23
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 12 (power-automate-mcp-server) — EXECUTING
-Plan: 4 of 8
+Plan: 6 of 8
 
 ## Performance Metrics
 
@@ -65,6 +65,8 @@ Plan: 4 of 8
 | Phase 12 P01 | 3min | 2 tasks | 18 files |
 | Phase 12 P04 | 2min | 2 tasks | 2 files |
 | Phase 12 P03 | 3min | 2 tasks | 2 files |
+| Phase 12 P02 | 4min | 2 tasks | 2 files |
+| Phase 12 P05 | 3min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -139,6 +141,8 @@ Recent decisions affecting current work:
 - [Phase 12]: Cloned Phase 11 package structure exactly per D-02; msal added as fourth dep per D-15; POWERAUTOMATE_ env prefix per D-11
 - [Phase 12]: Flow builder uses fixed dict template embedded in function (D-20), paralleling Phase 11 nupkg.py pattern
 - [Phase 12]: Auth mocked at get_token level (D-26) -- MSAL never involved in client tests
+- [Phase 12]: MSAL app created via @cached_property on _app -- lazy init avoids network at import; tests inject mocks via instance __dict__ for cached_property
+- [Phase 12]: Tool handler tests use AsyncMock for client instead of respx (handler layer tests shape, not HTTP)
 
 ### Pending Todos
 
@@ -154,6 +158,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-12T09:33:01.721Z
-Stopped at: Completed 12-03-PLAN.md
+Last session: 2026-04-12T09:43:10.903Z
+Stopped at: Completed 12-05-PLAN.md
 Resume file: None
