@@ -16,7 +16,8 @@ def test_single_query_mode():
     mock_app_ctx.agent_loop = mock_agent
     mock_app_ctx.pool = mock_pool
 
-    with patch("yigthinker.builder.build_app", new_callable=AsyncMock, return_value=mock_app_ctx):
+    with patch("yigthinker.settings.has_api_key", return_value=True), \
+         patch("yigthinker.builder.build_app", new_callable=AsyncMock, return_value=mock_app_ctx):
         result = runner.invoke(app, ["main", "hello world"])
     assert result.exit_code == 0
     mock_agent.run.assert_called_once()

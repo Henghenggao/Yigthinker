@@ -4,7 +4,7 @@ Yigthinker is a headless AI agent for financial and data analysis. It runs as a 
 
 It combines:
 
-- An LLM-driven agent loop with 26 registered tools
+- An LLM-driven agent loop with 30 registered tools
 - Session-scoped in-memory DataFrame storage (`ctx.vars`)
 - A hook system for permissions, auditing, and cross-cutting concerns
 - 4 LLM providers: Claude, OpenAI, Ollama, Azure
@@ -59,11 +59,14 @@ pip install yigthinker
 # With gateway + TUI
 pip install "yigthinker[gateway,tui]"
 
+# With workflow automation (Jinja2 templates, cron scheduling)
+pip install "yigthinker[workflow]"
+
 # With forecasting (statsmodels, scikit-learn, prophet)
 pip install "yigthinker[forecast]"
 
 # Everything including channel adapters
-pip install "yigthinker[gateway,tui,forecast,feishu,teams,gchat]"
+pip install "yigthinker[gateway,tui,forecast,workflow,feishu,teams,gchat]"
 ```
 
 ### Extras Reference
@@ -73,9 +76,12 @@ pip install "yigthinker[gateway,tui,forecast,feishu,teams,gchat]"
 | `forecast` | statsmodels, scikit-learn, prophet |
 | `gateway` | FastAPI, uvicorn, websockets, pyarrow |
 | `tui` | Textual, websockets |
+| `workflow` | Jinja2 (templates), croniter (scheduling) |
 | `feishu` | Lark/Feishu SDK |
 | `teams` | httpx, msal (Azure AD) |
 | `gchat` | Google API client, google-auth |
+| `rpa-uipath` | yigthinker-mcp-uipath package |
+| `rpa-pa` | yigthinker-mcp-powerautomate package |
 
 ### For Contributors
 
@@ -125,7 +131,7 @@ Ollama requires no API key — it uses the local HTTP endpoint at `http://localh
 
 ## Tool Surface
 
-### Always available (26 tools)
+### Always available (30 tools)
 
 | Category | Tools |
 |----------|-------|
@@ -135,6 +141,7 @@ Ollama requires no API key — it uses the local HTTP endpoint at `http://localh
 | Reports | `report_generate`, `report_template`, `report_schedule` |
 | Exploration | `explore_overview`, `explore_drilldown`, `explore_anomaly` |
 | Finance | `finance_calculate`, `finance_analyze`, `finance_validate`, `finance_budget` |
+| Workflow | `workflow_generate`, `workflow_deploy`, `workflow_manage`, `suggest_automation` |
 | Agent | `spawn_agent`, `agent_status`, `agent_cancel` |
 
 ### Optional (require `forecast` extra)
@@ -191,7 +198,7 @@ Key directories:
 | `yigthinker/agent.py` | Agent loop |
 | `yigthinker/session.py` | Session context + VarRegistry |
 | `yigthinker/providers/` | LLM provider implementations |
-| `yigthinker/tools/` | All 26 tool implementations |
+| `yigthinker/tools/` | All 30 tool implementations |
 | `yigthinker/gateway/` | Gateway server, session registry, protocol |
 | `yigthinker/tui/` | Textual TUI client |
 | `yigthinker/channels/` | Feishu, Teams, Google Chat adapters |
@@ -237,13 +244,15 @@ python -m pytest tests/test_gateway/ -q    # Gateway tests only
 python -m pytest tests/test_tools/ -q      # Tool tests only
 ```
 
-Current status: **514 tests passing** in ~12 seconds.
+Current status: **665 tests passing** in ~13 seconds.
 
 ## Limitations
 
+- **Not yet published to PyPI.** The one-line installers and `pip install yigthinker` commands will not work until the package is published. Use the "For Contributors" setup for now.
 - The gateway runs in the foreground; no built-in daemon manager (use systemd, supervisor, or similar).
 - `report_schedule` stores schedules in session memory only; not persisted across restarts.
 - Forecast tools only register when their scientific dependencies are installed.
+- Workflow tools require the `workflow` extra (`jinja2`, `croniter`).
 - Channel adapters are functional but should be treated as integration-level features.
 - SQL queries pass LLM-generated SQL directly; use read-only database users for safety.
 

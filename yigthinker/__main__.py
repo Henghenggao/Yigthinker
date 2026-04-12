@@ -124,9 +124,22 @@ def main(
     query: Optional[str] = typer.Argument(default=None, help="Query (omit for REPL mode)"),
     resume: bool = typer.Option(False, "--resume", help="Resume last session"),
 ) -> None:
-    from yigthinker.settings import load_settings
+    """Start interactive REPL or run a single-shot query."""
+    from yigthinker.settings import load_settings, has_api_key
 
     settings = load_settings()
+    if not has_api_key(settings):
+        model = settings.get("model", "unknown")
+        console.print(
+            f"[red]No API key found for model [bold]{model}[/bold].[/]\n"
+            "Run [bold]yigthinker quickstart[/] to configure your provider,\n"
+            "or set the appropriate environment variable:\n"
+            "  [dim]ANTHROPIC_API_KEY[/]   for Claude models\n"
+            "  [dim]OPENAI_API_KEY[/]      for OpenAI models\n"
+            "  [dim]AZURE_OPENAI_API_KEY[/] for Azure deployments\n"
+            "  Ollama models need no key (uses local endpoint)."
+        )
+        raise typer.Exit(code=1)
     asyncio.run(_async_main(query, resume, settings))
 
 
