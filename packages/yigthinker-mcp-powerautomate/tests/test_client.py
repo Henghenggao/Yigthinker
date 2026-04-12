@@ -54,7 +54,8 @@ def _make_client(monkeypatch) -> PowerAutomateClient:
     return PowerAutomateClient(auth=auth, base_url=SAMPLE_BASE_URL)
 
 
-async def _fake_get_token() -> str:
+async def _fake_get_token(self=None) -> str:
+    """Mock get_token that works as both bound and unbound method."""
     return "tok-test"
 
 
@@ -198,7 +199,7 @@ async def test_list_flow_runs(monkeypatch):
     assert len(result) == 2
     assert result[0]["name"] == "run-1"
     sent_url = str(route.calls.last.request.url)
-    assert "$top=5" in sent_url
+    assert "$top=5" in sent_url or "%24top=5" in sent_url
     assert f"api-version={API_VERSION}" in sent_url
 
 
