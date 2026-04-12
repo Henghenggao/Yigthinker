@@ -93,7 +93,7 @@ Plans:
 - [x] **Phase 9: Deployment & Lifecycle** - workflow_deploy (local/guided/auto) and workflow_manage (list/inspect/pause/resume/rollback/retire/health)
 - [x] **Phase 10: Gateway RPA & Behavior Layer** - Self-healing endpoints, status reporting, proactive automation suggestions, and cross-session pattern detection (completed 2026-04-11)
 - [x] **Phase 11: UiPath MCP Server** - Independent yigthinker-mcp-uipath package with OAuth2 and 5 tools (completed 2026-04-11)
-- [ ] **Phase 12: Power Automate MCP Server** - Independent yigthinker-mcp-powerautomate package with MSAL auth and 5 tools
+- [x] **Phase 12: Power Automate MCP Server** - Independent yigthinker-mcp-powerautomate package with MSAL auth and 5 tools (completed 2026-04-12)
 
 ## Phase Details
 
@@ -178,9 +178,9 @@ Plans:
 - [x] 12-03-PLAN.md -- PowerAutomateClient: Flow Management API wrappers, 3-retry backoff, api-version param (Wave 1, depends on 12-01)
 - [x] 12-04-PLAN.md -- build_notification_flow_clientdata: HTTP Trigger + Send Email V2 template (Wave 1, depends on 12-01)
 - [x] 12-05-PLAN.md -- 5 tool handlers: pa_deploy_flow, pa_trigger_flow, pa_flow_status, pa_pause_flow, pa_list_connections + TOOL_REGISTRY (Wave 2, depends on 12-02 + 12-03 + 12-04)
-- [ ] 12-06-PLAN.md -- MCP low-level Server wiring + stdio smoke test + PowerAutomateConfig env loader (Wave 3, depends on 12-05)
-- [ ] 12-07-PLAN.md -- Core drift cleanup: fix mcp_detection PA identifiers + add rpa-pa extra + extend drift guard (Wave 3, depends on 12-05)
-- [ ] 12-08-PLAN.md -- Package README with install, config, tools, troubleshooting (Wave 4, depends on 12-06 + 12-07)
+- [x] 12-06-PLAN.md -- MCP low-level Server wiring + stdio smoke test + PowerAutomateConfig env loader (Wave 3, depends on 12-05)
+- [x] 12-07-PLAN.md -- Core drift cleanup: fix mcp_detection PA identifiers + add rpa-pa extra + extend drift guard (Wave 3, depends on 12-05)
+- [x] 12-08-PLAN.md -- Package README with install, config, tools, troubleshooting (Wave 4, depends on 12-06 + 12-07)
 
 ## Progress
 
@@ -199,4 +199,4 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12
 | 9. Deployment & Lifecycle | v1.1 | 0/TBD | Not started | - |
 | 10. Gateway RPA & Behavior Layer | v1.1 | 4/4 | Complete    | 2026-04-11 |
 | 11. UiPath MCP Server | v1.1 | 8/8 | Complete   | 2026-04-11 |
-| 12. Power Automate MCP Server | v1.1 | 5/8 | In Progress|  |
+| 12. Power Automate MCP Server | v1.1 | 8/8 | Complete   | 2026-04-12 |

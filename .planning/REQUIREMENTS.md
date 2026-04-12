@@ -116,9 +116,9 @@ Requirements for Workflow & RPA Bridge milestone. Each maps to roadmap phases.
 
 ### MCP Server: Power Automate
 
-- [ ] **MCP-PA-01**: Independent package yigthinker-mcp-powerautomate with 5 tools: pa_deploy_flow, pa_trigger_flow, pa_flow_status, pa_pause_flow, pa_list_connections
-- [ ] **MCP-PA-02**: MSAL ConfidentialClientApplication authentication
-- [ ] **MCP-PA-03**: Configured via .mcp.json with vault:// environment variable references
+- [x] **MCP-PA-01**: Independent package yigthinker-mcp-powerautomate with 5 tools: pa_deploy_flow, pa_trigger_flow, pa_flow_status, pa_pause_flow, pa_list_connections
+- [x] **MCP-PA-02**: MSAL ConfidentialClientApplication authentication
+- [x] **MCP-PA-03**: Configured via .mcp.json with vault:// environment variable references
 
 ## v2 Requirements
 
@@ -204,9 +204,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MCP-UI-01 | Phase 11 | Complete |
 | MCP-UI-02 | Phase 11 | Complete |
 | MCP-UI-03 | Phase 11 | Complete |
-| MCP-PA-01 | Phase 12 | Pending |
-| MCP-PA-02 | Phase 12 | Pending |
-| MCP-PA-03 | Phase 12 | Pending |
+| MCP-PA-01 | Phase 12 | Complete |
+| MCP-PA-02 | Phase 12 | Complete |
+| MCP-PA-03 | Phase 12 | Complete |
 
 **Coverage:**
 - v1.0 requirements: 53 total (all complete)

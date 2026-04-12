@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
-status: Ready to execute
-stopped_at: Completed 12-05-PLAN.md
-last_updated: "2026-04-12T09:43:10.906Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 12-08-PLAN.md
+last_updated: "2026-04-12T09:58:55.112Z"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 26
-  completed_plans: 23
+  completed_plans: 26
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 12 (power-automate-mcp-server) — EXECUTING
-Plan: 6 of 8
+Plan: 8 of 8
 
 ## Performance Metrics
 
@@ -67,6 +67,9 @@ Plan: 6 of 8
 | Phase 12 P03 | 3min | 2 tasks | 2 files |
 | Phase 12 P02 | 4min | 2 tasks | 2 files |
 | Phase 12 P05 | 3min | 2 tasks | 12 files |
+| Phase 12 P07 | 3min | 2 tasks | 5 files |
+| Phase 12 P06 | 4min | 2 tasks | 4 files |
+| Phase 12 P08 | 2min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -143,6 +146,9 @@ Recent decisions affecting current work:
 - [Phase 12]: Auth mocked at get_token level (D-26) -- MSAL never involved in client tests
 - [Phase 12]: MSAL app created via @cached_property on _app -- lazy init avoids network at import; tests inject mocks via instance __dict__ for cached_property
 - [Phase 12]: Tool handler tests use AsyncMock for client instead of respx (handler layer tests shape, not HTTP)
+- [Phase 12]: Extended existing test_mcp_detection.py with PA assertions rather than creating new file (D-29)
+- [Phase 12]: Plan 12-06 wires mcp.server.lowlevel.Server with TOOL_REGISTRY dispatch; config.py reads 6 env vars (3 required, 3 optional); lazy client construction via _ensure_client closure
+- [Phase 12]: README documents PowerAutomate.Flows.Read/Write permissions (corrected from D-30 per RESEARCH.md Finding 5)
 
 ### Pending Todos
 
@@ -158,6 +164,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-12T09:43:10.903Z
-Stopped at: Completed 12-05-PLAN.md
+Last session: 2026-04-12T09:58:55.109Z
+Stopped at: Completed 12-08-PLAN.md
 Resume file: None
