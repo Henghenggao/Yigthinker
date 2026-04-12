@@ -167,7 +167,8 @@ Recent decisions affecting current work:
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260412-uyf | Optimize df_load Excel sheet enumeration + pre-approve read-only tools | 2026-04-12 | c6075ab | [260412-uyf-optimize-df-load-excel-sheet-enumeration](./quick/260412-uyf-optimize-df-load-excel-sheet-enumeration/) |
+| 260412-ve5 | Fix TUI input bar disabled state race condition + WS auth failure visibility | 2026-04-12 | 2ddf6f1 | [260412-ve5-fix-tui-input-bar-disabled-state-race-co](./quick/260412-ve5-fix-tui-input-bar-disabled-state-race-co/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-12 - Completed quick task 260412-uyf: Optimize df_load Excel sheet enumeration + pre-approve read-only tools
+Last activity: 2026-04-12 - Completed quick task 260412-ve5: Fix TUI input bar disabled state race condition + WS auth failure visibility
