@@ -42,4 +42,5 @@ class InputBar(Input):
             id="input-bar",
             placeholder="Type a message... (Enter to send, / for commands)",
             suggester=SlashCommandSuggester(commands),
+            disabled=True,  # enabled only when WS reaches "connected"
         )
