@@ -46,7 +46,11 @@ def _mock_msal_app(
     auth: PowerAutomateAuth,
     token_response: dict | None = None,
 ) -> MagicMock:
-    """Inject a MagicMock as the MSAL ConfidentialClientApplication on auth._app."""
+    """Inject a MagicMock as the MSAL ConfidentialClientApplication on auth._app.
+
+    Uses instance __dict__ injection so ``cached_property`` finds the mock
+    without replacing the class-level descriptor (which would leak between tests).
+    """
     if token_response is None:
         token_response = {
             "access_token": "tok-1",
@@ -55,8 +59,9 @@ def _mock_msal_app(
         }
     mock_app = MagicMock()
     mock_app.acquire_token_for_client.return_value = token_response
-    # Replace the cached_property _app with the mock.
-    type(auth)._app = property(lambda self: mock_app)  # type: ignore[attr-defined]
+    # cached_property stores its result in instance.__dict__["_app"].
+    # Writing directly to the instance dict pre-populates that cache.
+    auth.__dict__["_app"] = mock_app
     return mock_app
 
 
@@ -100,7 +105,7 @@ async def test_expired_token_triggers_refresh(monkeypatch):
         {"access_token": "tok-1", "expires_in": 1, "token_type": "Bearer"},
         {"access_token": "tok-2", "expires_in": 3600, "token_type": "Bearer"},
     ]
-    type(auth)._app = property(lambda self: mock_app)  # type: ignore[attr-defined]
+    auth.__dict__["_app"] = mock_app
 
     t1 = await auth.get_token()
     # Advance past expires_in (1s) + safety margin (60s)
@@ -169,6 +174,7 @@ async def test_default_authority_uses_tenant_id(monkeypatch):
 
     auth = _make_auth(tenant_id="my-tenant", authority=None)
     # Access _app to trigger ConfidentialClientApplication creation.
+    # Do NOT pre-populate __dict__["_app"] -- let cached_property run the real code.
     _ = auth._app
 
     mock_cca_class.assert_called_once_with(
