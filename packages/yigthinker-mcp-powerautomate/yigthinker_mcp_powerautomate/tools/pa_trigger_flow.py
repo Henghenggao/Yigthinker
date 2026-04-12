@@ -2,12 +2,18 @@
 
 Sends a POST to the flow's HTTP trigger URL with optional input payload.
 Returns the run status and run_id.
+
+D-17: HTTP errors converted to is_error dicts; never raised.
+D-23: Required fields flow_id, environment_id; optional trigger_input.
 """
 from __future__ import annotations
 
 from typing import Any
 
+import httpx
 from pydantic import BaseModel, Field
+
+from ..client import PowerAutomateClient
 
 
 class PaTriggerFlowInput(BaseModel):
@@ -27,6 +33,30 @@ class PaTriggerFlowInput(BaseModel):
     )
 
 
-async def handle(input: PaTriggerFlowInput, client: Any) -> dict:
+async def handle(input: PaTriggerFlowInput, client: PowerAutomateClient) -> dict:
     """Trigger the flow and return run status + run_id."""
-    raise NotImplementedError("Plan 12-05 replaces this")
+    try:
+        resp = await client.trigger_flow_run(
+            input.environment_id,
+            input.flow_id,
+            input.trigger_input,
+        )
+        return {
+            "flow_id": input.flow_id,
+            "run_id": resp.get("name", ""),
+            "status": resp.get("properties", {}).get("status", ""),
+            "environment_id": input.environment_id,
+        }
+    except httpx.HTTPStatusError as exc:
+        return {
+            "error": "http_error",
+            "tool": "pa_trigger_flow",
+            "status": exc.response.status_code,
+            "detail": exc.response.text[:500],
+        }
+    except Exception as exc:
+        return {
+            "error": "internal_error",
+            "tool": "pa_trigger_flow",
+            "detail": str(exc),
+        }
