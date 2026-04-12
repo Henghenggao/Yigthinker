@@ -15,6 +15,7 @@ need:
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 DEFAULT_SCOPE = "https://service.flow.microsoft.com//.default"
@@ -44,7 +45,38 @@ class PowerAutomateConfig:
         Raises :class:`RuntimeError` with a human-readable message listing any
         missing required variables. Optional vars fall back to defaults.
         """
-        raise NotImplementedError("Plan 12-06 replaces this")
+        required = (
+            "POWERAUTOMATE_TENANT_ID",
+            "POWERAUTOMATE_CLIENT_ID",
+            "POWERAUTOMATE_CLIENT_SECRET",
+        )
+        missing = [name for name in required if not os.environ.get(name)]
+        if missing:
+            raise RuntimeError(
+                "yigthinker-mcp-powerautomate: missing required env vars: "
+                f"{', '.join(missing)}. "
+                "Set POWERAUTOMATE_TENANT_ID, POWERAUTOMATE_CLIENT_ID, "
+                "POWERAUTOMATE_CLIENT_SECRET. "
+                "See README Configuration section for the vault:// mapping "
+                "via .mcp.json."
+            )
+        tenant_id = os.environ["POWERAUTOMATE_TENANT_ID"]
+        scope = os.environ.get("POWERAUTOMATE_SCOPE", DEFAULT_SCOPE).strip()
+        base_url = os.environ.get(
+            "POWERAUTOMATE_BASE_URL", DEFAULT_BASE_URL,
+        ).rstrip("/")
+        authority = os.environ.get(
+            "POWERAUTOMATE_AUTHORITY",
+            DEFAULT_AUTHORITY_TPL.format(tenant_id=tenant_id),
+        ).strip()
+        return cls(
+            tenant_id=tenant_id,
+            client_id=os.environ["POWERAUTOMATE_CLIENT_ID"],
+            client_secret=os.environ["POWERAUTOMATE_CLIENT_SECRET"],
+            scope=scope,
+            base_url=base_url,
+            authority=authority,
+        )
 
 
 def load_config() -> PowerAutomateConfig:
@@ -52,5 +84,10 @@ def load_config() -> PowerAutomateConfig:
     return PowerAutomateConfig.from_env()
 
 
-__all__ = ["PowerAutomateConfig", "DEFAULT_SCOPE", "DEFAULT_BASE_URL",
-           "DEFAULT_AUTHORITY_TPL", "load_config"]
+__all__ = [
+    "PowerAutomateConfig",
+    "DEFAULT_SCOPE",
+    "DEFAULT_BASE_URL",
+    "DEFAULT_AUTHORITY_TPL",
+    "load_config",
+]
