@@ -62,7 +62,7 @@ async def build_app(
 
     # --- Workflow subsystem ---
     workflow_registry = None
-    if gate("workflow", settings=settings):
+    if gate("workflow", default=True, settings=settings):
         try:
             from yigthinker.tools.workflow.registry import WorkflowRegistry
             workflow_registry = WorkflowRegistry()

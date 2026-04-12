@@ -96,8 +96,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 
-def load_settings(project_dir: Path | None = None) -> dict[str, Any]:
-    """Load and merge settings: defaults → project → user → managed (managed wins)."""
+def load_settings(
+    project_dir: Path | None = None,
+    user_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Load and merge settings: defaults → project → user → managed (managed wins).
+
+    Args:
+        project_dir: Override for the project root (default: cwd).
+        user_dir: Override for the user home directory (default: Path.home()).
+                  Useful in tests to avoid reading the real ~/.yigthinker/settings.json.
+    """
     import os
 
     settings = _deep_merge({}, DEFAULT_SETTINGS)
@@ -108,7 +117,7 @@ def load_settings(project_dir: Path | None = None) -> dict[str, Any]:
         settings = _deep_merge(settings, json.loads(project_path.read_text(encoding="utf-8")))
 
     # 2. User level (~/.yigthinker/settings.json)
-    user_path = Path.home() / ".yigthinker" / "settings.json"
+    user_path = (user_dir or Path.home()) / ".yigthinker" / "settings.json"
     if user_path.exists():
         user_data = json.loads(user_path.read_text(encoding="utf-8"))
         settings = _deep_merge(settings, user_data)
