@@ -46,8 +46,33 @@ class DfLoadTool:
                 )
 
             kwargs = {}
-            if suffix in (".xlsx", ".xls") and input.sheet_name:
-                kwargs["sheet_name"] = input.sheet_name
+
+            # Excel sheet enumeration: discover sheets before loading
+            if suffix in (".xlsx", ".xls"):
+                xls = pd.ExcelFile(path)
+                sheets = xls.sheet_names
+
+                if input.sheet_name and input.sheet_name not in sheets:
+                    return ToolResult(
+                        tool_use_id="",
+                        content=f"Sheet '{input.sheet_name}' not found. Available sheets: {sheets}",
+                        is_error=True,
+                    )
+
+                if not input.sheet_name and len(sheets) > 1:
+                    return ToolResult(
+                        tool_use_id="",
+                        content={
+                            "message": f"This Excel file has {len(sheets)} sheets. Specify sheet_name to load one.",
+                            "available_sheets": sheets,
+                        },
+                    )
+
+                # Single sheet or explicit sheet_name — proceed with loading
+                if input.sheet_name:
+                    kwargs["sheet_name"] = input.sheet_name
+                else:
+                    kwargs["sheet_name"] = sheets[0]
 
             # header, skiprows, usecols only supported by CSV and Excel loaders;
             # JSON and Parquet do not accept these parameters.
