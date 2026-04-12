@@ -224,7 +224,7 @@ class WorkflowManageTool:
             )
             return {
                 "instruction": (
-                    f"If the yigthinker_pa_mcp MCP package is installed, call "
+                    f"If the yigthinker_mcp_powerautomate MCP package is installed, call "
                     f"`{mcp_tool}` with workflow_name='{workflow_name}'. "
                     f"Otherwise open the flow in flow.microsoft.com and "
                     f"toggle it from the details page."

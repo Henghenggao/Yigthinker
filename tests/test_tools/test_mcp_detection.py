@@ -29,9 +29,14 @@ WORKFLOW_DIR = Path(__file__).resolve().parents[2] / "yigthinker" / "tools" / "w
 
 LEGACY_PATTERNS: dict[str, str] = {
     # pattern -> human-readable reason
+    # UiPath legacy (Phase 11)
     r"yigthinker_uipath_mcp": "legacy underscore-swapped package name (should be yigthinker_mcp_uipath)",
     r"uipath_publish_package": "legacy single tool name (should be ui_deploy_process or one of the 5 ui_* tools)",
     r"yigthinker\[uipath-mcp\]": "legacy pip extra name (should be yigthinker[rpa-uipath])",
+    # Power Automate legacy (Phase 12)
+    r"yigthinker_pa_mcp": "legacy PA package name (should be yigthinker_mcp_powerautomate)",
+    r"power_automate_create_flow": "legacy PA tool name (should be pa_deploy_flow)",
+    r"yigthinker\[pa-mcp\]": "legacy PA pip extra name (should be yigthinker[rpa-pa])",
 }
 
 
@@ -97,5 +102,69 @@ def test_suggest_automation_pinned_to_canonical_identifier() -> None:
     # The exact find_spec call shape must be present (not just the bare string in a comment).
     assert 'importlib.util.find_spec("yigthinker_mcp_uipath")' in text, (
         "expected `importlib.util.find_spec(\"yigthinker_mcp_uipath\")` call in "
+        "suggest_automation.py (D-07 invariant)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 12: Power Automate drift guard
+# ---------------------------------------------------------------------------
+
+PA_LEGACY_PATTERNS: dict[str, str] = {
+    r"yigthinker_pa_mcp": "legacy PA package name (should be yigthinker_mcp_powerautomate)",
+    r"power_automate_create_flow": "legacy PA tool name (should be pa_deploy_flow)",
+    r"yigthinker\[pa-mcp\]": "legacy PA pip extra name (should be yigthinker[rpa-pa])",
+}
+
+
+def test_no_legacy_pa_identifiers_in_workflow_tools() -> None:
+    """No legacy Power Automate MCP identifiers should appear in workflow tools code."""
+    assert WORKFLOW_DIR.is_dir(), f"expected workflow dir at {WORKFLOW_DIR}"
+    hits: list[str] = []
+    for file in _iter_python_files(WORKFLOW_DIR):
+        text = file.read_text(encoding="utf-8")
+        for pattern, reason in PA_LEGACY_PATTERNS.items():
+            if re.search(pattern, text):
+                hits.append(f"{file.relative_to(WORKFLOW_DIR.parents[2])}: {pattern} -- {reason}")
+    assert not hits, "Legacy PA MCP identifiers found:\n  " + "\n  ".join(hits)
+
+
+def test_canonical_pa_identifiers_present_in_mcp_detection() -> None:
+    """The canonical PA names must appear in mcp_detection.py after drift cleanup."""
+    detection = (WORKFLOW_DIR / "mcp_detection.py").read_text(encoding="utf-8")
+    assert "yigthinker_mcp_powerautomate" in detection, "canonical PA package name missing"
+    assert "pa_deploy_flow" in detection, "canonical PA suggested_tool missing"
+    assert "pip install yigthinker[rpa-pa]" in detection, "canonical PA install hint missing"
+
+
+def test_suggest_automation_pinned_to_canonical_pa_identifier() -> None:
+    """D-07 invariant: suggest_automation.py uses the canonical PA module name.
+
+    Per D-07 (12-CONTEXT.md), `yigthinker/tools/workflow/suggest_automation.py`
+    already contains `importlib.util.find_spec("yigthinker_mcp_powerautomate")`
+    at line ~166. This test pins the invariant so future edits cannot silently
+    regress it.
+    """
+    target = WORKFLOW_DIR / "suggest_automation.py"
+    assert target.is_file(), f"expected {target} to exist"
+    text = target.read_text(encoding="utf-8")
+
+    # At least one reference to the canonical PA module name must remain.
+    canonical_hits = len(re.findall(r"yigthinker_mcp_powerautomate", text))
+    assert canonical_hits >= 1, (
+        f"suggest_automation.py must reference 'yigthinker_mcp_powerautomate' at least once; "
+        f"found {canonical_hits}"
+    )
+
+    # Zero references to the legacy PA name.
+    legacy_hits = len(re.findall(r"yigthinker_pa_mcp", text))
+    assert legacy_hits == 0, (
+        f"suggest_automation.py must not contain the legacy name 'yigthinker_pa_mcp'; "
+        f"found {legacy_hits}"
+    )
+
+    # The exact find_spec call shape must be present (not just the bare string in a comment).
+    assert 'importlib.util.find_spec("yigthinker_mcp_powerautomate")' in text, (
+        'expected `importlib.util.find_spec("yigthinker_mcp_powerautomate")` call in '
         "suggest_automation.py (D-07 invariant)"
     )

@@ -417,10 +417,10 @@ class TestWorkflowDeployAuto:
         assert "next_steps" in content
         assert (
             content["next_steps"]["suggested_tool"]
-            == "power_automate_create_flow"
+            == "pa_deploy_flow"
         )
         assert (
-            content["next_steps"]["mcp_package"] == "yigthinker_pa_mcp"
+            content["next_steps"]["mcp_package"] == "yigthinker_mcp_powerautomate"
         )
 
     async def test_auto_mode_returns_next_steps(
@@ -480,7 +480,7 @@ class TestWorkflowDeployAuto:
         )
         assert result.is_error
         msg = str(result.content).lower()
-        assert "yigthinker_pa_mcp" in msg or "pa-mcp" in msg
+        assert "yigthinker_mcp_powerautomate" in msg or "rpa-pa" in msg
         assert "guided" in msg  # suggests fallback
 
     async def test_auto_mode_local_target_rejected(
