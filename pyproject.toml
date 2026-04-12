@@ -75,6 +75,9 @@ workflow = [
 rpa-uipath = [
     "yigthinker-mcp-uipath",
 ]
+rpa-pa = [
+    "yigthinker-mcp-powerautomate",
+]
 all-channels = [
     "fastapi>=0.111.0",
     "uvicorn>=0.30.0",
