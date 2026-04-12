@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Workflow & RPA Bridge
-status: Phase complete — ready for verification
-stopped_at: Completed 12-08-PLAN.md
-last_updated: "2026-04-12T09:58:55.112Z"
+status: archived
+stopped_at: Milestone v1.1 archived
+last_updated: "2026-04-12T12:00:00.000Z"
 progress:
-  total_phases: 6
+  total_phases: 5
   completed_phases: 5
   total_plans: 26
   completed_plans: 26
@@ -16,15 +16,15 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-09)
+See: .planning/PROJECT.md (updated 2026-04-12)
 
 **Core value:** A user can interact via CLI REPL, IM channels, or TUI connected to the Gateway, having AI-assisted data analysis conversations with tool calls -- same agent, multiple surfaces. Repeatable analysis patterns become automated workflows deployed to RPA platforms.
-**Current focus:** Phase 12 — power-automate-mcp-server
+**Current focus:** Between milestones — v1.1 shipped, next milestone not yet defined
 
 ## Current Position
 
-Phase: 12 (power-automate-mcp-server) — EXECUTING
-Plan: 8 of 8
+Milestone: v1.1 (archived)
+Next: Run `/gsd:new-milestone` to start next milestone
 
 ## Performance Metrics
 

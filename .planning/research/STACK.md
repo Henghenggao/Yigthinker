@@ -1,217 +1,364 @@
-# Technology Stack
+# Stack Research: Workflow & RPA Bridge Additions
 
-**Project:** Yigthinker — Multi-channel AI Agent Gateway, TUI, and Memory Systems
-**Researched:** 2026-04-02
+> **Status:** Pre-implementation research for v1.1. v1.1 shipped 2026-04-12. This document is a historical reference — consult shipped code and phase summaries for current state.
+
+**Project:** Yigthinker v1.1 -- Workflow Generation, RPA Deployment, Self-Healing, Lifecycle Management
+**Researched:** 2026-04-09
+**Confidence:** HIGH (template/registry), MEDIUM (PA API), HIGH (UiPath API)
 
 ## Context
 
-This stack research covers only the **new milestone scope**: Gateway daemon, TUI client, channel adapters (Feishu/Teams/Google Chat), session hibernation, and cross-session memory. The core Agent Loop, 21 tools, LLM providers, and CLI are already built and not re-evaluated here. The codebase already has stub implementations with dependency choices made — this research validates those choices and identifies version/configuration issues.
+This research covers ONLY the new dependencies required for the v1.1 Workflow & RPA Bridge milestone. The existing stack (Python 3.11, FastAPI, Pydantic, httpx, msal, pandas, SQLAlchemy, aiosqlite, PyArrow, MCP SDK, etc.) is validated and not re-evaluated. Focus: Jinja2 for template rendering, PA/UiPath API integration patterns, Azure Functions deployment SDK, MCP server authoring, workflow registry storage, and cron parsing.
 
-## Recommended Stack
+## Recommended Stack Additions
 
-### Gateway Server
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| FastAPI | >=0.135.0 | HTTP API + WebSocket endpoints for Gateway | Already in codebase. Built on Starlette ASGI, native WebSocket support, dependency injection, OpenAPI docs for free. The SSE support added recently is useful for future streaming alternatives. No reason to switch. | HIGH |
-| uvicorn | >=0.42.0 | ASGI server | Standard production server for FastAPI. Supports `--workers` for multi-process (though single-worker is fine for this use case since sessions are in-process memory). Install with `uvicorn[standard]` for uvloop on Linux (unavailable on Windows). | HIGH |
-| websockets | >=16.0 | TUI WebSocket client (not server) | Used by the TUI client to connect to Gateway. The server side uses FastAPI/Starlette's built-in WebSocket. v16.0 is current (Jan 2026), supports Python 3.10+, free-threaded Python. The codebase correctly uses this only client-side. | HIGH |
-
-**Architecture note:** FastAPI's WebSocket IS Starlette's WebSocket — zero performance difference. The Gateway correctly uses FastAPI's `@app.websocket("/ws")` for the server side and `websockets` library for the TUI client side. This is the standard split.
-
-### TUI Client
+### Template Rendering (Yigthinker Core)
 
 | Technology | Version | Purpose | Why | Confidence |
 |------------|---------|---------|-----|------------|
-| textual | >=8.0.0 | Terminal UI framework | Already chosen. Textual 8.x (Mar 2026) is the current major version. Rich widget library, CSS-like styling, async-native with worker API, screens/modals for session picker and model picker. The only serious Python TUI framework in 2025-2026. Alternatives (curses, urwid, prompt_toolkit) are far lower-level. | HIGH |
-| rich | >=14.0.0 | Terminal formatting (used by Textual internally and CLI output) | Already a dependency. Textual depends on Rich. Also used standalone for CLI table/panel output. | HIGH |
+| Jinja2 | >=3.1.6 | Render Python/PA/UiPath scripts from `.j2` templates | Standard Python template engine. Used by Flask, Ansible, Cookiecutter, dbt -- battle-tested for code generation. v3.1.6 (Mar 2025) includes a critical sandbox escape fix (CVE-2025-27516 via `|attr` filter bypass). Pin `>=3.1.6` specifically to ensure the security fix. Jinja2 already has async rendering support via `jinja2.Environment(enable_async=True)` and `SandboxedEnvironment` for untrusted input (not needed here since templates are developer-authored, not user-supplied). Depends on MarkupSafe (auto-installed). | HIGH |
 
-**Critical pattern for TUI + WebSocket:** Use `self.run_worker(coroutine, exclusive=True)` for the WebSocket connection loop. The codebase already does this correctly in `YigthinkerTUI.on_mount()`. Use `self.call_from_thread()` if any thread workers need to update the UI. Use `self.post_message()` from the WebSocket callback to push updates into Textual's message queue — this is thread-safe.
+**Why Jinja2 over alternatives:**
+- **string.Template (stdlib):** No loops, no conditionals, no includes. Cannot render multi-file script packages.
+- **Mako:** More powerful but less popular, different syntax. Jinja2 is the Python ecosystem default.
+- **Cheetah3/Chameleon:** Niche. Jinja2 has 10x the community and documentation.
+- **f-strings/str.format:** Not suitable for multi-line code templates with control flow.
 
-### Session Hibernation
+**Template pattern for this project:**
 
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| pyarrow | >=23.0.0 | Parquet serialization for DataFrame hibernation | Already in codebase. PyArrow 23.0.1 (Feb 2026) is current. Parquet is the right format for DataFrame persistence — columnar, compressed, typed, cross-platform. The codebase uses Snappy compression which is correct for this use case (fast decompression, moderate compression ratio). Zstd would save ~30% more space but adds decompression latency — unnecessary for local session files. | HIGH |
-| pickle (stdlib) | N/A | Fallback serialization for non-DataFrame vars | Already in codebase as fallback when PyArrow cannot handle mixed-type columns. Pickle protocol 5 (used) is correct for Python 3.11+. The security concern is mitigated because hibernation files are local, not user-uploaded. | HIGH |
+```python
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-**Compression recommendation:** Keep Snappy. The hibernation files are ephemeral local caches, not long-term storage. Decompression speed matters more than file size. The codebase's `_save_var` / `_load_var` pattern with Parquet-primary, pickle-fallback is sound.
-
-### Channel Adapters
-
-#### Feishu/Lark
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| lark-oapi | >=1.5.0 | Official Feishu/Lark SDK | Already chosen. This is the official SDK from Larksuite (`larksuite/oapi-sdk-python`). v1.5.3 is the current release. Provides typed API clients for IM (send/update messages), event callbacks, signature verification. The alternative `feishu-cc` is a community wrapper — use the official SDK. | HIGH |
-
-**Critical constraint — Feishu webhook timeout:** Feishu gives 3-5 seconds for webhook response (the exact timeout varies by documentation version; 3s is the conservative safe threshold). The codebase correctly implements immediate ACK + `asyncio.create_task()` for background processing. The "thinking card" pattern (send placeholder card -> process -> PATCH card with result) is the standard Feishu bot UX.
-
-**Event deduplication:** The codebase uses SQLite-backed dedup (via `EventDeduplicator`), which is correct. Feishu retries up to 3 times for failed webhooks. In-memory dedup would lose state on restart. SQLite is the right choice — aiosqlite is already a dependency.
-
-#### Microsoft Teams
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| httpx | >=0.28.0 | HTTP client for Teams Graph API calls | Already a core dependency (used by Ollama provider too). Async-native, HTTP/2 support. The codebase correctly avoids the deprecated `botbuilder-core` SDK. | HIGH |
-| msal | >=1.35.0 | Azure AD token acquisition | Already chosen. MSAL 1.35.1 (Mar 2026) is current. This is Microsoft's official auth library. `ConfidentialClientApplication` for service-to-service token flow. No alternatives — this is the only supported path for Azure AD. | HIGH |
-
-**Teams adapter approach — VALIDATE WITH CAUTION:** The codebase uses Outgoing Webhooks, which has significant limitations:
-- Scoped to a single Team (cannot be installed org-wide)
-- 5-second synchronous response timeout (not configurable)
-- Cannot proactively message users (response-only)
-- Not supported in private channels
-- Requires HMAC-SHA256 signature verification
-
-The alternative is a proper Bot registration via Azure Bot Service + Microsoft 365 Agents SDK (successor to Bot Framework). The Agents SDK now has a Python preview. However, for a v1 implementation, Outgoing Webhooks are simpler and sufficient. Flag for future upgrade if Teams adoption grows.
-
-**Microsoft ecosystem status (2026):** Office 365 Connectors are deprecated (retirement deadline extended to March 31, 2026). The Agents Toolkit (formerly Teams Toolkit) is the official development path going forward. The `botbuilder-core` deprecation decision in the codebase is correct — the new Microsoft 365 Agents SDK is the replacement, but it is still in Python preview. Using raw `httpx` + `msal` is the pragmatic middle ground.
-
-| Confidence | MEDIUM — Outgoing Webhooks work but have real limitations. Monitor Microsoft 365 Agents SDK Python GA timeline. |
-
-#### Google Chat
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| google-api-python-client | >=2.190.0 | Google Chat API access | Already chosen. v2.193.0 (Mar 2026) is current. Released weekly by Google. This is the official discovery-based API client. Use `build('chat', 'v1', credentials=...)` for the Chat API. | HIGH |
-| google-auth | >=2.49.0 | Service account authentication | Already chosen. Required for server-to-server auth. `google.oauth2.service_account.Credentials.from_service_account_file()` is the standard pattern. | HIGH |
-
-**Google Chat constraint:** Webhook responses must complete synchronously (30s timeout). The codebase uses `asyncio.wait_for(..., timeout=25.0)` as a safety margin, which is correct. Per-space rate limiting via `asyncio.Semaphore(1)` handles the 1 req/s/space limit. Cards v2 for rich responses. This adapter is simpler than Feishu because there is no async card update pattern — it is pure request-response.
-
-### Session Memory & Auto Dream
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| filelock | >=3.25.0 | Prevent concurrent Auto Dream runs | Already a dependency. FileLock with `timeout=0` (non-blocking) is the correct pattern — if another dream is running, skip this one. Cross-platform (works on Windows). | HIGH |
-| JSONL (stdlib json) | N/A | Session transcript storage, memory extraction source | Already used. JSONL is the right format for append-only session logs — one JSON object per line, streamable, partial-read friendly. No external dependency needed. | HIGH |
-| Markdown (plain text) | N/A | MEMORY.md storage format | Already used. The MemoryManager stores extracted knowledge as structured Markdown. This is human-readable, diff-friendly, and can be injected directly into LLM context. No vector database needed at this scale — keyword/heading-based retrieval is sufficient for per-project memory. | MEDIUM |
-
-**No vector store recommendation:** The Session Memory design stores knowledge in structured Markdown files (MEMORY.md) with section headers. For a financial analysis agent with project-scoped memory, this is appropriate. The total memory per project will be small (kilobytes, not megabytes). Vector stores (Chroma, Qdrant, pgvector) add operational complexity without proportional benefit at this scale. Re-evaluate if memory exceeds ~50KB per project or if semantic search becomes necessary.
-
-**Auto Dream implementation gap:** The current `AutoDream._do_dream()` has a placeholder comment "In a full implementation: spawn subagent to consolidate sessions." This needs to use the `AgentLoop.run()` with a consolidation prompt against the session transcripts. The technology stack for this is already present (LLM provider + JSONL reader + file I/O) — no new dependencies needed.
-
-### Testing
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| pytest | >=9.0.0 | Test runner | Already installed. v9.0.2 in venv. Standard choice. | HIGH |
-| pytest-asyncio | >=1.0.0 | Async test support | **CRITICAL VERSION ISSUE.** The codebase has v1.3.0 installed but `pyproject.toml` pins `>=0.23.0`. pytest-asyncio 1.0.0 (May 2025) introduced **breaking changes**: the `event_loop` fixture was removed, `loop_scope` semantics changed. The installed v1.3.0 works, but the `>=0.23.0` floor version in pyproject.toml would allow installing pre-1.0 versions that are incompatible with the test code. **Pin to `>=1.0.0`**. | HIGH |
-| pytest-mock | >=3.15.0 | Mocking helpers | Already installed. Standard choice. | HIGH |
-
-### Infrastructure / Dev Tooling
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| hatchling | (build-time) | Build backend | Already configured. Modern PEP 517 build backend. Fine for this project. | HIGH |
-| aiosqlite | >=0.22.0 | Async SQLite for Feishu event dedup + default DB | Already a dependency. Wraps sqlite3 stdlib in async interface. Used both for tool SQL queries and for the Feishu dedup store. | HIGH |
-
-## Alternatives Considered
-
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Gateway server | FastAPI + uvicorn | Litestar, Sanic, aiohttp | FastAPI is already implemented, has the largest ecosystem, best documentation. No reason to switch. |
-| TUI framework | Textual | prompt_toolkit, urwid, blessed | Textual is the only framework with CSS-like layouts, widget composition, screens, workers, and async support. The others require significantly more boilerplate for the same UX. |
-| WS client (TUI) | websockets | aiohttp ws, httpx (no ws) | websockets is purpose-built, smaller, simpler API. aiohttp is heavier. httpx does not support WebSocket. |
-| DataFrame serialization | Parquet (pyarrow) | Feather, CSV, HDF5 | Parquet: columnar, compressed, typed, universal. Feather is faster but less compressed. CSV loses types. HDF5 requires h5py. |
-| Feishu SDK | lark-oapi | feishu-cc, raw HTTP | lark-oapi is the official SDK. Community wrappers lag behind API updates. |
-| Teams auth | msal | azure-identity | msal is the lower-level library that azure-identity wraps. For ConfidentialClient flows, msal is more direct and has fewer transitive deps. |
-| Teams integration | Outgoing Webhook + httpx | Microsoft 365 Agents SDK (Python preview) | Agents SDK is still preview for Python. Outgoing Webhooks are simpler for v1. Upgrade path exists. |
-| Session memory | Markdown files | Vector store (Chroma, Qdrant) | Overkill for per-project knowledge at KB scale. Adds operational deps. Re-evaluate at 50KB+ per project. |
-| Memory locking | filelock | Redis lock, DB advisory lock | filelock is zero-dependency, cross-platform, already installed. Redis/DB locks require infrastructure. |
-
-## Version Pinning Issues Found
-
-The `pyproject.toml` version floors are too loose in several places. These will not cause immediate problems (the venv has correct versions) but could cause failures on fresh installs:
-
-| Package | Current Pin | Installed | Recommended Pin | Issue |
-|---------|-------------|-----------|-----------------|-------|
-| pytest-asyncio | >=0.23.0 | 1.3.0 | >=1.0.0 | v1.0 removed `event_loop` fixture. Pre-1.0 installs would break tests. |
-| fastapi | >=0.111.0 | 0.135.3 | >=0.130.0 | SSE support and Starlette >=0.46.0 were added in 0.130+. Pin higher to get these. |
-| textual | >=0.80.0 | 8.2.1 | >=8.0.0 | Textual 8.x is a major version jump from 0.x. The `>=0.80.0` pin would allow installing ancient Textual versions. |
-| websockets | >=12.0 | 16.0 | >=15.0 | v15+ dropped Python 3.9, added max_size improvements. Pin to >=15.0 for consistency. |
-| pyarrow | >=15.0.0 | 23.0.1 | >=20.0.0 | PyArrow 20+ has better pandas 3.x integration. Pin higher. |
-
-## Installation
-
-```bash
-# Core (Agent Loop + CLI)
-pip install -e .
-
-# Development
-pip install -e ".[dev]"
-
-# Gateway daemon
-pip install -e ".[gateway]"
-
-# TUI client
-pip install -e ".[tui]"
-
-# All channels
-pip install -e ".[gateway,feishu,teams,gchat]"
-
-# Everything
-pip install -e ".[dev,forecast,dashboard,gateway,tui,feishu,teams,gchat]"
-
-# Shorthand for all channels
-pip install -e ".[all-channels]"
+env = Environment(
+    loader=FileSystemLoader("yigthinker/tools/workflow/templates"),
+    autoescape=select_autoescape([]),  # No HTML escaping for Python code
+    keep_trailing_newline=True,        # Preserve newlines in generated scripts
+    trim_blocks=True,                  # Clean up whitespace around block tags
+    lstrip_blocks=True,                # Strip leading whitespace before blocks
+)
+template = env.get_template("base/main.py.j2")
+script = template.render(steps=steps, config=config, checkpoints=checkpoints)
 ```
 
-## Platform-Specific Notes
+Do NOT use `SandboxedEnvironment` -- templates are shipped with the codebase, not user-supplied. Sandboxing adds overhead and restricts template features unnecessarily.
 
-### Windows (primary dev platform)
+### Cron Expression Parsing (Yigthinker Core)
 
-- **uvloop is not available on Windows.** uvicorn will use the default asyncio event loop. This is fine for development. In production on Linux, install `uvicorn[standard]` to get uvloop for ~2x throughput.
-- **No `fork()` on Windows.** The Gateway cannot daemonize. Use `--fg` (foreground) mode or run as a Windows Service. The codebase already accounts for this.
-- **`asyncio.Lock()` in `ManagedSession`** is correctly used (not `threading.Lock`). All session access goes through the async lock, which works on Windows asyncio.
-- **filelock** works correctly on Windows (uses `msvcrt.locking()`).
+| Technology | Version | Purpose | Why | Confidence |
+|------------|---------|---------|-----|------------|
+| croniter | >=6.0.0 | Parse cron expressions for schedule validation and "should have run" checks | Used in the `SessionStart` hook to detect overdue workflow executions (comparing `schedule` + `last_run` against current time). Also used to render human-readable schedule descriptions in workflow metadata. v6.2.2 (Mar 2026) is current, requires Python >=3.9. Maintained by the Pallets ecosystem (Flask maintainers). Zero dependencies. | HIGH |
 
-### Linux/macOS (production)
+**Why croniter over alternatives:**
+- **cronsim:** Smaller, but croniter has broader adoption (60M+ monthly downloads vs 1M for cronsim).
+- **python-crontab:** System crontab manipulation tool, not a pure parser. Wrong scope.
+- **Manual parsing:** Error-prone for edge cases (day-of-week vs day-of-month interaction, `L`, `W`, `#` modifiers).
 
-- Install `uvicorn[standard]` for uvloop + httptools.
-- Gateway can run behind a reverse proxy (nginx) for TLS termination and load balancing.
-- Single uvicorn worker is recommended because sessions live in-process memory. Multi-worker would require Redis-backed session registry.
+**Usage pattern for health check hook:**
 
-## Dependencies NOT to Add
+```python
+from croniter import croniter
+from datetime import datetime, timezone
 
-| Library | Why NOT |
-|---------|---------|
-| `redis` / `aioredis` | Sessions are in-process. Redis adds infrastructure complexity. Only needed if scaling to multi-worker or multi-node. |
-| `celery` / `dramatiq` | Background task queues. Overkill — `asyncio.create_task()` handles Feishu async processing. |
-| `botbuilder-core` | Deprecated Microsoft Teams SDK. Already correctly avoided. |
-| `chroma` / `qdrant-client` | Vector stores. Memory scale is too small to justify. |
-| `sqlmodel` | SQLAlchemy + Pydantic wrapper. Already using both separately; SQLModel adds no value here. |
-| `apscheduler` | Task scheduling. Explicitly out of scope for this milestone. |
-| `polars` | DataFrame alternative. The codebase is pandas-native. Adding polars creates a dual-library burden. |
-| `msgpack` / `protobuf` | Binary serialization for WebSocket messages. JSON is fine for the message volume (human-speed chat). Premature optimization. |
+def should_have_run(schedule: str, last_run: str | None) -> bool:
+    if not schedule or not last_run:
+        return False
+    cron = croniter(schedule, datetime.fromisoformat(last_run))
+    next_expected = cron.get_next(datetime)
+    return datetime.now(timezone.utc) > next_expected
+```
+
+### Workflow Registry Storage (Yigthinker Core)
+
+**No new dependency needed.** The registry uses JSON files (`registry.json`, `manifest.json`) read/written with stdlib `json`. PyYAML (already `>=6.0` in core deps) handles `config.yaml` generation. `pathlib` handles directory/version management. This is deliberate -- file-based JSON keeps the registry inspectable, diffable, and zero-infrastructure.
+
+**Why NOT a database for the registry:**
+- Workflow count will be small (tens, not thousands). JSON file scan is O(ms).
+- Users need to inspect/edit manifests manually when troubleshooting.
+- Git-friendly for teams that version-control `~/.yigthinker/workflows/`.
+- SQLite would add query capability but at the cost of opacity. Not worth it at this scale.
+
+### MCP Server SDK (Independent Packages)
+
+| Technology | Version | Purpose | Why | Confidence |
+|------------|---------|---------|-----|------------|
+| mcp | >=1.27.0 | Build MCP servers for PA and UiPath packages | Official Anthropic MCP Python SDK. v1.27.0 (Apr 2026) is current. Requires Python >=3.10. FastMCP provides decorator-based tool definition (`@mcp.tool()`) with automatic JSON Schema generation from type annotations. Supports stdio transport (required for `.mcp.json` integration). The Yigthinker core already uses the MCP client side (`mcp.ClientSession`); the MCP servers use the server side (`FastMCP`). Same package, different entry points. | HIGH |
+
+**MCP server authoring pattern:**
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("yigthinker-mcp-powerautomate")
+
+@mcp.tool()
+async def pa_deploy_flow(flow_definition: dict, environment_id: str) -> str:
+    """Deploy a Flow definition to Power Automate."""
+    # Implementation uses httpx + msal for Dataverse Web API
+    ...
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
+```
+
+The MCP servers are **independent packages** with their own `pyproject.toml`. They depend on `mcp>=1.27.0`, `httpx`, and platform-specific auth libraries. They do NOT depend on yigthinker core.
+
+---
+
+## Power Automate Integration Stack (MCP Server: yigthinker-mcp-powerautomate)
+
+### API Strategy -- CRITICAL FINDING
+
+**The `api.flow.microsoft.com` endpoint is officially unsupported.** Microsoft's own documentation (updated May 2025) explicitly states: "Customers should instead use the Dataverse Web APIs for Power Automate." The Flow Management API is subject to breaking changes without notice. Do NOT build on it.
+
+**Correct API path:** Cloud flows are stored as rows in the Dataverse `workflow` entity (category=5). Use the Dataverse Web API (`https://<org>.crm.dynamics.com/api/data/v9.2/workflows`) to create, read, update, and activate/deactivate flows programmatically.
+
+**Authentication implications:** The Dataverse Web API supports both delegated and application permissions (via Azure AD app registration with Dataverse `user_impersonation` scope). This is better than the old Flow API which only supported delegated permissions.
+
+| Technology | Version | Purpose | Why | Confidence |
+|------------|---------|---------|-----|------------|
+| httpx | >=0.27.0 | HTTP client for Dataverse Web API and Graph API calls | Already used extensively in Yigthinker (Ollama provider, Teams adapter). Async-native, HTTP/2. The MCP server package will use this directly for REST calls -- no Dataverse SDK dependency needed. The Dataverse Web API is standard OData REST, well-suited to raw HTTP. | HIGH |
+| msal | >=1.28.0 | Azure AD token acquisition for Dataverse and Graph API | Already used in Teams adapter. `ConfidentialClientApplication.acquire_token_for_client()` for service-to-service auth. Same pattern, different scopes (`https://<org>.crm.dynamics.com/.default` for Dataverse). | HIGH |
+
+**PA API Limitations and Workarounds:**
+
+| Limitation | Impact | Workaround |
+|------------|--------|------------|
+| Flow definition `clientdata` JSON is complex and fragile | Creating complex flows via API is unreliable | Only create simple flows (HTTP Trigger -> Send Email). Complex logic stays in the generated Python script running on Azure Functions or Task Scheduler. |
+| Connection references must exist before flow creation | Cannot programmatically create new connectors | `pa_list_connections` tool queries existing connections. Guide user to create missing ones manually. |
+| Flow activation requires the creating user's context | Flows created via API start in Draft state | After API creation, activate via PATCH `statecode=1`. With application permissions this works. |
+| Environment ID is required for all calls | User must know their PA environment | `pa_list_connections` doubles as environment validation. Store `PA_ENVIRONMENT_ID` in env vars. |
+
+**Compute deployment for `auto` mode (PA + Azure):**
+
+| Technology | Version | Purpose | Why | Confidence |
+|------------|---------|---------|-----|------------|
+| azure-mgmt-web | >=10.0.0 | Programmatic Azure Function App creation and deployment | v10.1.0 is current. `WebSiteManagementClient` creates Function Apps with Timer Trigger for scheduled script execution. Requires `azure-identity` for auth. This is ONLY needed for `auto` deploy mode with Azure subscription. **Optional dependency** -- most PA users will use `guided` mode instead. | MEDIUM |
+| azure-identity | >=1.20.0 | Azure credential management for `azure-mgmt-web` | `DefaultAzureCredential` provides environment/CLI/managed-identity auth chain. Required alongside `azure-mgmt-web`. Already well-established -- Microsoft's official auth library. | MEDIUM |
+| azure-mgmt-resource | >=23.0.0 | Resource group management (create if needed) | Required for creating the resource group that hosts the Azure Function. Transitive dep pattern with `azure-mgmt-web`. | MEDIUM |
+
+**Important: azure-mgmt-* packages are OPTIONAL.** They belong in the MCP server's optional dependencies, gated behind an `[azure]` extra. Most users will use `guided` mode (Task Scheduler + simple PA notification Flow) and never need these.
+
+### What NOT to Use for PA Integration
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `api.flow.microsoft.com` | Officially unsupported. Subject to breaking changes. | Dataverse Web API (`/api/data/v9.2/workflows`) |
+| `PowerPlatform-Dataverse-Client` (Python) | Preview status (Dec 2025). CRUD-focused, no flow-specific helpers. Adds a heavy dependency for what httpx does directly. | Raw httpx + msal against Dataverse Web API |
+| `azure-functions` (runtime package) | This is the Azure Functions RUNTIME, not a deployment SDK. Used inside deployed functions, not for creating them. | `azure-mgmt-web` for deployment, `azure-functions` only in generated script `requirements.txt` |
+| `msgraph-sdk` / `microsoft-graph` | Heavy SDK for a narrow use case (sending email notifications). The PA notification Flow handles email. | httpx + msal for any Graph calls needed |
+
+---
+
+## UiPath Integration Stack (MCP Server: yigthinker-mcp-uipath)
+
+### API Maturity Assessment
+
+**UiPath Orchestrator OData API is mature and well-documented.** Updated Feb 2026 with improved error responses. Supports all needed operations: package upload, process management, job triggering, trigger creation, queue status queries. REST/OData endpoints are stable across versions.
+
+**Two API paths exist:**
+
+| Path | Auth | Best For |
+|------|------|----------|
+| UiPath Cloud (`https://cloud.uipath.com/{org}/{tenant}/orchestrator_/odata/`) | OAuth2 client credentials | Cloud customers (majority) |
+| UiPath On-Prem / Automation Suite (`https://<server>/odata/`) | API Key or OAuth2 | Enterprise on-prem |
+
+| Technology | Version | Purpose | Why | Confidence |
+|------------|---------|---------|-----|------------|
+| httpx | >=0.27.0 | HTTP client for UiPath Orchestrator OData API | Same library as PA MCP server. OData is standard REST. Package upload uses `multipart/form-data`. httpx handles both cleanly. | HIGH |
+
+**Why NOT the official UiPath Python SDK (`uipath` package):**
+
+The official `uipath` Python SDK (v2.10.43, Apr 2026) is actively maintained but has significant scope mismatch:
+- **Designed for building UiPath-hosted automations**, not for external API access.
+- Includes CLI tooling for packaging/deploying from UiPath Studio context.
+- Jobs/Processes modules exist but are oriented toward running inside UiPath's platform.
+- **Does NOT expose trigger management** (confirmed: not in SDK docs).
+- **Does NOT expose package upload** (`uipath publish` CLI exists but requires UiPath project structure).
+- Pulls in many dependencies (LangChain integration, agent framework, guardrails) irrelevant to our MCP server use case.
+
+For an MCP server that needs: upload .nupkg, create/manage triggers, query job history -- raw httpx against the OData API is simpler, lighter, and covers all operations.
+
+**Why NOT `TaruDesigns/UIPathAPI`:**
+
+Community-maintained, auto-generated from OpenAPI spec. Covers more endpoints than the official SDK. However:
+- Last meaningful update unclear. Auto-generated clients tend to drift from API changes.
+- Adds a dependency on a small community project for production infrastructure.
+- The OData API is simple enough that a thin httpx wrapper (5-6 functions) is more maintainable than adopting a generated client.
+
+**UiPath OData API key operations:**
+
+| Operation | Endpoint | Method | Notes |
+|-----------|----------|--------|-------|
+| Upload package | `/odata/Processes/UiPath.Server.Configuration.OData.UploadPackage` | POST (multipart) | .nupkg file as form data |
+| Create release | `/odata/Releases` | POST | Links package to folder/environment |
+| Start job | `/odata/Jobs/UiPath.Server.Configuration.OData.StartJobs` | POST | Specify release key + robot group |
+| Query jobs | `/odata/Jobs` | GET | OData filter/select/orderby |
+| Create trigger | `/odata/ProcessSchedules` | POST | Time triggers with cron expression |
+| Manage trigger | `/odata/ProcessSchedules({id})` | PATCH/DELETE | Enable/disable/delete |
+| Queue status | `/odata/QueueDefinitions` | GET | Queue item counts |
+
+**NuGet package (.nupkg) creation:**
+
+UiPath processes are packaged as .nupkg files (NuGet format). For Python-based automations wrapped in UiPath's Python Activity:
+
+- A .nupkg is just a ZIP file with a `.nuspec` XML manifest and content files.
+- Python can create these with `zipfile` (stdlib) + a `.nuspec` template (Jinja2).
+- No need for `nuget.exe` or .NET tooling -- the format is simple enough to construct programmatically.
+- The MCP server generates the .nupkg containing the Python script + `project.json` pointing to the Python Activity.
+
+```python
+import zipfile
+from pathlib import Path
+
+def create_nupkg(package_id: str, version: str, script_path: Path, output: Path):
+    nuspec = f"""<?xml version="1.0" encoding="utf-8"?>
+<package><metadata>
+  <id>{package_id}</id><version>{version}</version>
+  <description>Generated by Yigthinker</description>
+</metadata></package>"""
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr(f"{package_id}.nuspec", nuspec)
+        z.write(script_path, f"lib/{script_path.name}")
+        # Add project.json with Python Activity reference
+```
+
+### What NOT to Use for UiPath Integration
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `uipath` (official Python SDK) | Scope mismatch: designed for building UiPath-hosted agents, not external API control. No trigger management. Heavy deps. | httpx against OData API |
+| `TaruDesigns/UIPathAPI` | Community auto-generated client. Maintenance risk. OData API is simple enough for direct access. | httpx against OData API |
+| `nuget` CLI / .NET SDK | Unnecessary for creating simple .nupkg files. | stdlib `zipfile` + Jinja2 `.nuspec` template |
+
+---
+
+## Dependencies by Package
+
+### Yigthinker Core (pyproject.toml additions)
+
+```toml
+[project.optional-dependencies]
+workflow = [
+    "jinja2>=3.1.6",
+    "croniter>=6.0.0",
+]
+```
+
+**That is it.** Two new dependencies for the entire core. Everything else (json, pathlib, pyyaml, aiosqlite) is already present.
+
+### yigthinker-mcp-powerautomate (independent package)
+
+```toml
+[project]
+name = "yigthinker-mcp-powerautomate"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.27.0",
+    "httpx>=0.27.0",
+    "msal>=1.28.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+azure = [
+    "azure-mgmt-web>=10.0.0",
+    "azure-identity>=1.20.0",
+    "azure-mgmt-resource>=23.0.0",
+]
+```
+
+### yigthinker-mcp-uipath (independent package)
+
+```toml
+[project]
+name = "yigthinker-mcp-uipath"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.27.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+]
+```
+
+UiPath uses OAuth2 client credentials, which httpx handles natively. No `msal` needed (that is Microsoft-specific). UiPath auth is a simple `POST /identity_/connect/token` with client_id + client_secret.
+
+---
+
+## What Already Exists (DO NOT Add)
+
+| Needed For | Already Present | Package |
+|------------|-----------------|---------|
+| YAML config generation | pyyaml >=6.0 | Core dependency |
+| HTTP requests in MCP servers | httpx >=0.27.0 | Core dependency |
+| Azure AD auth (PA) | msal >=1.28.0 | Teams optional dep |
+| Gateway RPA endpoints | FastAPI + uvicorn | Gateway optional dep |
+| Event dedup for RPA callbacks | aiosqlite >=0.20.0 | Core dependency |
+| Registry file I/O | json, pathlib (stdlib) | Python stdlib |
+| Session context for tools | SessionContext, VarRegistry | Core codebase |
+| MCP client (loading MCP servers) | mcp (client side) | Already used lazily |
+| Pydantic schemas for tools | pydantic >=2.0.0 | Core dependency |
+
+---
+
+## Version Compatibility Matrix
+
+| Package | Compatible With | Notes |
+|---------|-----------------|-------|
+| jinja2 >=3.1.6 | Python >=3.7, MarkupSafe >=2.0 | MarkupSafe is the only transitive dep |
+| croniter >=6.0.0 | Python >=3.9 | Zero external dependencies |
+| mcp >=1.27.0 | Python >=3.10 | MCP servers only (independent packages target >=3.10) |
+| azure-mgmt-web >=10.0.0 | Python >=3.9, azure-core, azure-identity | Heavy dep tree. Keep optional. |
+| azure-identity >=1.20.0 | Python >=3.9, msal (transitive) | msal is already a dep in PA server |
+| httpx >=0.27.0 | Python >=3.8 | Already verified compatible with everything |
+
+**No conflicts** with existing stack. Jinja2 and croniter are lightweight and have no overlapping dependencies with existing packages.
+
+---
+
+## Stack Patterns by Deploy Mode
+
+**If `auto` mode (PA + Azure):**
+- MCP server needs: `mcp`, `httpx`, `msal`, `azure-mgmt-web`, `azure-identity`, `azure-mgmt-resource`
+- This is the heaviest dependency set. Only install when user has Azure subscription.
+- Install: `pip install yigthinker-mcp-powerautomate[azure]`
+
+**If `guided` mode (PA without Azure) -- MOST COMMON:**
+- MCP server not needed at all. Yigthinker core generates all artifacts.
+- Core needs: `jinja2`, `croniter` only.
+- Zero API dependencies. Templates render Python scripts + PA Flow import ZIP + Task Scheduler XML.
+
+**If `auto` mode (UiPath):**
+- MCP server needs: `mcp`, `httpx`, `pydantic`
+- Lightest MCP server. UiPath OData API is mature and simple.
+
+**If `local` mode (no RPA platform):**
+- Core needs: `jinja2`, `croniter` only.
+- Generates Python script + OS scheduler config. Zero cloud dependencies.
+
+---
 
 ## Sources
 
-- [FastAPI releases](https://github.com/fastapi/fastapi/releases) — v0.135.1, Apr 2026
-- [FastAPI WebSocket docs](https://fastapi.tiangolo.com/advanced/websockets/)
-- [FastAPI SSE/streaming](https://jetbi.com/blog/streaming-architecture-2026-beyond-websockets)
-- [Textual PyPI](https://pypi.org/project/textual/) — v8.2.1, Mar 2026
-- [Textual Workers guide](https://textual.textualize.io/guide/workers/)
-- [websockets PyPI](https://pypi.org/project/websockets/) — v16.0, Jan 2026
-- [websockets docs](https://websockets.readthedocs.io/)
-- [PyArrow install docs](https://arrow.apache.org/docs/python/install.html) — v23.0.1, Feb 2026
-- [PyArrow Parquet guide](https://arrow.apache.org/docs/python/parquet.html)
-- [Snappy vs Zstd for Parquet](https://dev.to/ldsands/snappy-vs-zstd-for-parquet-in-pyarrow-9g0)
-- [lark-oapi PyPI](https://pypi.org/project/lark-oapi/) — v1.5.3
-- [lark-oapi GitHub](https://github.com/larksuite/oapi-sdk-python)
-- [Feishu callback handling](https://open.feishu.cn/document/server-side-sdk/python--sdk/handle-callbacks)
-- [MSAL Python PyPI](https://pypi.org/project/msal/) — v1.35.1, Mar 2026
-- [MSAL Python docs](https://learn.microsoft.com/en-us/entra/msal/python/)
-- [Teams Outgoing Webhooks](https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-outgoing-webhook)
-- [Teams SDK landscape 2025](https://www.voitanos.io/blog/microsoft-teams-sdk-evolution-2025/)
-- [Microsoft 365 Agents SDK](https://github.com/microsoft/Agents)
-- [Office 365 Connectors retirement](https://devblogs.microsoft.com/microsoft365dev/retirement-of-office-365-connectors-within-microsoft-teams/)
-- [google-api-python-client PyPI](https://pypi.org/project/google-api-python-client/) — v2.193.0, Mar 2026
-- [Google Chat webhook quickstart](https://developers.google.com/workspace/chat/quickstart/webhooks)
-- [Google Chat Cards v2](https://developers.google.com/workspace/chat/create-update-interactive-cards)
-- [pytest-asyncio releases](https://github.com/pytest-dev/pytest-asyncio/releases) — v1.3.0, Nov 2025
-- [pytest-asyncio 1.0 migration](https://thinhdanggroup.github.io/pytest-asyncio-v1-migrate/)
-- [uvicorn PyPI](https://pypi.org/project/uvicorn/) — v0.42.0, Mar 2026
-- [httpx PyPI](https://pypi.org/project/httpx/) — v0.28.1
-- [AI agent cross-session memory patterns](https://towardsdatascience.com/ai-agent-with-multi-session-memory/)
-- [Persistent memory for AI coding agents](https://medium.com/@sourabh.node/persistent-memory-for-ai-coding-agents-an-engineering-blueprint-for-cross-session-continuity-999136960877)
-- [WebSocket best practices for FastAPI](https://websocket.org/guides/frameworks/fastapi/)
+- [Jinja2 PyPI](https://pypi.org/project/Jinja2/) -- v3.1.6, Mar 2025 (HIGH confidence)
+- [Jinja2 CVE-2025-27516 sandbox bypass fix](https://github.com/advisories/GHSA-cpwx-vrp4-4pq7) -- Critical security fix in 3.1.6 (HIGH confidence)
+- [Jinja2 Sandbox docs](https://jinja.palletsprojects.com/en/stable/sandbox/) -- Verified async + sandbox capabilities (HIGH confidence)
+- [croniter PyPI](https://pypi.org/project/croniter/) -- v6.2.2, Mar 2026 (HIGH confidence)
+- [Power Automate "Work with cloud flows using code"](https://learn.microsoft.com/en-us/power-automate/manage-flows-with-code) -- **Explicitly states api.flow.microsoft.com is unsupported. Use Dataverse Web API.** (HIGH confidence, official Microsoft docs, updated May 2025)
+- [Dataverse Web API for Workflows](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/overview) -- Flow CRUD via `/api/data/v9.2/workflows` (HIGH confidence)
+- [PA API limitations -- Flow API delegated-only](https://ashiqf.com/tag/delegated-permissions-in-power-automate/) -- Dataverse Web API supports application permissions (MEDIUM confidence)
+- [Dataverse SDK for Python (Preview)](https://www.microsoft.com/en-us/power-platform/blog/2025/12/03/dataverse-sdk-python/) -- Announced Ignite 2025, still preview (MEDIUM confidence)
+- [PowerPlatform-DataverseClient-Python GitHub](https://github.com/microsoft/PowerPlatform-DataverseClient-Python) -- Preview, Python >=3.10, CRUD only (MEDIUM confidence)
+- [UiPath Orchestrator OData API guide](https://docs.uipath.com/orchestrator/automation-cloud/latest/api-guide/introduction) -- Full API reference (HIGH confidence)
+- [UiPath Orchestrator release notes Mar 2026](https://docs.uipath.com/orchestrator/automation-cloud/latest/release-notes/march-2026) -- Active development confirmed (HIGH confidence)
+- [UiPath Python SDK PyPI](https://pypi.org/project/uipath/) -- v2.10.43, Apr 2026 (HIGH confidence for version; SDK scope verified)
+- [UiPath Python SDK GitHub](https://github.com/UiPath/uipath-python) -- Processes, jobs, assets. No trigger management. (HIGH confidence)
+- [UiPath package upload via API](https://forum.uipath.com/t/uipath-orchestrator-api-upload-package/16719) -- Multipart POST to UploadPackage endpoint (MEDIUM confidence, community)
+- [MCP Python SDK PyPI](https://pypi.org/project/mcp/) -- v1.27.0, Apr 2026, Python >=3.10 (HIGH confidence)
+- [MCP Python SDK GitHub](https://github.com/modelcontextprotocol/python-sdk) -- FastMCP, stdio/SSE/HTTP transports (HIGH confidence)
+- [azure-mgmt-web PyPI](https://pypi.org/project/azure-mgmt-web/) -- v10.1.0 latest (MEDIUM confidence)
+- [azure-identity PyPI](https://pypi.org/project/azure-identity/) -- DefaultAzureCredential docs (HIGH confidence)
+- [Azure Functions Python reference](https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python) -- Timer trigger, Python 3.13 support (HIGH confidence)
+
+---
+*Stack research for: Yigthinker v1.1 Workflow & RPA Bridge*
+*Researched: 2026-04-09*

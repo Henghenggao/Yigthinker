@@ -1,288 +1,290 @@
-# Pitfalls Research
+# Pitfalls Research: Workflow & RPA Bridge for Yigthinker
 
-**Domain:** Multi-channel AI agent gateway with Textual TUI, session hibernation, and messaging platform webhooks
-**Researched:** 2026-04-02
-**Confidence:** HIGH (based on codebase analysis + verified community/official patterns)
+> **Status:** Pre-implementation research for v1.1. v1.1 shipped 2026-04-12. This document is a historical reference — consult shipped code and phase summaries for current state.
+
+**Domain:** Adding workflow generation, RPA deployment, self-healing callbacks, and proactive AI suggestions to an existing Python agent system
+**Researched:** 2026-04-09
+**Confidence:** HIGH (codebase-informed) / MEDIUM (API reliability claims from WebSearch)
 
 ## Critical Pitfalls
 
-### Pitfall 1: Fire-and-Forget `asyncio.create_task()` Gets Garbage Collected
+### Pitfall 1: Jinja2 Template Injection in Generated Scripts
 
 **What goes wrong:**
-Background tasks created with `asyncio.create_task()` silently disappear mid-execution. In the Feishu adapter, `asyncio.create_task(self._process_event(body))` on line 89 creates a task to process a webhook event in the background, but no reference is stored. Python's event loop holds only a weak reference to tasks. If garbage collection runs before the task completes, the task vanishes -- the user's message is swallowed with zero indication of failure.
+Templates for `main.py.j2`, `config.yaml.j2`, etc. render LLM-produced values (step names, SQL queries, column names, file paths) into executable Python code. If any of these values contain Jinja2 syntax (`{{ }}`, `{% %}`), the template engine evaluates them as expressions, enabling arbitrary code execution at generation time. This is Server-Side Template Injection (SSTI). CVE-2025-27516 (fixed in Jinja2 3.1.6) demonstrated that even Jinja2's sandbox can be bypassed via the `|attr` filter to reach `str.format` and escalate to RCE.
 
 **Why it happens:**
-Developers assume `create_task()` works like launching a thread. Unlike threads, asyncio tasks are garbage-collected if no strong reference exists. This has become more aggressive in Python 3.12+. The Python docs warn about it, but it is easy to miss in "fire-and-forget" webhook patterns where you intentionally do not `await` the task.
+The LLM produces step parameters containing user-supplied data (table names, column names, SQL fragments). These flow into `{{ step.params.query }}` slots in templates. Developers treat template rendering as "just string formatting" and forget that Jinja2 is a full expression evaluator. Unlike `df_transform`'s AST sandbox (which the codebase already handles correctly at `yigthinker/tools/dataframe/df_transform.py`), Jinja2 injection surfaces are less obvious because they exist at build time, not runtime.
 
 **How to avoid:**
-Maintain a `set()` of background tasks at the adapter or gateway level:
-```python
-self._background_tasks: set[asyncio.Task] = set()
-
-task = asyncio.create_task(self._process_event(body))
-self._background_tasks.add(task)
-task.add_done_callback(self._background_tasks.discard)
-```
-This is the pattern recommended in the official Python asyncio documentation.
+1. Use `jinja2.sandbox.SandboxedEnvironment` (not bare `Environment`) for ALL template rendering
+2. Pin Jinja2 >= 3.1.6 in `pyproject.toml` to include the CVE-2025-27516 fix
+3. Never pass raw LLM output as template source. Template files are static `.j2` files in the package; LLM output goes into the **context dict** only, never into the template string itself
+4. Add an AST check on rendered output: after rendering `main.py.j2`, parse the output with `ast.parse()` and run a checker similar to `_SandboxChecker` from `df_transform.py` to reject scripts containing `__import__`, `exec()`, `eval()`, `os.system()`, or subprocess calls not explicitly whitelisted
+5. Validate all step parameters against a strict schema before template rendering. Step `params` should be Pydantic-validated, not passed as raw dicts
 
 **Warning signs:**
-- Feishu messages sporadically "disappear" with no error log
-- The `_process_event` exception handler never fires even for known-bad inputs
-- Problem appears randomly and is harder to reproduce under debugger (GC timing changes)
+- Template files using `{{ step.params.* }}` without any input sanitization
+- Test suite does not include a test with `{{ 7*7 }}` or `{{ config.__class__.__init__.__globals__ }}` as a step parameter value
+- Jinja2 version constraint in pyproject.toml allows < 3.1.6
 
 **Phase to address:**
-Phase 1 (Agent Loop + Core fixes) -- this is a data-loss bug that exists today in the Feishu adapter. Must be fixed before any channel testing.
+Phase 1 (workflow_generate tool) -- template rendering is the very first thing built. Security must be baked in from day one, not bolted on later.
 
 ---
 
-### Pitfall 2: Nested `asyncio.run()` Silently Breaks MCP Loading in Gateway Context
+### Pitfall 2: Credential Leakage in Generated Scripts and Config Files
 
 **What goes wrong:**
-`_build()` calls `asyncio.run(MCPLoader(...).load())` on line 60 of `__main__.py`. When the gateway's `GatewayServer.start()` calls `_build()`, it is already inside a running event loop (uvicorn's). `asyncio.run()` cannot be called from within a running event loop -- it raises `RuntimeError: This event loop is already running`. The `except ModuleNotFoundError: pass` on line 61 does not catch `RuntimeError`, so the exception propagates and kills MCP loading. MCP tools silently fail to register.
+Generated `config.yaml` files are meant to use `vault://` placeholders, but the LLM (or the user via guided mode) substitutes real connection strings, API keys, or passwords. These scripts live in `~/.yigthinker/workflows/` as plain files. If the user commits them to version control, backs them up to cloud storage, or shares them for troubleshooting, credentials leak. The design spec's example `main.py` shows `client_credential=cfg["pa"]["client_secret"]` -- if `client_secret` is stored as plaintext in `config.yaml` instead of a vault reference, every copy of that script carries the credential.
 
 **Why it happens:**
-`_build()` was written for CLI-first usage (where no event loop exists yet), then reused by the gateway (where uvicorn provides the event loop). This is a classic "sync/async boundary mismatch" that occurs when code is shared between sync CLI entry points and async server contexts.
+In "guided" deploy mode, the setup guide instructs users to "fill in your ERP connection string." Users paste `mssql+pyodbc://sa:P@ssw0rd!@server/db` directly into `config.yaml`. The system has no enforcement preventing plaintext credentials from being stored.
 
 **How to avoid:**
-Extract `_build()` into `yigthinker/builder.py`. Make MCP loading awaitable:
-```python
-async def _build_async(settings: dict) -> tuple[AgentLoop, ConnectionPool]:
-    ...
-    if mcp_config.exists():
-        await MCPLoader(mcp_json_path=mcp_config, registry=tools).load()
-    ...
-
-def _build_sync(settings: dict) -> tuple[AgentLoop, ConnectionPool]:
-    # For CLI usage only
-    ...
-    if mcp_config.exists():
-        asyncio.run(MCPLoader(...).load())
-    ...
-```
-Never use `asyncio.run()` inside code that might run under an existing event loop. Never use `nest_asyncio` as a workaround -- it masks architectural problems and causes subtle reentrancy bugs.
+1. Add a `CredentialValidator` that scans `config.yaml` after generation and on each read. Reject or warn on values matching known credential patterns (strings containing `://` with `@`, known API key formats like `sk-`, `Bearer `, hex strings > 32 chars adjacent to keys named `*_secret`, `*_key`, `*_password`, `*_token`)
+2. Generated `config.yaml.j2` must emit `vault://` or `keyring://` references as defaults with inline comments explaining how to configure the credential backend
+3. Auto-generate a `.gitignore` file in each workflow directory that excludes `config.yaml`
+4. The `workflow_generate` tool result must explicitly warn: "config.yaml contains credential placeholders. Never commit this file to version control"
+5. Support OS keyring (`keyring` library) as an alternative to HashiCorp Vault for SMB users. The codebase already mentions vault integration
 
 **Warning signs:**
-- MCP tools work in CLI REPL but not through the gateway
-- `ModuleNotFoundError` catch silently swallowing `RuntimeError` (wrong exception type)
-- Gateway `_build()` completes but `tools` registry is missing MCP-provided tools
+- `config.yaml` files in `~/.yigthinker/workflows/` containing plaintext passwords
+- No `.gitignore` in workflow directories
+- Users sharing workflow directories for troubleshooting with credentials exposed
 
 **Phase to address:**
-Phase 1 (Agent Loop) -- `_build()` extraction is a prerequisite for gateway correctness.
+Phase 1 (workflow_generate) for generation-time protections, Phase 2 (workflow_deploy) for deploy-time credential validation.
 
 ---
 
-### Pitfall 3: Shared `PermissionSystem` Causes Cross-Session Permission Escalation
+### Pitfall 3: Registry File Corruption Under Concurrent Access
 
 **What goes wrong:**
-`_build()` creates a single `PermissionSystem` instance. All gateway sessions share it. When `AgentLoop` handles an `ALLOW_ALL` response from one user, it calls `self._permissions._allow.append(tool_name)`, mutating the shared list. A user in session A who grants `ALLOW_ALL` for `sql_query` inadvertently grants it for all users in all sessions on that gateway. This is a privilege escalation vulnerability.
+`~/.yigthinker/workflows/registry.json` is a single JSON file read and written by multiple actors: the `workflow_generate` tool (during script generation), `workflow_manage` tool (during lifecycle operations), the `/api/rpa/report` Gateway endpoint (receiving status reports from running scripts), and the `SessionStart` hook (registry health check). If two RPA scripts complete simultaneously and both POST to `/api/rpa/report`, the Gateway handles both requests concurrently (FastAPI is async), both read `registry.json`, both modify `last_run`, and one write overwrites the other. Partial writes produce truncated JSON that crashes all subsequent registry operations.
 
 **Why it happens:**
-The CLI has a single user and single session, so a shared `PermissionSystem` was correct. The gateway reuses `_build()` which creates one `PermissionSystem` per process, not per session. Runtime mutation of `_allow` via direct list append (rather than through a method with session scoping) makes the contamination invisible.
+The codebase already has `filelock` (used in `yigthinker/memory/auto_dream.py` for `.dream_lock`) but developers may forget to apply the same pattern to the registry because the Gateway is single-process and they assume async = sequential. It's not -- two concurrent HTTP requests to `/api/rpa/report` can interleave their file I/O operations.
 
 **How to avoid:**
-- Make `PermissionSystem` immutable after construction (frozen base policy)
-- Add session-scoped permission overrides: `PermissionSystem.allow_for_session(tool_name, session_id)`
-- Never mutate `_allow`/`_deny` lists directly from `AgentLoop`; use a method that validates scope
-- Alternative: Create per-session `PermissionSystem` clones from the base config
+1. Use `filelock.FileLock` for ALL registry read-write operations, exactly as `auto_dream.py` does for `.dream_lock`
+2. Implement atomic writes: write to `registry.json.tmp`, then `os.replace()` to `registry.json`. This prevents partial-write corruption even without locking
+3. Wrap registry operations in a `RegistryManager` class with a single `async with registry.lock()` interface. Individual tools and endpoints must not do raw file I/O on `registry.json`
+4. Write a backup before each update: copy current `registry.json` to `registry.json.bak` before writing. If `json.loads()` fails on read, fall back to `.bak`
+5. On Windows, `os.replace()` is atomic within NTFS, but `filelock` is still needed for read-modify-write sequences
 
 **Warning signs:**
-- In gateway testing: user B can call tools that only user A approved
-- `PermissionSystem._allow` list grows monotonically across sessions
-- No permission prompts for tools that should require approval
+- Registry operations using bare `open()` / `json.dump()` without locking
+- No `.bak` file alongside `registry.json`
+- Test suite lacks concurrent write tests for registry
+- `json.JSONDecodeError` appearing in production logs
 
 **Phase to address:**
-Phase 2 (Gateway) -- must be fixed before multi-user gateway deployment. Write a specific test for cross-session contamination.
+Phase 1 (registry module) -- the `RegistryManager` with locking must be the first infrastructure built before any tool writes to it.
 
 ---
 
-### Pitfall 4: Teams Webhook Handler Blocks Until Agent Completes (No Async ACK)
+### Pitfall 4: Power Automate Management API Unreliability for Complex Flows
 
 **What goes wrong:**
-The Teams adapter's webhook handler on line 60-91 of `teams/adapter.py` calls `await self._gateway.handle_message(...)` synchronously within the HTTP response cycle. If the agent takes 30+ seconds (LLM call + tool execution + multiple turns), the webhook caller (Microsoft Teams) times out. Teams' outgoing webhook timeout is approximately 10 seconds. The user gets an error card from Teams, and then when the gateway eventually responds, the HTTP connection is already dead.
-
-Additionally, the Teams webhook has no HMAC signature verification (line 64-65 has a comment `# Verify HMAC signature if configured` but no implementation). Any HTTP client can POST to `/webhook/teams` and inject messages into agent sessions.
+The PA Flow Definition creation API (`api.flow.microsoft.com`) is unreliable for complex flow creation. Microsoft has been migrating infrastructure (November 2025: HTTP trigger URLs changed from `logic.azure.com` to new URLs), breaking existing integrations. The API has connector-level throttling (600 calls per connection per 60 seconds), and flows that violate limits get throttled or disabled entirely after 14 days of continuous throttling. The `auto` deploy mode attempts to create/update Flows programmatically, but the API may silently produce malformed flows, return HTTP 429 throttling errors, or fail with opaque nested error messages. Additionally, the Power BI connector suffered a breaking change in October 2025 (Release Wave 2) where flows returning DAX query results stopped including data after a certain date.
 
 **Why it happens:**
-The Feishu adapter correctly uses the fire-and-forget pattern (ACK immediately, process in background, update card). The Teams adapter was not built with the same pattern, likely because Teams outgoing webhooks expect a synchronous response. But when the agent is slow, the synchronous pattern fails.
+Power Automate's Management API was designed for the portal UI, not for external programmatic access. The API is a secondary citizen compared to the interactive editor. Microsoft's ongoing infrastructure migrations (URL changes, connector updates) create moving targets that break assumptions.
 
 **How to avoid:**
-For Teams: Use the "proactive messaging" pattern via Graph API. ACK with a "processing..." card, then PATCH the result asynchronously. This requires the bot to have proper App registration (not just outgoing webhook), which changes the Teams integration model.
-
-For HMAC: Implement HMAC-SHA256 verification using `hmac.compare_digest()`. Note the Teams-specific gotcha: the HMAC key must be decoded as base64, and the signature is in the `Authorization` header (not a custom header). The token uses UTF-16LE encoding for the key bytes.
+1. The design spec already handles this correctly: `auto` mode for PA deploys compute via Azure Function and creates only simple notification Flows (HTTP Trigger -> Send Email). Enforce this strictly -- never attempt to create complex multi-step Flows via API
+2. Implement aggressive retry with exponential backoff for PA API calls (start 1s, max 60s, add jitter). Handle HTTP 429 by reading the `Retry-After` header
+3. Validate deployed flows by calling `pa_trigger_flow` with a test payload immediately after deployment. If the test fails, surface the error and fall back to `guided` mode automatically
+4. Cache PA environment ID and connection references. Re-resolve them only when API calls fail with 401/403 (token expired) or 404 (resource moved)
+5. In the MCP server, log the full API response body for every non-2xx response. PA error messages are often nested in `error.innererror.code` structures that are easy to miss
 
 **Warning signs:**
-- Teams users see timeout errors for any non-trivial query
-- Gateway logs show completed responses with no corresponding webhook delivery
-- Spiking response times in `/webhook/teams` endpoint metrics
+- MCP server swallowing PA API errors and returning generic "deployment failed"
+- No retry logic in PA API calls
+- Tests mocking PA API responses without including 429/5xx scenarios
+- Any hardcoded `logic.azure.com` URLs (these changed in Nov 2025)
 
 **Phase to address:**
-Phase 4 (Channels) -- Teams adapter needs architectural rework from synchronous to async response pattern. HMAC verification is a security prerequisite before any Teams deployment.
+Phase 3 (MCP server packages) for the PA server implementation. The `guided` mode fallback must be solid in Phase 2 (workflow_deploy) so that PA API failures degrade gracefully.
 
 ---
 
-### Pitfall 5: Textual TUI `_on_ws_message` Callback Invoked from Wrong Thread
+### Pitfall 5: UiPath Authentication Model Fragmentation
 
 **What goes wrong:**
-`GatewayWSClient._read_loop()` dispatches received messages via `self._on_message(data)`. This callback is `YigthinkerTUI._on_ws_message()`, which directly calls `self._chat_log.append_response()`, `self._vars_panel.update_vars()`, and other widget methods. Textual apps are not thread-safe. If the WebSocket read loop runs in a worker thread (via `run_worker` with a threaded worker, or if `websockets` internally uses threads), these calls modify widgets from the wrong thread, causing race conditions, visual glitches, or crashes.
-
-The current code uses `self.run_worker(self._ws_client.connect_loop(), exclusive=True)` which runs as an async worker (not a thread worker), so it should be on the same event loop. However, the `websockets` library's internal behavior and Textual's worker execution model can interact in surprising ways, especially during reconnection (where the worker is recreated).
+UiPath Cloud and On-Premise have completely different authentication flows. Cloud uses OAuth2 client credentials via `https://account.uipath.com/oauth/token` with 24-hour token expiry plus refresh tokens. On-Premise uses a different endpoint (`https://{orchestrator-url}/api/Account/Authenticate`). Furthermore, UiPath deprecated API Keys in March 2025, migrating to Personal Access Tokens (PATs) and External Applications. PATs have expiration dates requiring periodic regeneration. Building the MCP server against one auth model and discovering the customer uses the other causes an auth layer rewrite.
 
 **Why it happens:**
-Developers wire callbacks that modify UI state without considering which thread/task they execute on. In Textual, only `post_message()` is thread-safe. All other widget modifications must happen on the main thread. The async worker approach is safer than a thread worker, but reconnection logic (creating new `websockets.connect()` contexts) and Textual's exclusive worker lifecycle introduce edge cases.
+Developers test against UiPath Cloud (easier to set up for development), ship, then discover enterprise customers use On-Premise with completely different auth. Or they build against the deprecated API Key model from outdated documentation and discover it no longer works.
 
 **How to avoid:**
-- Use `post_message()` from the WebSocket callback instead of direct widget manipulation:
-```python
-def _on_ws_message(self, data: dict[str, Any]) -> None:
-    self.post_message(WSDataReceived(data))  # Custom message, thread-safe
-```
-- Handle `WSDataReceived` in an `on_ws_data_received` handler which runs on the main thread
-- Never call `query_one()`, `append()`, or set reactive attributes from a callback that might not be on the main thread
+1. Build UiPath MCP server auth as a strategy pattern from day one: `CloudAuth`, `OnPremAuth`, and `PATAuth` classes behind a single `UiPathAuth` interface. Selection based on environment variable: `UIPATH_AUTH_TYPE=cloud|onprem|pat`
+2. Implement proactive token refresh: refresh when > 80% of the 24-hour validity has elapsed, not when the first 401 arrives. A 401 mid-operation can leave partial deployments in an inconsistent state
+3. Document clearly in the MCP server README which env vars are needed for each auth type and what permissions/scopes the External Application requires
+4. For PATs: implement expiry warnings. If the PAT expires within 7 days, log a warning on every MCP tool call. If expired, return a clear error with renewal instructions, not a generic 401
 
 **Warning signs:**
-- TUI shows garbled output or partial renders after receiving gateway messages
-- Intermittent `NoMatches` exceptions from `query_one()` during widget updates
-- TUI crashes during WebSocket reconnection with stack traces in Textual internals
-- Issues appear sporadically and vanish when debugging (the Heisenbug pattern)
+- Single auth code path that only works with Cloud
+- No token refresh logic (only initial token acquisition)
+- Tests that hardcode access tokens instead of testing the refresh flow
+- No `UIPATH_AUTH_TYPE` configuration option
 
 **Phase to address:**
-Phase 3 (TUI) -- must be addressed as the TUI architecture is built, before wiring real WebSocket communication.
+Phase 3 (MCP server packages) -- auth must be designed as multi-strategy before any UiPath tools are implemented.
 
 ---
 
-### Pitfall 6: Session Hibernation Deletes Files Before Confirming Successful Restore
+### Pitfall 6: Self-Healing Callback Creates Unbounded LLM Cost
 
 **What goes wrong:**
-`SessionHibernator.load()` on line 149 calls `_rmtree(session_dir)` after loading the session into memory. If the process crashes between the `_rmtree()` and the caller adding the session to `SessionRegistry._sessions`, the hibernated data is gone and the in-memory session is lost. Data loss with no recovery path.
-
-Additionally, `_save_var()` is synchronous and called from `async def save()` without `asyncio.to_thread()`. Writing large DataFrames to Parquet blocks the event loop, freezing the entire gateway during hibernation.
+The `/api/rpa/callback` endpoint creates a session and runs the AgentLoop with error context. If a workflow has a systemic issue (database permanently moved, data source schema changed), every checkpoint failure triggers a callback, each callback incurs LLM cost, and the LLM cannot actually fix the problem. A workflow running hourly with 4 checkpoints could generate 96 LLM calls per day at $0.01-0.10 each. Multiply by 20 workflows and cost spirals to $20-200/day. Worse: the LLM may return `fix_applied` with incorrect parameters, causing the script to retry with bad data, succeed at the step level but produce garbage output.
 
 **Why it happens:**
-The "load then delete" pattern is convenient but not crash-safe. Production session stores need a "restore, verify, then delete" pattern (similar to write-ahead logs or two-phase commit). The sync-in-async issue is a common pitfall when wrapping existing sync code in `async def` without actually making the I/O non-blocking.
+The self-healing pattern is designed for transient failures (network blip, credential rotation), but developers don't build protection against persistent/structural failures. The callback endpoint treats every error as potentially fixable without tracking failure history.
 
 **How to avoid:**
-- Do not delete hibernation files in `load()`. Instead:
-  1. Restore session into memory
-  2. Add to `SessionRegistry._sessions`
-  3. Mark the hibernation directory as "restored" (e.g., rename to `.restored/`)
-  4. Clean up `.restored/` directories in a periodic background task
-- Wrap `_save_var()` calls in `await asyncio.to_thread()`:
-```python
-for name, value in session.ctx.vars._vars.items():
-    entry = await asyncio.to_thread(_save_var, name, value, vars_dir)
-    manifest[name] = entry
-```
+1. Implement a circuit breaker: after 3 consecutive `fix_applied` or `skip` responses for the same workflow+checkpoint within 24 hours, auto-escalate instead of attempting more fixes. Store circuit breaker state in the workflow manifest
+2. Add cost tracking per workflow. The callback endpoint must check `manifest.run_history` and refuse to create LLM sessions if the workflow has exceeded a configurable cost threshold (default: 10 LLM calls per workflow per day)
+3. Rate-limit callbacks per workflow: max 1 callback per checkpoint per hour. Deduplicate via `callback_id` (already in the design spec) and add a time-based rate limit
+4. The LLM system prompt for callback sessions must include: "If the error is structural (schema change, permanent URL change, missing table/database), return `escalate` immediately. Do not attempt to fix structural errors."
+5. Log every callback decision and its associated cost in the registry manifest for visibility
 
 **Warning signs:**
-- Gateway crash during restore leaves sessions permanently lost
-- Gateway freezes for seconds during idle-session eviction (observable via `/health` latency spikes)
-- Parquet writes for 1M+ row DataFrames block all WebSocket and webhook traffic
+- No circuit breaker logic in the callback endpoint implementation
+- No cost tracking or rate limiting on callbacks
+- Test suite only tests happy path (single callback -> fix_applied -> success)
+- LLM system prompt for callbacks doesn't distinguish transient from structural errors
 
 **Phase to address:**
-Phase 2 (Gateway) -- hibernation correctness is a gateway reliability requirement. The crash-safety fix must happen before production use.
+Phase 2 (Gateway endpoints) for the callback endpoint. Circuit breaker must be designed in from the start, not added after cost incidents.
 
 ---
 
-### Pitfall 7: Feishu 3-Second ACK Race Condition with Event Deduplication
+### Pitfall 7: Generated Scripts Assume Python Environment Exists and Is Configured
 
 **What goes wrong:**
-The Feishu adapter records the event ID in the deduplicator *before* launching the background task (line 86), then immediately returns the ACK (line 90). If the gateway crashes after recording the event but before `_process_event` completes, the event is marked as "seen" in SQLite. When Feishu re-delivers the event (at-least-once semantics), the deduplicator rejects it as a duplicate. The user's message is permanently lost.
-
-Additionally, `EventDeduplicator` uses `sqlite3.Connection` created in `__init__` without `check_same_thread=False`. If uvicorn uses multiple threads to dispatch webhook callbacks (e.g., with `--workers > 1` or thread pool executors), SQLite operations will raise `ProgrammingError`.
+Generated `main.py` scripts import `pandas`, `sqlalchemy`, `requests`, `msal`, and other libraries. The `requirements.txt` lists them, but the setup guide says "pip install -r requirements.txt" without specifying which Python, which venv, or handling PATH issues. On Windows, where Task Scheduler runs scripts as a service account, the Python path may not be in PATH, the venv may not be activated, and `pip` may install to the wrong Python installation. The script fails silently because Task Scheduler swallows stderr by default.
 
 **Why it happens:**
-The dedup-then-process ordering prioritizes avoiding double-processing over ensuring at-least-once delivery. This is a classic distributed systems tradeoff. The correct choice for a messaging system is to prefer double-processing (idempotent) over data loss.
+Developers test on their own machine where Python is on PATH and the venv is active. Task Scheduler runs in a different user context with different environment variables. This is the #1 reported issue with Python + Task Scheduler integrations.
 
 **How to avoid:**
-- Record the event in dedup *after* successful processing, or use a two-phase approach:
-  1. Record with status `"processing"` before ACK
-  2. Update to `"done"` after successful processing
-  3. On re-delivery: if status is `"processing"` for > N seconds, retry (the previous attempt likely crashed)
-- Use `aiosqlite` instead of `sqlite3` for async-safe database access, or at minimum `check_same_thread=False` with a `threading.Lock`
+1. Generated `task_scheduler.xml` must use absolute paths to `python.exe` (resolved at generation time from `sys.executable`), not just `python`
+2. Generate a wrapper `run.bat` (Windows) or `run.sh` (Unix) that activates the venv and runs `main.py` with full error logging: `python.exe main.py >> run.log 2>&1`
+3. The wrapper must set `PYTHONPATH` and activate the venv explicitly: call `.venv\Scripts\activate.bat && python main.py`
+4. Include a `--preflight` flag in generated scripts that checks: Python version, all imports resolve, database connectivity, vault/keyring accessibility, Gateway reachability
+5. Task Scheduler XML must set the `<WorkingDirectory>` to the workflow directory and redirect stdout/stderr to a log file
 
 **Warning signs:**
-- Feishu users report messages that "disappear" after gateway restarts
-- Dedup SQLite table grows with entries that have no corresponding agent response
-- `ProgrammingError: SQLite objects created in a thread can only be used in that same thread` in logs
+- Generated `task_scheduler.xml` uses `python` instead of a fully qualified path
+- No wrapper script generated alongside `main.py`
+- No `--preflight` check available
+- No error logging configured for scheduled execution
 
 **Phase to address:**
-Phase 4 (Channels) -- the dedup strategy must be redesigned when implementing Feishu adapter properly. The SQLite thread-safety fix is needed in Phase 2 if the gateway runs with multiple workers.
+Phase 1 (workflow_generate) for script structure and templates, Phase 2 (workflow_deploy local/guided) for Task Scheduler XML generation and wrapper scripts.
 
 ---
 
-### Pitfall 8: `ManagedSession.lock` Serializes All Per-Session Operations Including Reads
+### Pitfall 8: Hook System Extension Breaks Existing Hook Ordering or Crashes Sessions
 
 **What goes wrong:**
-A single `asyncio.Lock` per session serializes every operation: user messages, vars list, session info, webhook callbacks. When an LLM call takes 15-30 seconds (normal for complex tool-use chains), all other requests for that session queue behind it. For the TUI: vars panel updates, session info requests, and even new user messages all block. For webhooks: the Feishu "thinking..." card cannot be sent because `handle_message` is already holding the lock for a previous message.
+Adding a `SessionStart` hook for workflow health checks (`workflow_health.py`) inserts into the same `HookRegistry._hooks` list that existing hooks use. The `HookExecutor.run()` in `yigthinker/hooks/executor.py` processes hooks sequentially and returns on first BLOCK. If the workflow health check hook is registered before other `SessionStart` hooks and returns BLOCK (because the registry file is corrupted or missing), it blocks all session creation. If it raises an unhandled exception, the `HookExecutor` propagates it and crashes session creation. The current `HookExecutor.run()` has no exception handling around individual hook function calls.
 
 **Why it happens:**
-A single lock is the simplest concurrency model and is correct for preventing concurrent agent loop execution. But using the same lock for read operations (listing vars, getting session info) is unnecessary and creates artificial contention.
+The current `HookRegistry` is a simple append-only list with no ordering guarantees. Registration order depends on import order in the builder. The `HookExecutor.run()` method does not wrap individual `hook_fn(event)` calls in try/except -- a single broken hook crashes the entire chain.
 
 **How to avoid:**
-- Use `asyncio.Lock` only for agent loop execution (write path)
-- Allow lock-free reads for: `vars.list()`, `session.to_info()`, session list
-- Consider a read-write lock pattern: multiple concurrent readers, exclusive writer
-- For the TUI: send vars updates as a side-effect of the agent loop (inside the lock), not as a separate locked operation
+1. The workflow health check hook must NEVER return BLOCK. It should only inject system context (alerts into session) and return ALLOW. Health check failures are informational, not blocking
+2. Wrap the hook body in try/except: if the registry file is missing or corrupted, the hook must log a warning and return `HookResult.ALLOW`, not raise an exception
+3. Add defensive exception handling to `HookExecutor.run()`: wrap each `await hook_fn(event)` in try/except. If a hook raises, log the error and continue to the next hook. This protects the system from any single broken hook
+4. Consider adding an optional `priority` field to hook registration for ordering control (low priority for now -- not critical for v1.1, but prevents future issues)
 
 **Warning signs:**
-- TUI vars panel shows stale data during long agent turns
-- `/api/sessions` endpoint times out during active agent execution
-- Webhook responses queue up behind each other for the same session
-- Feishu "thinking..." card never appears because the lock is already held
+- Workflow health check hook returning `HookResult.BLOCK` for any reason
+- No try/except in the health check hook body
+- No try/except around `await hook_fn(event)` in `HookExecutor.run()`
+- Test suite doesn't test session creation when `registry.json` is missing or corrupted
 
 **Phase to address:**
-Phase 2 (Gateway) -- the lock strategy should be refined when implementing real multi-client session access.
+Phase 2 (behavior layer and SessionStart hook). Must be implemented with defensive error handling from the start.
 
 ---
 
-### Pitfall 9: Google Chat Adapter Blocks Webhook Response for Full Agent Execution
+### Pitfall 9: MCP Server Process Crashes Silently Kill RPA Capabilities
 
 **What goes wrong:**
-The Google Chat adapter on line 69 does `await asyncio.wait_for(self._gateway.handle_message(...), timeout=25.0)`. This means the webhook HTTP response is held open for up to 25 seconds while the agent processes. Google Chat's webhook timeout is approximately 30 seconds. This barely works for simple queries but fails for multi-turn tool chains. Meanwhile, the `asyncio.Semaphore(1)` per space means only one message per space can be processed at a time. If two users in the same space send messages, the second waits for the first to complete (up to 25 seconds).
+MCP servers (`yigthinker-mcp-powerautomate`, `yigthinker-mcp-uipath`) run as child processes communicating via stdio. The current `MCPClient` (in `yigthinker/mcp/client.py`) has no crash detection or recovery. If the MCP server process dies (segfault, OOM, unhandled exception), `call_tool()` hangs or raises an opaque `BrokenPipeError`. The agent loop's generic `try/except Exception` catches this and returns `ToolResult(is_error=True)`, but the LLM may retry indefinitely. The MCP server stays dead for the rest of the session -- or in the Gateway's case, for the rest of the daemon's lifetime.
 
 **Why it happens:**
-Google Chat webhooks genuinely expect a synchronous response (unlike Feishu which supports async card updates). The adapter correctly uses `wait_for` with a timeout, but the timeout is set too close to the platform limit, leaving no margin. The per-space semaphore is well-intentioned (Google Chat enforces 1 req/sec per space for outbound messages) but is used for the inbound processing path where it creates artificial serialization.
+The MCP spec defines a lifecycle (initialization -> operation -> shutdown) but the current `MCPClient` implementation has no health monitoring, no reconnection logic, and no process lifecycle management. `start()` has no timeout on `initialize()`. This is adequate for short-lived CLI sessions but dangerous for a long-running Gateway daemon that keeps MCP servers alive for hours or days.
 
 **How to avoid:**
-- Use Google Chat's async messaging API: return a minimal ACK, then send the full response via `spaces.messages.create` API call
-- Separate the inbound rate limit (webhook processing) from the outbound rate limit (API calls to Google Chat)
-- Set `wait_for` timeout to 15 seconds (leaving 15 seconds of margin for network latency)
-- For timeout cases: queue the request and send the response asynchronously when available
+1. Add a `health_check()` method to `MCPClient` that sends a lightweight MCP operation (like `list_tools()` as a heartbeat) before critical tool calls. If it fails, attempt restart
+2. Implement auto-restart: if `call_tool()` raises `BrokenPipeError`, `ConnectionError`, or `EOFError`, call `stop()` then `start()` automatically with max 3 restart attempts per hour
+3. Add a startup timeout: if `start()` doesn't complete `initialize()` within 10 seconds, raise a clear error with the server name
+4. In the Gateway daemon, run a background task that periodically checks MCP server health (every 60 seconds). If a server is dead, restart it or mark its tools as temporarily unavailable
+5. The `workflow_deploy` tool (`auto` mode) must check MCP server health BEFORE attempting deployment. If the MCP server is down, fall back to `guided` mode with a clear message
 
 **Warning signs:**
-- Google Chat users see "Analysis is taking longer than expected" for routine queries
-- Second user in a space waits 25+ seconds for first user's query to finish
-- Webhook timeout errors in Google Chat admin console
+- No reconnection logic in `MCPClient`
+- No timeout on `start()` or `call_tool()`
+- Tests that only cover happy-path MCP interactions
+- Gateway running for hours without any MCP health monitoring
 
 **Phase to address:**
-Phase 4 (Channels) -- Google Chat adapter needs the same async pattern as Feishu.
+Phase 3 (MCP server packages) -- but `MCPClient` improvements (health check, auto-restart) should be done as infrastructure prep since existing MCP tools also benefit.
 
 ---
 
-### Pitfall 10: `_build()` Shared Between `__main__.py` and Gateway Creates Circular Import Risk
+### Pitfall 10: LLM Provider Differences Break Workflow Tool Input Parsing
 
 **What goes wrong:**
-`GatewayServer.start()` imports `from yigthinker.__main__ import _build`. This creates a dependency from a library module (`gateway/server.py`) to the CLI entry point (`__main__.py`). This is an anti-pattern that causes: (a) circular import risk if `__main__` imports gateway modules at module level, (b) inability to use the gateway without the CLI module, (c) test fragility since `__main__` imports `typer`, `rich`, and other CLI-only dependencies.
+Workflow tools require the LLM to produce structured step definitions with complex nested inputs (`list[WorkflowStep]` with nested `params: dict`). Different providers handle tool calls differently: Claude produces well-structured JSON; GPT-4 sometimes produces malformed JSON or unexpected field values; Ollama local models may not follow nested tool schemas at all; Azure OpenAI may have subtly different response formats. The `workflow_generate` tool receives garbage step definitions from a weak model and renders broken scripts without catching the error at the input validation stage.
 
 **Why it happens:**
-`_build()` grew organically as the "build everything" function in the CLI entry point. When the gateway needed the same setup, the quickest path was to import it. This is a common brownfield pattern where shared logic lives in the wrong module.
+The existing 26 tools work across all 4 providers because their inputs are simple (a SQL query string, a variable name, a code snippet). Workflow tools have the most complex input schemas in the entire tool set (`list[WorkflowStep]` with nested `params: dict`), which stress-tests provider schema adherence. The "all 4 providers must work" constraint meets tools that require structured reasoning.
 
 **How to avoid:**
-Extract `_build()` into `yigthinker/builder.py`:
-```python
-# yigthinker/builder.py
-def build_agent(settings: dict) -> tuple[AgentLoop, ConnectionPool]:
-    ...
-```
-Both `__main__.py` and `gateway/server.py` import from `builder.py`. The builder module has no CLI dependencies.
+1. Validate `WorkflowGenerateInput` strictly with Pydantic BEFORE any template rendering. Reject step definitions with empty `action` fields, invalid `id` patterns, or circular `inputs` dependencies
+2. Add a `_normalize_step_params()` function that coerces common LLM mistakes: string `"None"` -> `None`, stringified numbers -> `int`/`float`, missing required fields -> sensible defaults with warnings
+3. For the behavior layer (proactive suggestions): keep suggestion logic in the system prompt, not in multi-step tool-call chaining. Weak models handle "respond with text suggesting automation" better than "call workflow_generate with these exact parameters"
+4. Test workflow tools with all 4 providers. At minimum: Claude (structured), GPT-4 (mostly structured), and a local Ollama model (weak structured output)
+5. Add a `--dry-run` option in `workflow_generate` that validates inputs and previews what would be generated without actually rendering templates
 
 **Warning signs:**
-- `ImportError` when running gateway in isolation (without CLI deps)
-- Circular import errors when adding new imports to `__main__.py`
-- Gateway tests that unexpectedly require `typer` and `rich`
+- Workflow tools only tested with Claude
+- No input normalization for LLM output quirks
+- Proactive suggestion requires multi-step tool chaining that weak models cannot follow
+- No validation step between LLM output and template rendering
 
 **Phase to address:**
-Phase 1 (Agent Loop) -- `_build()` extraction is a low-risk refactor that unblocks clean gateway development.
+Phase 1 (workflow_generate) for input validation, Phase 2 (behavior layer) for provider-agnostic suggestion prompting.
+
+---
+
+### Pitfall 11: Gateway Callback Endpoint Missing Authentication
+
+**What goes wrong:**
+The `/api/rpa/callback` and `/api/rpa/report` endpoints accept POST requests from running scripts. If these endpoints don't require authentication, anyone on the network can: (a) trigger self-healing LLM sessions (cost attack), (b) inject fake status reports into the registry (data integrity attack), (c) craft callback payloads that cause the LLM to execute unintended actions. The design spec shows `callback_id` for idempotency but no authentication mechanism.
+
+**Why it happens:**
+The existing Gateway uses `GatewayAuth` (in `yigthinker/gateway/auth.py`) with a file-backed bearer token for HTTP/WS routes. But the RPA callback is a new endpoint pattern -- it's called by external scripts, not by TUI clients or channel adapters. Developers may skip auth because "it's just status reporting" or because they want to simplify the generated script's HTTP call.
+
+**How to avoid:**
+1. Require Bearer token auth on both `/api/rpa/callback` and `/api/rpa/report`, reusing the existing `GatewayAuth` mechanism. The same `_extract_token()` and `self._auth.verify(token)` pattern from `server.py`
+2. Generated scripts must include the gateway token in `config.yaml` (as a `vault://` reference) and send it as `Authorization: Bearer {token}` on all callback/report requests
+3. Additionally validate that `workflow_name` in the request exists in the registry. Reject callbacks for unknown workflows
+4. Rate-limit the callback endpoint: max 10 requests per minute per IP to prevent abuse even with valid tokens
+
+**Warning signs:**
+- RPA endpoints mounted without auth middleware
+- Generated scripts not including auth headers in callback/report HTTP calls
+- No request validation beyond JSON parsing
+
+**Phase to address:**
+Phase 2 (Gateway endpoints) -- auth must be present from the first implementation.
 
 ---
 
@@ -290,117 +292,138 @@ Phase 1 (Agent Loop) -- `_build()` extraction is a low-risk refactor that unbloc
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Chart tools bypass `VarRegistry.set()` via `ctx.vars._vars[name] = value` | Charts stored without type checking | Any VarRegistry refactor (eviction, size limits, type enforcement) silently breaks charts; hibernation round-trip is untested | Never -- extend VarRegistry to support artifact types |
-| `ContextManager()` instantiated per tool call with default 200K tokens | Each tool works independently | Token budget customization ignored; no shared state across tools in one turn; unnecessary object creation overhead | Only in Phase 1 MVP; must inject via SessionContext before Phase 2 |
-| `_schedule_hibernate` falls back to `asyncio.run()` when no loop exists | LRU eviction works in both sync and async contexts | Blocks the thread; creates a second event loop if called from a thread pool; masking an architectural gap | Never in production -- eviction should always run in the gateway's event loop |
-| Pickle fallback in hibernation for non-DataFrame/non-string vars | Any Python object can be hibernated | Pickle is insecure (arbitrary code execution on load), version-fragile, and non-portable; pickled objects may fail to deserialize after code changes | Only for development; production must whitelist serializable types |
-| Stubs that report success (`auto_dream`, `spawn_agent`, `report_schedule`) | LLM can "use" the tool without errors | LLM plans around capabilities that do not exist; users believe features work when they do not; auto_dream burns its threshold without producing value | Never -- stubs must return clear error messages or be gated behind feature flags |
+| Registry as single JSON file | Simple to implement, human-readable, easy to debug | Corruption risk under concurrency, no query capability, no indexing | Acceptable for v1.1 with filelock + atomic writes; migrate to SQLite if > 50 workflows |
+| No workflow script signing | Skip code signing complexity | Users cannot verify script integrity after generation; tampering undetectable | Acceptable for v1.1; add HMAC-based checksums in manifest if enterprise customers need auditability |
+| No generated script sandbox | Simpler scripts, full access to user's system | If a malicious or buggy script runs, it has full user permissions | Acceptable -- scripts are user-owned and generated by the user's own AI agent, not user-submitted code |
+| Skipping UiPath On-Prem in v1.1 | Focus development effort on Cloud-first | On-prem enterprise customers blocked until auth strategy is added | Only if explicitly scoped out -- auth strategy pattern costs little and prevents rewrite |
+| Inline checkpoint logic instead of separate library | Self-contained scripts with no pip dependency for checkpoint code | Code duplication across all generated scripts; updates require regenerating all scripts | Acceptable for v1.1 -- self-contained scripts are a design principle |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Feishu/Lark webhook | Using `lark` (international) domain when app is configured for `feishu.cn` domain, or vice versa. The API endpoints differ. | Check `app_id` prefix or explicit `domain` config to route to correct API base URL |
-| Feishu card update | Calling `PATCH` on a card that was sent as a regular message (not interactive card) -- Feishu only supports updating interactive cards | Always send the initial "thinking..." message as `msg_type="interactive"` |
-| Teams HMAC verification | Using UTF-8 encoding for the HMAC key. Teams uses the base64-decoded security token as the HMAC-SHA256 key, not the raw string | `key = base64.b64decode(security_token)` then `hmac.new(key, body_bytes, hashlib.sha256)` |
-| Teams outgoing webhook | Expecting to send async replies. Teams outgoing webhooks require the response in the HTTP response body -- there is no callback URL | Use proper Bot registration (Azure Bot Service) for async messaging, or accept the synchronous constraint |
-| Google Chat | Not handling the `ADDED_TO_SPACE` event type, causing the bot to appear unresponsive when first added | Return a welcome text for `ADDED_TO_SPACE`; only process `MESSAGE` events for agent queries |
-| Google Chat rate limit | Applying per-space rate limits to inbound processing instead of outbound API calls | Rate-limit outbound `spaces.messages.create` calls; process inbound webhook requests as fast as possible |
-| WebSocket reconnection | Sending messages during the reconnection window before auth completes | Queue messages during reconnect; flush after successful auth + session attach |
-| SQLite dedup in async context | Using `sqlite3` module from async code without thread safety (`check_same_thread=False`) | Use `aiosqlite` or wrap all SQLite operations in `asyncio.to_thread()` |
+| Power Automate API | Using deprecated `logic.azure.com` URLs that changed Nov 2025 | Use `api.flow.microsoft.com` base URL; resolve environment-specific URLs dynamically |
+| Power Automate API | Attempting to create complex multi-step Flows via API | Only create simple Flows (HTTP Trigger -> single action) via API; use Azure Functions for compute |
+| Power Automate API | Not handling nested error responses | Check `error.innererror.code` in addition to top-level status code; PA error nesting is 2-3 levels deep |
+| UiPath Cloud API | Using deprecated API Keys (removed March 2025) | Use External Applications (OAuth2 client credentials) or Personal Access Tokens (PATs) |
+| UiPath On-Prem | Using Cloud auth endpoint (`account.uipath.com`) for On-Prem | Detect auth type from env vars; On-Prem uses `/api/Account/Authenticate` on the Orchestrator URL |
+| UiPath API | Not handling 24-hour token expiry | Proactively refresh token at 80% of TTL; implement transparent retry on 401 with re-auth |
+| UiPath PATs | Not handling PAT expiration dates | Check PAT expiry on startup; warn if < 7 days remaining; clear error with renewal instructions if expired |
+| Windows Task Scheduler | Using `python` instead of absolute path to `python.exe` | Resolve `sys.executable` at generation time; use full path in Task Scheduler XML `<Command>` |
+| Windows Task Scheduler | Not setting `<WorkingDirectory>` | Set to workflow directory; all relative paths in scripts resolve from there |
+| Windows Task Scheduler | Running as interactive user only | Configure "Run whether user is logged on or not" with service account for unattended execution |
+| Gateway `/api/rpa/callback` | No authentication on callback endpoint | Require Bearer token auth; validate workflow_name exists in registry |
+| Gateway `/api/rpa/report` | Blocking on Gateway unavailability in generated scripts | Use 5-second timeout on POST; swallow `ConnectionError` silently in generated scripts |
+| Jinja2 templates | Using bare `Environment()` for template rendering | Always use `SandboxedEnvironment`; pin Jinja2 >= 3.1.6 for CVE-2025-27516 fix |
+| MCP stdio lifecycle | Not handling MCP server process crashes | Add health_check + auto-restart in MCPClient; timeout on initialize() |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Synchronous `exec()` in `df_transform` blocks event loop | All WebSocket clients freeze during pandas operations; webhook ACKs delayed | Wrap in `await asyncio.to_thread(exec, ...)` | Any DataFrame operation > 100ms (10K+ rows with complex transforms) |
-| Synchronous Parquet writes in hibernation | Gateway unresponsive during session eviction; `/health` returns 503 | `await asyncio.to_thread(_save_var, ...)` for each variable | DataFrames > 100MB; multiple sessions hibernating simultaneously |
-| PDF report `df.values.tolist()` doubles memory | OOM kill on large DataFrames; gateway process crashes | Add row-count guard (max 10K rows for PDF); suggest CSV for large exports | DataFrames > 500K rows |
-| Single `AgentLoop` instance + LLM API rate limits | HTTP 429 errors from LLM provider; cascading timeouts across sessions | Per-session `AgentLoop` instances or async worker pool with backpressure and rate-limit awareness | > 5 concurrent active sessions with the same LLM provider |
-| `_ws_clients` list scanned linearly for broadcasts | Broadcast latency grows with connected client count | Use a dict keyed by session_key for O(1) lookup | > 50 concurrent TUI connections |
-| `list_sessions()` sorts all sessions on every call | API response time degrades with session count | Cache the sorted list; invalidate on session create/remove | > 500 active sessions |
+| Registry health check reads full file on every SessionStart | Slow session creation as workflow count grows | Cache registry in memory with 60-second TTL; only read file on cache miss | > 20 workflows |
+| Full manifest.json read for health check | I/O bound when manifests have long run histories | Health check reads only `registry.json` (index), not individual manifest files | > 100 runs per workflow (manifests grow unbounded) |
+| Unbounded `run_history` in manifest.json | Manifest files grow to MB+ over months of daily execution | Cap `run_history` entries (keep last 100); archive older runs to `run_history.jsonl` | > 6 months of daily runs |
+| MCP server process restart per session | High process creation overhead | Keep MCP servers alive for Gateway daemon lifetime; restart only on crash | Frequent workflow tool usage across sessions |
+| LLM call per self-healing callback | $0.01-0.10 per callback adds up rapidly | Circuit breaker (3 attempts per checkpoint per 24h); cost cap per workflow per day | > 10 active workflows with any failure rate |
+| Rendering large Jinja2 templates with many steps | Template rendering blocks event loop for complex workflows | Wrap template rendering in `asyncio.to_thread()` if > 10 steps | Workflows with > 20 steps |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| No HMAC on Teams webhook | Any HTTP client can inject messages into agent sessions via `/webhook/teams` | Implement HMAC-SHA256 verification with `hmac.compare_digest()` before processing any Teams event |
-| `df_transform` sandbox allows `type` builtin | `type(df).__mro__[-1].__subclasses__()` chain reaches unrestricted builtins; full sandbox escape | Remove `type` from `_SAFE_BUILTINS`; add `__class__`, `__mro__`, `__subclasses__` to AST blocker |
-| Pickle deserialization in hibernation restore | Malicious pickle file in `~/.yigthinker/hibernate/` executes arbitrary code on restore | Whitelist allowed types; use `restricted_loads` or replace pickle with JSON/msgpack for non-DataFrame vars |
-| API keys in plaintext `settings.json` | Key exfiltration via file access; keys visible in process memory via `/proc` | Use `keyring` library for OS-native credential storage; never serialize keys to disk |
-| Gateway token file not protected on Windows | `os.chmod(0o600)` silently fails on Windows; token readable by all local users | Use `icacls` on Windows or document the limitation; generate per-session tokens with expiry |
-| WebSocket accepts before checking auth state race | Between `ws.accept()` and the auth check, malicious clients could send messages | Parse auth message before accepting, or implement a message queue that discards pre-auth messages |
+| Plaintext credentials in generated `config.yaml` | Credential exposure via git commit, file sharing, cloud backup | Credential pattern scanner on config writes; `vault://` as default; `.gitignore` in workflow dirs |
+| No auth on `/api/rpa/callback` endpoint | Network attacker triggers unlimited LLM sessions (cost attack) | Require Bearer token auth (reuse `gateway.token`); validate `workflow_name` exists in registry |
+| No auth on `/api/rpa/report` endpoint | Fake status reports pollute registry data integrity | Require Bearer token auth; validate `workflow_name` + `version` match registry entries |
+| Rendered scripts containing dangerous imports | A compromised LLM response generates scripts with `subprocess`, `socket`, data exfiltration | Post-generation AST scan of rendered `main.py`; reject or warn on imports not in the template whitelist |
+| LLM-generated `fix_applied` params injected into script kwargs | LLM could suggest params that alter SQL query to exfiltrate data | Whitelist allowed fix params per checkpoint in manifest; reject unknown params from callback response |
+| MCP server env vars with vault refs resolved to plaintext at parent process level | Plaintext credentials visible in process environment | Resolve vault refs inside the MCP server process itself, not in the parent; use short-lived tokens |
+| Task Scheduler XML with embedded user credentials | Windows stores credentials for "run whether user is logged on or not" | Use dedicated service account; document security implications clearly in setup guide |
+| Generated scripts callable with arbitrary command-line args | An attacker could override config path to a malicious config | Generated scripts should use `argparse` with only whitelisted flags (`--test`, `--preflight`, `--config`) |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| No streaming output in TUI | User stares at blank screen for 10-30 seconds during LLM response; assumes app crashed | Implement `TokenStreamMsg` protocol; display tokens as they arrive; show "thinking..." indicator |
-| Stubs return success messages | User believes `report_schedule` created a real schedule; `auto_dream` claims memory was consolidated | Return explicit "This feature is not yet available" error; remove from tool descriptions or mark `(preview)` |
-| Feishu "thinking..." card appears after result | Race condition if agent responds very quickly: "thinking..." card POST has not returned before result card PATCH fires | Check `thinking_msg_id` before PATCH; if None, send result as new message |
-| VarRegistry.list() hides chart variables | TUI vars panel never shows charts; user cannot reference chart names | Extend `VarRegistry.list()` to include non-DataFrame artifacts with type metadata |
-| Session resume drops tool call history | Resumed session has gaps; LLM re-executes previously completed tool calls, wasting API credits | Properly serialize/deserialize tool_use and tool_result message blocks in JSONL transcript |
-| Silent Prophet fallback to ExponentialSmoothing | User requests Prophet forecast, gets a different algorithm with no notice | Error clearly when Prophet is requested but not installed; make fallback explicit in tool result |
+| Suggesting automation during exploratory analysis | User feels interrupted/pressured; declines and gets annoyed | Only suggest after task completion; never mid-analysis; require >= 3 distinct tool calls before suggesting |
+| Re-suggesting after user declined | User feels the AI doesn't listen; trust erodes | Store declines in `suppressed_suggestions` with 3-month expiry (already in design spec); check before suggesting |
+| Guided setup instructions too technical for finance managers | User abandons setup; automation never gets deployed | Provide two instruction levels: summary (for IM channels) and detailed (setup_guide.md); detect user role from channel |
+| No feedback on scheduled workflow execution | User doesn't know if automation is working | Send proactive "ran successfully" notification for first 3 runs; then go silent; re-notify on failure |
+| Workflow health alerts on every session start | Alert fatigue; user ignores important alerts after a week | Only alert if failure rate > 30% in 30d or execution is overdue by > 2x schedule interval; debounce repeated alerts |
+| Deploy mode auto-selection without explanation | User confused about why "auto" vs "guided" was chosen | Always explain: "I'm using guided mode because no PA API access was detected. To use auto mode, configure..." |
+| Error messages from PA/UiPath API exposed raw to user | Non-technical user sees `{"error":{"code":"ConnectionFailure","innererror":...}}` | Translate API errors to human-readable messages: "Could not connect to Power Automate. Check your API credentials." |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Feishu adapter:** Has webhook endpoint and ACK pattern but background task references are not stored -- tasks can be garbage collected
-- [ ] **Teams adapter:** Has webhook endpoint but no HMAC verification and no async response pattern -- will timeout on real queries
-- [ ] **Session hibernation:** Has save/load but deletes hibernation files before confirming restore success -- crash causes data loss
-- [ ] **Auto dream:** Has threshold checking and file locking but the consolidation body is empty -- burns threshold for no value
-- [ ] **Spawn agent:** Has Pydantic schema and tool registration but returns fake results -- LLM plans multi-agent workflows that silently fail
-- [ ] **WebSocket streaming:** `TokenStreamMsg` protocol type exists but `AgentLoop` uses `provider.chat()` not `provider.stream()` -- no streaming is actually sent
-- [ ] **Report scheduling:** Stores entries in memory dict but no scheduler executes them -- schedules disappear on restart
-- [ ] **Permission system:** Works for single-user CLI but shared across gateway sessions -- one user's `ALLOW_ALL` affects all users
-- [ ] **MCP loading in gateway:** `_build()` uses `asyncio.run()` which fails under uvicorn's event loop -- MCP tools silently missing
-- [ ] **VarRegistry for charts:** Chart tools store data but `list()` filters to DataFrames only -- chart variables invisible to TUI and hibernation manifest
+- [ ] **workflow_generate:** Template rendering uses `SandboxedEnvironment`, not bare `Environment` -- test with `{{ 7*7 }}` as a step param
+- [ ] **workflow_generate:** Rendered `main.py` is validated with `ast.parse()` -- a template bug produces a syntax-invalid script
+- [ ] **workflow_generate:** `config.yaml` emits only `vault://` or `keyring://` references, never plaintext credential values -- scan output
+- [ ] **workflow_generate:** Generated scripts include `--preflight` flag -- run it on a clean machine to verify
+- [ ] **workflow_deploy (guided):** Generated `task_scheduler.xml` uses absolute Python path -- inspect `<Command>` element
+- [ ] **workflow_deploy (guided):** Setup guide mentions venv activation -- test on machine without Python on PATH
+- [ ] **workflow_deploy (guided):** Wrapper `run.bat` generated alongside `main.py` -- verify it activates venv and logs stderr
+- [ ] **workflow_deploy (auto):** PA/UiPath API failure automatically falls back to `guided` mode -- test with API credentials revoked
+- [ ] **workflow_manage (health_check):** Handles missing/corrupted `registry.json` gracefully -- returns "no workflows" not an exception
+- [ ] **workflow_manage (rollback):** Previous version files are intact and complete -- verify rollback produces a working script
+- [ ] **Gateway /api/rpa/callback:** Requires auth token -- test with no auth header and verify 401
+- [ ] **Gateway /api/rpa/callback:** Circuit breaker prevents runaway LLM costs -- test with 5 consecutive failures for same checkpoint
+- [ ] **Gateway /api/rpa/report:** Updates registry with file lock -- test concurrent POST requests from multiple scripts
+- [ ] **MCP PA server:** Works with both Azure Function deploy and simple Flow creation -- test both paths
+- [ ] **MCP UiPath server:** Works with both Cloud and On-Prem auth -- test against both endpoint types
+- [ ] **Behavior layer:** Proactive suggestions work with Ollama models -- test with weak local model
+- [ ] **SessionStart hook:** Handles missing `~/.yigthinker/workflows/` directory without blocking session creation
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| GC'd fire-and-forget tasks | LOW | Add task reference set; no data structure changes needed |
-| Nested `asyncio.run()` | LOW | Extract `_build()` to `builder.py`; make MCP loading awaitable |
-| Cross-session permission contamination | MEDIUM | Add session-scoped permission layer; refactor `AgentLoop` permission mutation |
-| Teams webhook timeout | HIGH | Requires switching from outgoing webhook to Azure Bot Service registration |
-| TUI thread-safety violations | MEDIUM | Refactor callbacks to use `post_message()`; add custom message types |
-| Hibernation data loss | MEDIUM | Change delete-on-load to deferred cleanup; add crash recovery |
-| Feishu dedup race condition | MEDIUM | Implement two-phase dedup status (`processing` / `done`) |
-| Session lock contention | LOW | Allow lock-free reads; keep lock only for agent loop execution |
-| Stubs returning success | LOW | Change all stubs to return error/preview messages; update tool descriptions |
-| `_build()` circular import | LOW | Extract to `builder.py`; 30-minute refactor |
+| Jinja2 template injection in generated script | LOW | Delete generated script; fix template to use SandboxedEnvironment; add AST validation; re-generate |
+| Credential leak in config.yaml | HIGH | Rotate ALL leaked credentials immediately; audit git history with `git log -p config.yaml`; add credential scanner; add `.gitignore` |
+| Registry corruption | MEDIUM | Restore from `registry.json.bak`; if no backup, rebuild index from `manifest.json` files in each workflow subdirectory |
+| PA API deployment failure | LOW | Fall back to `guided` mode; user deploys manually; `auto` mode is not the critical path |
+| UiPath auth failure | MEDIUM | Regenerate PAT or External Application credentials; update env vars; restart MCP server |
+| Runaway LLM costs from callbacks | MEDIUM | Disable `/api/rpa/callback` temporarily via settings; add circuit breaker; review and fix underlying workflow issues |
+| MCP server crash | LOW | Auto-restart (once implemented); if persistent, check stderr logs; fall back to `guided` mode |
+| Hook crash blocking sessions | HIGH | If in production: comment out hook registration and restart Gateway; then fix exception handling in `HookExecutor.run()` |
+| Generated script fails on Task Scheduler | LOW | Run `main.py --preflight` to diagnose; fix paths and venv activation; re-import Task Scheduler XML |
+| LLM produces invalid step definitions | LOW | Pydantic validation catches before rendering; return clear error to LLM with specific validation failures; LLM auto-corrects |
+| Gateway offline during script execution | NONE | Scripts degrade gracefully: lose self-healing and reporting, retain full execution capability |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Nested `asyncio.run()` in `_build()` | Phase 1 (Agent Loop) | MCP tools load successfully when gateway starts; test with `.mcp.json` present |
-| `_build()` circular import / extraction | Phase 1 (Agent Loop) | `gateway/server.py` imports from `builder.py`, not `__main__.py`; gateway tests do not require `typer` |
-| Stubs returning success | Phase 1 (Agent Loop) | All stub tools return clear error or are marked `(preview)` in description |
-| Cross-session permission escalation | Phase 2 (Gateway) | Test: session A grants ALLOW_ALL, session B still gets prompted |
-| Session lock contention | Phase 2 (Gateway) | `/api/sessions` responds < 100ms during active agent execution |
-| Hibernation data loss on crash | Phase 2 (Gateway) | Kill gateway mid-restore; verify hibernation files survive; session recoverable |
-| Synchronous I/O blocking event loop | Phase 2 (Gateway) | `df_transform` and hibernation wrapped in `asyncio.to_thread()`; `/health` never times out |
-| TUI thread-safety | Phase 3 (TUI) | No Textual crash logs during WebSocket reconnection; all widget updates via messages |
-| TUI streaming | Phase 3 (TUI) | Tokens appear incrementally in chat log; no blank screen during LLM response |
-| Fire-and-forget task GC | Phase 4 (Channels) | Background tasks stored in set; Feishu messages processed reliably under GC pressure |
-| Feishu dedup race condition | Phase 4 (Channels) | Gateway crash during processing; Feishu re-delivers; message processed on second attempt |
-| Teams HMAC verification | Phase 4 (Channels) | Unsigned POST to `/webhook/teams` returns 401 |
-| Teams async response pattern | Phase 4 (Channels) | Agent taking 15+ seconds returns result to Teams via async card update |
-| Google Chat synchronous timeout | Phase 4 (Channels) | Complex queries return results asynchronously; no timeout errors |
+| Jinja2 template injection | Phase 1 (workflow_generate) | Unit test: render with `{{ 7*7 }}` param; AST check on output; SandboxedEnvironment enforced |
+| Credential leakage | Phase 1 (generate) + Phase 2 (deploy) | Scan generated config.yaml for credential patterns; `.gitignore` present in workflow dirs |
+| Registry corruption | Phase 1 (registry module) | Concurrent write test with asyncio.gather; filelock usage verified; atomic write with os.replace() |
+| PA API unreliability | Phase 3 (MCP PA server) | Retry logic with 429 handling; auto-fallback to guided; tests with mocked API failures |
+| UiPath auth fragmentation | Phase 3 (MCP UiPath server) | Multi-strategy auth tests; token refresh tested; PAT expiry warning implemented |
+| Unbounded LLM costs | Phase 2 (Gateway callback) | Circuit breaker with 3-attempt limit; cost tracking in manifest; rate limit verified |
+| Python env assumptions | Phase 1 (templates) + Phase 2 (deploy) | Generated XML uses absolute path; wrapper script present; --preflight check works |
+| Hook ordering/crash | Phase 2 (behavior layer) | Health check hook always returns ALLOW; try/except in hook body; test with missing registry |
+| MCP server crashes | Phase 1 (MCPClient) + Phase 3 (servers) | Auto-restart on BrokenPipeError; health check before tool calls; startup timeout |
+| Provider differences | Phase 1 (generate) + Phase 2 (behavior) | Test with Claude + Ollama; input normalization; Pydantic validation before rendering |
+| Missing callback auth | Phase 2 (Gateway endpoints) | Unauthenticated POST returns 401; token validation reuses existing GatewayAuth |
 
 ## Sources
 
-- [Python asyncio docs: task garbage collection warning](https://docs.python.org/3/library/asyncio-task.html) -- Official documentation on task reference retention
-- [The Heisenbug lurking in your async code (Textual blog)](https://textual.textualize.io/blog/2023/02/11/the-heisenbug-lurking-in-your-async-code/) -- Textual team's writeup on the create_task GC bug
-- [Textual Workers guide](https://textual.textualize.io/guide/workers/) -- Official docs on thread safety and worker patterns
-- [FastAPI WebSocket patterns](https://fastapi.tiangolo.com/advanced/websockets/) -- Official WebSocket handling guidance
-- [FastAPI concurrency docs](https://fastapi.tiangolo.com/async/) -- Event loop blocking and async patterns
-- [Teams outgoing webhook HMAC verification](https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-outgoing-webhook) -- Microsoft official docs on signature verification
-- [Feishu callback handling SDK docs](https://open.feishu.cn/document/server-side-sdk/python--sdk/handle-callbacks) -- Feishu webhook patterns
-- Codebase analysis: `yigthinker/gateway/server.py`, `yigthinker/channels/*/adapter.py`, `yigthinker/tui/app.py`, `yigthinker/gateway/hibernation.py`, `yigthinker/__main__.py`
-- `.planning/codebase/CONCERNS.md` -- Known bugs and security issues identified in codebase audit
+- [Power Automate platform limits and throttling](https://learn.microsoft.com/en-us/power-automate/guidance/coding-guidelines/understand-limits) -- throttling limits, 14-day disable policy
+- [Power Automate API rate limits](https://manueltgomes.com/microsoft/power-platform/powerautomate/api-rate-limits-and-throttling-in-power-automate/) -- connector-level 600 calls/60s limit
+- [Power Automate troubleshoot broken connections](https://learn.microsoft.com/en-us/troubleshoot/power-platform/power-automate/connections/troubleshoot-broken-connections) -- Nov 2025 URL migration
+- [Power Automate flow limits and config](https://learn.microsoft.com/en-us/power-automate/limits-and-config) -- flow definition limits, 500 action cap
+- [UiPath API key deprecation and PAT migration](https://docs.uipath.com/overview/other/latest/overview/migrating-from-api-keys-to-personal-access-tokens) -- API keys removed March 2025
+- [UiPath Cloud API consumption guide](https://docs.uipath.com/orchestrator/automation-cloud/latest/api-guide/consuming-cloud-api) -- 24-hour token expiry, refresh flow
+- [UiPath On-Prem auth options](https://forum.uipath.com/t/api-authentication-options-with-on-prem-orchestrator/389403) -- different endpoint for on-prem
+- [CVE-2025-27516: Jinja2 sandbox breakout via attr filter](https://github.com/advisories/GHSA-cpwx-vrp4-4pq7) -- fixed in Jinja2 3.1.6
+- [Jinja2 SandboxedEnvironment documentation](https://jinja.palletsprojects.com/en/stable/sandbox/) -- correct sandbox usage and capabilities
+- [MCP Lifecycle specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle) -- stdio shutdown protocol, initialization requirements
+- [Windows Task Scheduler schtasks vulnerabilities](https://cymulate.com/blog/task-scheduler-new-vulnerabilities-for-schtasks-exe/) -- UAC bypass, task hiding risks
+- [JSON file corruption in concurrent Python](https://github.com/confident-ai/deepeval/issues/2322) -- race condition examples, truncated JSON
+- [Python secure coding guidelines](https://www.aptori.com/blog/python-security-cheat-sheet-for-developers) -- exec() risks, credential handling best practices
+- [RPA common pitfalls](https://yellow.systems/blog/rpa-project-challenges) -- 50% dev time on bot maintenance, brittle selectors
+- [UiPath Healing Agent](https://support-rpa.blogspot.com/2025/03/understanding-uipath-healing-agent.html) -- self-healing pattern precedent
+- Codebase analysis: `yigthinker/tools/dataframe/df_transform.py` (existing sandbox pattern), `yigthinker/memory/auto_dream.py` (existing filelock pattern), `yigthinker/gateway/server.py` (existing auth pattern), `yigthinker/gateway/auth.py` (existing token pattern), `yigthinker/mcp/client.py` (current MCP lifecycle), `yigthinker/hooks/executor.py` (hook execution model), `yigthinker/permissions.py` (permission system), `yigthinker/gateway/session_registry.py` (concurrency model)
 
 ---
-*Pitfalls research for: Multi-channel AI agent gateway with Textual TUI, session hibernation, and messaging platform webhooks*
-*Researched: 2026-04-02*
+*Pitfalls research for: Workflow & RPA Bridge additions to Yigthinker*
+*Researched: 2026-04-09*

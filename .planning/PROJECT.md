@@ -2,79 +2,49 @@
 
 ## What This Is
 
-Yigthinker is a Python-based AI agent for financial and data analysis — a headless "data analysis Claude Code" with multi-channel access. It uses a flat tool registry (26 tools), a single Agent Loop, hooks for cross-cutting concerns, and in-memory DataFrame operations. The codebase includes Gateway daemon, Textual TUI, and channel adapters (Teams integrated; Feishu/Google Chat deferred). Core loop, Gateway, TUI, streaming, memory, and spawn agent are all functional.
+Yigthinker is a Python-based AI agent for financial and data analysis — a headless "data analysis Claude Code" with multi-channel access and workflow automation. It uses a flat tool registry (30 tools), a single Agent Loop, hooks for cross-cutting concerns, and in-memory DataFrame operations. The codebase includes Gateway daemon (with RPA self-healing endpoints), Textual TUI, channel adapters (Teams integrated with requirements coverage; Feishu/Google Chat adapters implemented but not yet formally validated with requirements), workflow generation/deployment/lifecycle management, and two independent MCP server packages for UiPath and Power Automate integration.
 
 ## Core Value
 
-A user can interact via CLI REPL, IM channels (Teams), or TUI connected to the Gateway, having AI-assisted data analysis conversations with tool calls (SQL, DataFrame, charts, forecasts, finance calculations) — same agent, multiple surfaces.
+A user can interact via CLI REPL, IM channels (Teams), or TUI connected to the Gateway, having AI-assisted data analysis conversations with tool calls (SQL, DataFrame, charts, forecasts, finance calculations) — same agent, multiple surfaces. Repeatable analysis patterns become automated workflows deployed to RPA platforms (Power Automate, UiPath) or local OS schedulers.
 
-## Current Milestone: v1.1 Workflow & RPA Bridge
+## Shipped Milestones
 
-**Goal:** Enable Yigthinker to recognize repeatable analysis patterns and proactively generate, deploy, and manage automated workflows on mainstream RPA platforms.
+### v1.1 Workflow & RPA Bridge (shipped 2026-04-12)
 
-**Target features:**
-- 3 new native tools: workflow_generate, workflow_deploy, workflow_manage
+- 4 new native tools: workflow_generate, workflow_deploy, workflow_manage, suggest_automation
 - Workflow Registry with versioned scripts, manifests, and run history
-- "Automate everything" behavior layer with proactive suggestions
-- Gateway RPA endpoints for self-healing and status reporting
-- 2 MCP server packages: yigthinker-mcp-powerautomate and yigthinker-mcp-uipath
+- "Automate everything" behavior layer with proactive suggestions and cross-session pattern detection
+- Gateway RPA endpoints (/api/rpa/callback, /api/rpa/report) for self-healing and status reporting
+- 2 MCP server packages: yigthinker-mcp-powerautomate (MSAL auth, 5 tools) and yigthinker-mcp-uipath (OAuth2, 5 tools)
 - Generated Python scripts with checkpoint/retry/self-healing structure
-- 3 deploy modes: auto, guided, local
+- 3 deploy modes: auto (MCP), guided (paste-ready ZIP), local (OS scheduler)
+
+### v1.0 Stabilization (shipped 2026-04-08)
+
+- Agent Loop end-to-end with 4 LLM providers (Claude, OpenAI, Ollama, Azure)
+- Gateway daemon with multi-session management, WebSocket API, session hibernation
+- Textual TUI with markdown rendering, VarsPanel, keyboard shortcuts
+- LLM token streaming through full stack (provider → AgentLoop → Gateway → TUI)
+- Teams adapter with HMAC verification and Adaptive Cards
+- Session Memory and Auto Dream cross-session knowledge accumulation
+- Spawn Agent with context isolation, DataFrame sharing, tool access control
 
 ## Requirements
 
-### Validated
+All v1.0 and v1.1 requirements shipped. See [v1.1 requirements archive](milestones/v1.1-REQUIREMENTS.md) for full traceability.
 
-- ✓ Project structure and module layout — existing
-- ✓ 26 tool definitions with Pydantic schemas — existing + finance tools
-- ✓ LLM provider abstraction (Claude, OpenAI, Ollama, Azure) — existing
-- ✓ Hook system (PreToolUse, PostToolUse, SessionStart, SessionEnd, etc.) — existing
-- ✓ Permission system (allow/ask/deny pattern matching) — existing
-- ✓ SessionContext with VarRegistry for DataFrames — existing
-- ✓ Settings system (project + user + managed layers) — existing
-- ✓ MCP integration for external tools — existing
-- ✓ Plugin system with YAML frontmatter commands — existing
-- ✓ Session persistence as JSONL transcripts — existing
-- ✓ Agent Loop runs end-to-end — Validated in Phase 1
-- ✓ CLI REPL functional with all 4 LLM providers — Validated in Phase 1
-- ✓ Fix nested asyncio.run() in __main__.py _build() — Validated in Phase 1
-- ✓ Fix VarRegistry.list() to include non-DataFrame variables — Validated in Phase 1
-- ✓ Fix ContextManager instantiation — Validated in Phase 1
-- ✓ Wire spawn_agent to honest error — Validated in Phase 1
-- ✓ All existing tests pass — Validated in Phase 1
-- ✓ Gateway daemon starts, manages multi-session via WebSocket/HTTP API — Validated in Phase 2
-- ✓ Session scoping (per-sender, per-channel, named, global) — Validated in Phase 2
-- ✓ Session hibernation/restore (DataFrame → Parquet, messages → JSONL) — Validated in Phase 2
-- ✓ TUI connects to Gateway, chat log with markdown rendering — Validated in Phase 3
-- ✓ TUI VarsPanel, keyboard shortcuts, reconnection, ToolCards — Validated in Phase 3
-- ✓ LLM streaming (provider → AgentLoop → Gateway → TUI) — Validated in Phase 4
-- ✓ Teams adapter (HMAC verification, Adaptive Cards, session keys) — Validated in Phase 4
-- ✓ Session Memory (key findings, survives compaction) — Validated in Phase 5
-- ✓ Auto Dream (SessionEnd extraction, cross-session persistence) — Validated in Phase 5
-- ✓ Spawn Agent (context isolation, DataFrame sharing, tool access control, lifecycle) — Validated in Phase 7
-- ✓ 4 finance tools (calculate, analyze, validate, budget) — Validated post-Phase 5
-- ✓ workflow_generate tool: generate self-contained Python scripts from step definitions — Validated in Phase 8
-- ✓ Workflow Registry: versioned scripts, manifests at ~/.yigthinker/workflows/ — Validated in Phase 8
-- ✓ Jinja2 templates for Python/PA/UiPath script generation (SandboxedEnvironment) — Validated in Phase 8
-- ✓ checkpoint_utils.py template: retry + self-healing callback wrapper (Gateway optional) — Validated in Phase 8
-- ✓ workflow_deploy tool: local/guided/auto modes × local/power_automate/uipath targets with runtime ZIP bundle generation and find_spec-based MCP detection (architect-not-executor invariant preserved) — Validated in Phase 9
-- ✓ workflow_manage tool: list/inspect/pause/resume/rollback/retire/health_check — all 7 lifecycle actions with transactional fail-fast rollback and target-keyed instructional next_steps — Validated in Phase 9
-- ✓ Phase 9 registry schema extension: lazy-default-on-read + per-entry merge save (no migration pass) preserves Phase 8 fields through Phase 9 patches — Validated in Phase 9
+**Summary:** 87 requirements across 2 milestones — 53 (v1.0) + 34 (v1.1), all complete.
 
 ### Active
 
-- [ ] "Automate everything" behavior: system prompt directive + proactive suggestions
-- [ ] SessionStart hook: registry health check on conversation start
-- [ ] Gateway /api/rpa/callback: self-healing endpoint for failed checkpoints
-- [ ] Gateway /api/rpa/report: status reporting (no LLM cost)
-- [ ] yigthinker-mcp-powerautomate: independent MCP server package (5 tools)
-- [ ] yigthinker-mcp-uipath: independent MCP server package (5 tools)
+(No active requirements — next milestone not yet defined)
 
 ### Out of Scope
 
-- Speculation/prediction engine — complex feature, defer to future milestone
-- Advisor dual-model architecture — requires stable core first
-- Voice/Whisper integration — WhisperProvider is broken, defer
+- Speculation/prediction engine — code exists behind `speculation` gate, defer formal validation to future milestone
+- Advisor dual-model architecture — code exists behind `advisor` gate, requires stable core first
+- Voice/Whisper integration — code exists behind `voice` gate, WhisperProvider is broken, defer
 - APScheduler for report scheduling — enterprise feature, defer
 - Real HashiCorp Vault integration — env var alias sufficient for now
 - Mobile app — web/TUI first
@@ -87,9 +57,11 @@ A user can interact via CLI REPL, IM channels (Teams), or TUI connected to the G
 
 ## Context
 
-**Brownfield project:** Extensive codebase (~60+ Python files) with a fully functional core. Agent Loop, Gateway, TUI, streaming, memory, spawn agent, workflow generation, workflow deployment (3 modes × 3 targets), and workflow lifecycle management (7 actions) are all working end-to-end. 603 tests passing.
+**Brownfield project:** Extensive codebase (~141 Python files across core + 2 independent MCP server packages) with all v1.0 and v1.1 features shipped. Agent Loop, Gateway (with RPA endpoints), TUI, streaming, memory, spawn agent, workflow generation/deployment/lifecycle, behavior layer, and both MCP server packages are all working end-to-end. ~680 tests passing across core + packages.
 
-**Design spec:** Workflow & RPA Bridge design at `docs/superpowers/specs/2026-04-09-workflow-rpa-bridge-design.md` defines the full architecture: native tools, registry, behavior layer, gateway endpoints, MCP servers, and generated script structure.
+**Design specs:**
+- Original design: `docs/superpowers/specs/2026-04-01-yigthinker-design.md`
+- Workflow & RPA Bridge: `docs/superpowers/specs/2026-04-09-workflow-rpa-bridge-design.md`
 
 **Key design principles:**
 - Yigthinker is the architect, not the executor — generates automation, doesn't run it
@@ -104,6 +76,8 @@ A user can interact via CLI REPL, IM channels (Teams), or TUI connected to the G
 - Gateway maintains `session_key → ManagedSession` mapping with per-session asyncio.Lock
 - MCP servers are independent packages communicating via stdio protocol
 - Workflow Registry is file-based (JSON) at `~/.yigthinker/workflows/`
+- PatternStore backs cross-session automation pattern detection with FileLock + lazy suppression pruning
+- RPAStateStore uses synchronous sqlite3 (WAL mode) for callback dedup and circuit breaker state
 
 ## Constraints
 
@@ -149,4 +123,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-10 after Phase 9 Deployment & Lifecycle complete*
+*Last updated: 2026-04-12 — v1.1 Workflow & RPA Bridge milestone shipped, v1.0+v1.1 archived to milestones/*
