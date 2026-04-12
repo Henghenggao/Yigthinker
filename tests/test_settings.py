@@ -39,3 +39,35 @@ def test_default_settings_include_gateway_and_channels():
 
 def test_has_api_key_for_ollama():
     assert has_api_key({"model": "ollama/llama3.1"})
+
+
+def test_default_allow_includes_readonly_tools():
+    expected = [
+        "df_load",
+        "df_profile",
+        "df_merge",
+        "schema_inspect",
+        "explore_overview",
+        "explore_drilldown",
+        "explore_anomaly",
+        "chart_create",
+        "chart_modify",
+        "chart_recommend",
+        "forecast_timeseries",
+        "forecast_regression",
+        "forecast_evaluate",
+        "finance_calculate",
+        "finance_analyze",
+        "finance_validate",
+    ]
+    allow_list = DEFAULT_SETTINGS["permissions"]["allow"]
+    for tool_name in expected:
+        assert tool_name in allow_list, f"{tool_name} should be in default allow list"
+    assert len(allow_list) == 16
+
+
+def test_default_allow_excludes_write_tools():
+    allow_list = DEFAULT_SETTINGS["permissions"]["allow"]
+    write_tools = ["sql_query", "df_transform", "workflow_deploy", "spawn_agent"]
+    for tool_name in write_tools:
+        assert tool_name not in allow_list, f"{tool_name} should NOT be in default allow list"
