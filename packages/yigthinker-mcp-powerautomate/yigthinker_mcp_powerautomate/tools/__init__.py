@@ -18,8 +18,25 @@ from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel
 
+from .pa_deploy_flow import PaDeployFlowInput
+from .pa_deploy_flow import handle as _deploy
+from .pa_flow_status import PaFlowStatusInput
+from .pa_flow_status import handle as _status
+from .pa_list_connections import PaListConnectionsInput
+from .pa_list_connections import handle as _connections
+from .pa_pause_flow import PaPauseFlowInput
+from .pa_pause_flow import handle as _pause
+from .pa_trigger_flow import PaTriggerFlowInput
+from .pa_trigger_flow import handle as _trigger
+
 Handler = Callable[[BaseModel, Any], Awaitable[dict]]
 
-TOOL_REGISTRY: dict[str, tuple[type[BaseModel], Handler]] = {}
+TOOL_REGISTRY: dict[str, tuple[type[BaseModel], Handler]] = {
+    "pa_deploy_flow": (PaDeployFlowInput, _deploy),
+    "pa_trigger_flow": (PaTriggerFlowInput, _trigger),
+    "pa_flow_status": (PaFlowStatusInput, _status),
+    "pa_pause_flow": (PaPauseFlowInput, _pause),
+    "pa_list_connections": (PaListConnectionsInput, _connections),
+}
 
 __all__ = ["TOOL_REGISTRY"]

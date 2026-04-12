@@ -24,9 +24,21 @@ def test_stub_modules_importable() -> None:
     assert server is not None
 
 
-def test_tool_registry_empty() -> None:
-    # Plan 12-01 ships TOOL_REGISTRY as an empty dict. Plan 12-05
-    # will populate it with the 5 Power Automate tools per D-23.
+def test_tool_registry_populated() -> None:
+    # Plan 12-05 populates TOOL_REGISTRY with 5 Power Automate tools per D-23.
     from yigthinker_mcp_powerautomate.tools import TOOL_REGISTRY
     assert isinstance(TOOL_REGISTRY, dict)
-    assert len(TOOL_REGISTRY) == 0
+    assert set(TOOL_REGISTRY.keys()) == {
+        "pa_deploy_flow",
+        "pa_trigger_flow",
+        "pa_flow_status",
+        "pa_pause_flow",
+        "pa_list_connections",
+    }
+    # Each entry is a (InputModel, handler) tuple.
+    for name, entry in TOOL_REGISTRY.items():
+        assert isinstance(entry, tuple), f"{name}: expected tuple"
+        assert len(entry) == 2, f"{name}: expected 2-tuple"
+        model_cls, handler_fn = entry
+        assert isinstance(model_cls, type), f"{name}: first element must be a type"
+        assert callable(handler_fn), f"{name}: second element must be callable"
