@@ -66,6 +66,7 @@ class SessionRegistry:
         self._idle_timeout = idle_timeout
         self._max_sessions = max_sessions
         self._hibernate_dir = _resolve_hibernate_dir(hibernate_dir)
+        self._active_keys: dict[str, str] = {}  # sender_key -> active_session_key
 
     def get_or_create(
         self,
@@ -207,6 +208,24 @@ class SessionRegistry:
         for key in keys:
             await self.hibernate(key)
         logger.info("Shut down %d sessions", len(keys))
+
+    def get_active_key(self, sender_key: str) -> str:
+        """Return the active session key for a sender (defaults to sender_key itself)."""
+        return self._active_keys.get(sender_key, sender_key)
+
+    def set_active_key(self, sender_key: str, session_key: str) -> None:
+        """Set the active session key for a sender."""
+        self._active_keys[sender_key] = session_key
+
+    def reset_session(
+        self,
+        key: str,
+        settings: dict[str, Any],
+        channel: str = "cli",
+    ) -> ManagedSession:
+        """Remove and recreate a session (clears all state)."""
+        self.remove(key)
+        return self.get_or_create(key, settings, channel)
 
     def _evict_lru(self) -> None:
         """Remove the least-recently-used unlocked session."""

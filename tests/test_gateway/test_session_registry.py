@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from yigthinker.gateway.session_registry import ManagedSession, SessionRegistry
+from yigthinker.types import Message
 
 
 def test_get_or_create_new():
@@ -85,3 +86,32 @@ async def test_evict_idle():
     count = await registry.evict_idle()
     assert count == 1
     assert registry.active_count == 0
+
+
+def test_active_session_default():
+    from yigthinker.gateway.session_registry import SessionRegistry
+    reg = SessionRegistry()
+    assert reg.get_active_key("teams:user1") == "teams:user1"
+
+
+def test_active_session_switch():
+    from yigthinker.gateway.session_registry import SessionRegistry
+    reg = SessionRegistry()
+    reg.set_active_key("teams:user1", "teams:user1:q1-analysis")
+    assert reg.get_active_key("teams:user1") == "teams:user1:q1-analysis"
+
+
+def test_reset_session():
+    from yigthinker.gateway.session_registry import SessionRegistry
+    from yigthinker.settings import DEFAULT_SETTINGS
+    reg = SessionRegistry()
+    session = reg.get_or_create("teams:user1", DEFAULT_SETTINGS, "teams")
+    session.ctx.messages.append(Message(role="user", content="hello"))
+    session.ctx.vars.set("df1", pd.DataFrame({"a": [1]}))
+
+    reg.reset_session("teams:user1", DEFAULT_SETTINGS, "teams")
+
+    new_session = reg.get("teams:user1")
+    assert new_session is not None
+    assert len(new_session.ctx.messages) == 0
+    assert new_session.ctx.vars.list() == []

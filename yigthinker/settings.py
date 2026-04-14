@@ -128,6 +128,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "undo": {
         "max_stack_depth": 20,
     },
+    "session": {
+        "max_checkpoints": 10,
+    },
 }
 
 

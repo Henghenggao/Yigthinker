@@ -37,3 +37,20 @@ class SDKSession:
     def list_vars(self):
         """Return summary of DataFrames currently in the variable registry."""
         return self._ctx.vars.list()
+
+    def checkpoint(self, label: str) -> None:
+        """Save current session state as a named checkpoint."""
+        self._ctx.checkpoint(label)
+
+    def branch_from(self, label: str) -> "SDKSession":
+        """Create a new independent session from a named checkpoint."""
+        new_ctx = self._ctx.branch_from(label)
+        return SDKSession(agent_loop=self._loop, ctx=new_ctx)
+
+    def branch(self) -> "SDKSession":
+        """Fork from current state."""
+        new_ctx = self._ctx.branch()
+        return SDKSession(agent_loop=self._loop, ctx=new_ctx)
+
+    def list_checkpoints(self) -> list[str]:
+        return self._ctx.list_checkpoints()
