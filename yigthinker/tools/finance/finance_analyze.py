@@ -51,6 +51,7 @@ class FinanceAnalyzeTool:
         "sensitivity (revenue/cost impact analysis)."
     )
     input_schema = FinanceAnalyzeInput
+    is_concurrency_safe = True
 
     async def execute(self, input: FinanceAnalyzeInput, ctx: SessionContext) -> ToolResult:
         try:

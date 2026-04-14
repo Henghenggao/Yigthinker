@@ -3,7 +3,14 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
-from yigthinker.cli.installer import STRINGS, build_extras, detect_language
+from yigthinker.cli.installer import (
+    DEFAULT_INSTALL_SOURCE,
+    STRINGS,
+    build_extras,
+    build_install_requirement,
+    build_manual_install_command,
+    detect_language,
+)
 
 
 def test_detect_language_returns_en_by_default():
@@ -68,3 +75,17 @@ def test_build_extras_team_with_teams_and_gchat():
 def test_build_extras_full_ignores_duplicate_platforms():
     result = build_extras(mode="full", platforms=["feishu"])
     assert result == "forecast,gateway,tui,feishu,teams,gchat"
+
+
+def test_build_install_requirement_defaults_to_github_source():
+    assert (
+        build_install_requirement("forecast,gateway")
+        == f"yigthinker[forecast,gateway] @ {DEFAULT_INSTALL_SOURCE}"
+    )
+
+
+def test_build_manual_install_command_honors_env_override():
+    with patch.dict(os.environ, {"YIGTHINKER_INSTALL_SOURCE": "git+https://example.com/custom/Yigthinker.git"}, clear=False):
+        assert build_manual_install_command("forecast") == (
+            'uv tool install "yigthinker[forecast] @ git+https://example.com/custom/Yigthinker.git"'
+        )

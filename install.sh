@@ -4,6 +4,8 @@
 set -euo pipefail
 
 main() {
+    local install_source="git+https://github.com/Henghenggao/Yigthinker.git"
+
     if command -v uv &>/dev/null; then
         echo "uv found: $(uv --version)"
     else
@@ -22,7 +24,8 @@ main() {
     echo ""
     echo "Starting Yigthinker installer..."
     echo ""
-    uvx yigthinker install
+    export YIGTHINKER_INSTALL_SOURCE="$install_source"
+    uv tool run --from "$install_source" yigthinker install
 }
 
 main

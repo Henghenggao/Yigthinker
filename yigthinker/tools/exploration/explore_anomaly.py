@@ -22,6 +22,7 @@ class ExploreAnomalyTool:
         "Stored in output_var for further analysis."
     )
     input_schema = ExploreAnomalyInput
+    is_concurrency_safe = True
 
     async def execute(self, input: ExploreAnomalyInput, ctx: SessionContext) -> ToolResult:
         try:

@@ -9,6 +9,24 @@ from yigthinker.session import SessionContext
 ReportFormat = Literal["excel", "pdf", "csv"]
 
 
+def _safe_output_path(output_path: str, ctx_settings: dict) -> tuple[Path, str | None]:
+    """Return (resolved_path, error_msg). error_msg is None if safe."""
+    workspace = Path(ctx_settings.get("workspace_dir", Path.cwd())).expanduser().resolve()
+    raw_path = Path(output_path).expanduser()
+    try:
+        candidate = raw_path if raw_path.is_absolute() else workspace / raw_path
+        resolved = candidate.resolve(strict=False)
+    except Exception:
+        return raw_path, f"Cannot resolve output path: {output_path}"
+    try:
+        resolved.relative_to(workspace)
+        return resolved, None
+    except ValueError:
+        return resolved, (
+            f"Access denied: output path '{output_path}' is outside workspace '{workspace}'."
+        )
+
+
 class ReportGenerateInput(BaseModel):
     var_name: str = "last_query"
     format: ReportFormat = "excel"
@@ -32,7 +50,9 @@ class ReportGenerateTool:
         except KeyError as exc:
             return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
-        path = Path(input.output_path)
+        path, err = _safe_output_path(input.output_path, ctx.settings)
+        if err:
+            return ToolResult(tool_use_id="", content=err, is_error=True)
         path.parent.mkdir(parents=True, exist_ok=True)
 
         try:

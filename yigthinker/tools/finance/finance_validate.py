@@ -43,6 +43,7 @@ class FinanceValidateTool:
         "Returns anomalies with severity and statistics."
     )
     input_schema = FinanceValidateInput
+    is_concurrency_safe = True
 
     async def execute(self, input: FinanceValidateInput, ctx: SessionContext) -> ToolResult:
         try:

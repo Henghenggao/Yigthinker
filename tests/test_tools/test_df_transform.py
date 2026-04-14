@@ -48,6 +48,24 @@ async def test_sandbox_blocks_open(ctx_with_df):
     assert result.is_error
 
 
+async def test_sandbox_blocks_pandas_readers(ctx_with_df):
+    tool = DfTransformTool()
+    code = "result = pd.read_csv('https://example.com/data.csv')"
+    input_obj = tool.input_schema(code=code, input_var="sales", output_var="out")
+    result = await tool.execute(input_obj, ctx_with_df)
+    assert result.is_error
+    assert "blocked" in result.content.lower()
+
+
+async def test_sandbox_blocks_dataframe_writers(ctx_with_df):
+    tool = DfTransformTool()
+    code = "result = df.to_csv('leak.csv')"
+    input_obj = tool.input_schema(code=code, input_var="sales", output_var="out")
+    result = await tool.execute(input_obj, ctx_with_df)
+    assert result.is_error
+    assert "blocked" in result.content.lower()
+
+
 async def test_missing_input_var_returns_error():
     tool = DfTransformTool()
     ctx = SessionContext()

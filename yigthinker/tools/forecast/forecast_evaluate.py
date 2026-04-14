@@ -19,6 +19,7 @@ class ForecastEvaluateTool:
         "Compares predicted vs actual columns in a registered DataFrame."
     )
     input_schema = ForecastEvaluateInput
+    is_concurrency_safe = True
 
     async def execute(self, input: ForecastEvaluateInput, ctx: SessionContext) -> ToolResult:
         try:

@@ -64,7 +64,7 @@ class FeishuCardRenderer:
             "tag": "action",
             "actions": [{
                 "tag": "button",
-                "text": {"tag": "plain_text", "content": "Open in Dashboard"},
+                "text": {"tag": "plain_text", "content": "Open chart"},
                 "url": url,
                 "type": "primary",
             }],

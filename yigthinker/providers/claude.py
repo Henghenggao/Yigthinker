@@ -1,25 +1,33 @@
 from __future__ import annotations
 from collections.abc import AsyncIterator
 import anthropic
-from yigthinker.types import LLMResponse, Message, StreamEvent, ToolUse
+from yigthinker.types import LLMResponse, Message, StreamEvent, ThinkingConfig, ToolUse
 from yigthinker.providers.base import LLMProvider
 
 
 class ClaudeProvider:
-    def __init__(self, model: str, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        model: str,
+        api_key: str | None = None,
+        thinking: ThinkingConfig | None = None,
+    ) -> None:
         self._model = model
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._thinking = thinking or ThinkingConfig()
 
     async def chat(self, messages: list[Message], tools: list[dict], system: str | None = None) -> LLMResponse:
         kwargs: dict = dict(
             model=self._model,
-            max_tokens=8192,
+            max_tokens=16000 if self._thinking.enabled else 8192,
             messages=[{"role": m.role, "content": m.content} for m in messages],
         )
         if system:
             kwargs["system"] = system
         if tools:
             kwargs["tools"] = tools
+        if self._thinking.enabled:
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": self._thinking.budget_tokens}
 
         response = await self._client.messages.create(**kwargs)
         return self._parse(response)
@@ -32,13 +40,15 @@ class ClaudeProvider:
     ) -> AsyncIterator[StreamEvent]:
         kwargs: dict = dict(
             model=self._model,
-            max_tokens=8192,
+            max_tokens=16000 if self._thinking.enabled else 8192,
             messages=[{"role": m.role, "content": m.content} for m in messages],
         )
         if system:
             kwargs["system"] = system
         if tools:
             kwargs["tools"] = tools
+        if self._thinking.enabled:
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": self._thinking.budget_tokens}
 
         try:
             async with self._client.messages.stream(**kwargs) as stream:
@@ -69,8 +79,11 @@ class ClaudeProvider:
     def _parse(self, response: anthropic.types.Message) -> LLMResponse:
         text = ""
         tool_uses: list[ToolUse] = []
+        thinking_blocks: list[dict] = []
         for block in response.content:
-            if block.type == "text":
+            if block.type == "thinking":
+                thinking_blocks.append({"type": "thinking", "thinking": block.thinking})
+            elif block.type == "text":
                 text = block.text
             elif block.type == "tool_use":
                 tool_uses.append(ToolUse(id=block.id, name=block.name, input=block.input))
@@ -78,4 +91,5 @@ class ClaudeProvider:
             stop_reason=response.stop_reason,  # type: ignore[arg-type]
             text=text,
             tool_uses=tool_uses,
+            thinking_blocks=thinking_blocks,
         )

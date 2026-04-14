@@ -14,7 +14,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -28,6 +28,7 @@ from yigthinker.gateway.protocol import (
     SubagentEventMsg,
     TokenStreamMsg,
     ToolCallMsg,
+    ToolProgressMsg,
     ToolResultMsg,
     VarsUpdateMsg,
     parse_client_msg,
@@ -86,9 +87,6 @@ class GatewayServer:
         self._eviction_task: asyncio.Task | None = None
         self._shutting_down = False
         self._adapters = self._build_adapters(settings.get("channels", {}))
-        self._dashboard_entries: list[dict[str, Any]] = []  # kept for API compat
-        self._max_dashboard_entries: int = int(gw_cfg.get("max_dashboard_entries", 500))
-
         # Build allowed origins set from defaults + settings
         extra_origins = gw_cfg.get("allowed_origins", [])
         self._allowed_origins = _build_allowed_origins(
@@ -188,15 +186,19 @@ class GatewayServer:
         session_key: str,
         user_input: str,
         channel: str = "cli",
+        on_tool_event: Callable[[str, dict], None] | None = None,
     ) -> str:
         """Route a user message to the agent loop within a managed session.
 
         Acquires the per-session lock to prevent concurrent access.
         """
+        # P1-2: resolve active session key (supports /new and /switch commands)
+        session_key = self._registry.get_active_key(session_key)
         session = await self._registry.get_or_restore(session_key, self._settings, channel)
 
         async with session.lock:
             session.touch()
+            session.ctx._session_registry = self._registry  # type: ignore[attr-defined]
 
             def _on_tool_event(event_type: str, data: dict) -> None:
                 """Broadcast tool events to attached WS clients (fire-and-forget)."""
@@ -219,6 +221,11 @@ class GatewayServer:
                         event=data.get("event", ""),
                         detail=data.get("detail", ""),
                     ))
+                elif event_type == "tool_progress":
+                    msg = to_json_dict(ToolProgressMsg(
+                        tool=data.get("tool", ""),
+                        message=data.get("message", ""),
+                    ))
                 else:
                     return
                 # Fire-and-forget broadcast to all WS clients attached to this session
@@ -228,6 +235,9 @@ class GatewayServer:
                             asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
                         except Exception:
                             pass
+                # Passthrough to external on_tool_event callback (e.g. Teams progress)
+                if on_tool_event is not None:
+                    on_tool_event(event_type, data)
 
             def _on_token(text: str) -> None:
                 """Broadcast token stream to all WS clients attached to this session (fire-and-forget per D-04)."""
@@ -271,36 +281,6 @@ class GatewayServer:
             if owner:
                 return self._registry.list_sessions_for_owner(owner)
             return self._registry.list_sessions()
-
-        @app.get("/api/dashboard/entries")
-        async def list_dashboard_entries(request: Request):
-            token = _extract_token(request)
-            if not self._auth.verify(token):
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
-            return list(self._dashboard_entries)
-
-        @app.post("/api/dashboard/push")
-        async def push_dashboard_entry(request: Request):
-            token = _extract_token(request)
-            if not self._auth.verify(token):
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-            body = await request.json()
-            entry = {
-                "dashboard_id": str(body.get("dashboard_id", "")).strip(),
-                "title": str(body.get("title", "")).strip(),
-                "chart_json": str(body.get("chart_json", "")).strip(),
-                "description": str(body.get("description", "")).strip(),
-            }
-            if not entry["dashboard_id"] or not entry["title"] or not entry["chart_json"]:
-                return JSONResponse({"error": "dashboard_id, title, and chart_json are required"}, status_code=400)
-
-            self._dashboard_entries.append(entry)
-            # LRU eviction: drop oldest entries when cap is reached
-            if len(self._dashboard_entries) > self._max_dashboard_entries:
-                self._dashboard_entries = self._dashboard_entries[-self._max_dashboard_entries:]
-            await self._broadcast_dashboard_entry(entry)
-            return {"ok": True, "dashboard_id": entry["dashboard_id"]}
 
         @app.post("/api/sessions")
         async def create_session(request: Request):
@@ -404,7 +384,7 @@ class GatewayServer:
                     self._ws_clients.remove(client)
 
     async def _ws_read_loop(self, client: _WSClient) -> None:
-        """Process incoming WebSocket messages from a TUI or dashboard client."""
+        """Process incoming WebSocket messages from an attached WebSocket client."""
         while True:
             raw = await client.ws.receive_text()
             data = json.loads(raw)
@@ -412,7 +392,7 @@ class GatewayServer:
 
             if msg.type == "attach":
                 # Restore first so we can reject ownership mismatches before
-                # auto-creating a fresh session. After auth, dashboard and TUI
+                # auto-creating a fresh session. After auth, TUI or API
                 # clients should be able to attach to a clean session
                 # immediately, which keeps the session picker and vars panel in
                 # sync on first load.
@@ -491,17 +471,6 @@ class GatewayServer:
                     await client.ws.send_json(msg)
                 except Exception:
                     dead.append(client)
-        for client in dead:
-            self._ws_clients.remove(client)
-
-    async def _broadcast_dashboard_entry(self, entry: dict[str, Any]) -> None:
-        dead: list[_WSClient] = []
-        message = {"type": "dashboard_entry", "entry": entry}
-        for client in self._ws_clients:
-            try:
-                await client.ws.send_json(message)
-            except Exception:
-                dead.append(client)
         for client in dead:
             self._ws_clients.remove(client)
 

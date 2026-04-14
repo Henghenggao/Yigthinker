@@ -10,5 +10,6 @@ class YigthinkerTool(Protocol):
     name: str
     description: str
     input_schema: type[BaseModel]
+    is_concurrency_safe: bool = False
 
     async def execute(self, input: BaseModel, ctx: SessionContext) -> ToolResult: ...

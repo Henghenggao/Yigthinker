@@ -17,6 +17,7 @@ class DfProfileTool:
         "missing values, type distribution, statistical summary, outlier detection."
     )
     input_schema = DfProfileInput
+    is_concurrency_safe = True
 
     async def execute(self, input: DfProfileInput, ctx: SessionContext) -> ToolResult:
         try:

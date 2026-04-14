@@ -32,7 +32,7 @@ class CardRenderer(Protocol):
         ...
 
     def render_chart_link(self, title: str, url: str, description: str = "") -> dict[str, Any]:
-        """Render a card linking to a dashboard chart."""
+        """Render a card linking to a chart or external visualization."""
         ...
 
     def render_error(self, message: str) -> dict[str, Any]:

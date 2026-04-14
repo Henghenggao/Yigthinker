@@ -9,7 +9,9 @@ class HookRegistry:
     def __init__(self) -> None:
         self._hooks: list[tuple[str, str, HookFn]] = []
 
-    def register(self, event_type: str, matcher: str, fn: HookFn) -> None:
+    def register(self, event_type: str, matcher: str, fn: HookFn, *, enabled: bool = True) -> None:
+        if not enabled:
+            return
         self._hooks.append((event_type, matcher, fn))
 
     def get_hooks_for(self, event_type: str, tool_name: str) -> list[HookFn]:

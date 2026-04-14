@@ -41,6 +41,9 @@ class SqlExplainTool:
             dialect = engine.dialect.name
             prefix = "EXPLAIN QUERY PLAN" if dialect == "sqlite" else "EXPLAIN"
 
+            if ";" in input.query:
+                return ToolResult(tool_use_id="", content="EXPLAIN rejected: query must not contain semicolons", is_error=True)
+
             async with engine.connect() as conn:
                 result = await conn.execute(sa.text(f"{prefix} {input.query}"))
                 rows = result.fetchall()

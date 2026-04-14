@@ -18,6 +18,7 @@ class ChartRecommendTool:
         "comparison -> bar, correlation -> scatter."
     )
     input_schema = ChartRecommendInput
+    is_concurrency_safe = True
 
     async def execute(self, input: ChartRecommendInput, ctx: SessionContext) -> ToolResult:
         try:

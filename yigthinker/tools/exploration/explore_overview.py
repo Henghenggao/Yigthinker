@@ -18,6 +18,7 @@ class ExploreOverviewTool:
         "and categorical value frequencies."
     )
     input_schema = ExploreOverviewInput
+    is_concurrency_safe = True
 
     async def execute(self, input: ExploreOverviewInput, ctx: SessionContext) -> ToolResult:
         try:

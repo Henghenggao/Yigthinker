@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
     from yigthinker.permissions import PermissionSystem
     from yigthinker.providers.base import LLMProvider
     from yigthinker.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class SpawnAgentInput(BaseModel):
@@ -155,9 +158,12 @@ class SpawnAgentTool:
 
         # 10. Copy DataFrames if specified
         original_names: set[str] = set()
-        if input.dataframes:
+        effective_dataframes = input.dataframes
+        if effective_dataframes == ["*"]:
+            effective_dataframes = [info.name for info in ctx.vars.list()]
+        if effective_dataframes:
             try:
-                copy_dataframes_to_child(ctx.vars, child_ctx.vars, input.dataframes)
+                copy_dataframes_to_child(ctx.vars, child_ctx.vars, effective_dataframes)
                 original_names = set(child_ctx.vars._vars.keys())
             except KeyError as exc:
                 return ToolResult(
@@ -179,7 +185,7 @@ class SpawnAgentTool:
 
                 # Merge back DataFrames if any were specified
                 merge_summary = ""
-                if input.dataframes:
+                if effective_dataframes:
                     merge_summary = merge_back_dataframes(
                         ctx.vars, child_ctx.vars, agent_name, original_names,
                     )
@@ -261,8 +267,9 @@ class SpawnAgentTool:
             hooks = self._hooks
             session_id = ctx.session_id
             transcript_path = ctx.transcript_path
-            parent_vars = ctx.vars
-            dataframes_specified = input.dataframes
+            session_registry = getattr(ctx, "_session_registry", None)
+            parent_vars = ctx.vars  # fallback if no registry
+            dataframes_specified = effective_dataframes
             on_tool_event = _on_tool_event
 
             async def _run_background() -> None:
@@ -271,12 +278,26 @@ class SpawnAgentTool:
                 try:
                     result_text = await child_loop.run(full_prompt, child_ctx)
 
-                    # Merge back DataFrames
+                    # Merge back DataFrames — safe for evicted sessions
                     merge_summary = ""
                     if dataframes_specified:
-                        merge_summary = merge_back_dataframes(
-                            parent_vars, child_ctx.vars, agent_name, original_names,
-                        )
+                        if session_registry is not None:
+                            live_session = session_registry.get(session_id)
+                            if live_session is None:
+                                logger.warning(
+                                    "Parent session %s evicted, skipping DataFrame merge-back for %s",
+                                    session_id, agent_name,
+                                )
+                            else:
+                                async with live_session.lock:
+                                    merge_summary = merge_back_dataframes(
+                                        live_session.ctx.vars, child_ctx.vars, agent_name, original_names,
+                                    )
+                        else:
+                            # No registry: use direct parent_vars reference (foreground-only path)
+                            merge_summary = merge_back_dataframes(
+                                parent_vars, child_ctx.vars, agent_name, original_names,
+                            )
 
                     manager.complete(info.subagent_id, result_text)
                     # D-08: notification for parent LLM

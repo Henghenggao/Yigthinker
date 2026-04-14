@@ -20,30 +20,31 @@ class SmartCompact:
         memory_content: str,
         token_estimate: int,
         vars_summary: str = "",
-    ) -> list[Message]:
+    ) -> tuple[list[Message], str]:
         """
-        Run smart compact. Returns compacted message list.
-        If token_estimate < max_tokens, returns messages unchanged.
+        Run smart compact. Returns (compacted_messages, system_injection).
+
+        system_injection is non-empty when memory should be prepended to the
+        system prompt for the next LLM call. Injecting memory via the system
+        prompt rather than as a role="user" message prevents consecutive
+        user-role messages, which the Anthropic API rejects with HTTP 400.
+
+        If token_estimate < max_tokens, returns (messages, "").
         If memory_content is empty, falls back to generic tail truncation.
         """
         if token_estimate < self._cfg.max_tokens:
-            return messages
+            return messages, ""
 
         # Determine how many recent messages to keep
         keep = max(self._cfg.min_text_block_messages, len(messages) // 3)
         recent = messages[-keep:]
 
         if not memory_content.strip():
-            # Generic fallback: just keep recent tail
-            return recent
+            return recent, ""
 
-        # Smart compact: inject memory summary as first message
-        memory_msg_parts = ["[Session Memory — auto-extracted]\n", memory_content]
+        # Build memory injection for system prompt (avoids consecutive user messages)
+        memory_parts = ["[Session Memory — auto-extracted]\n", memory_content]
         if vars_summary:
-            memory_msg_parts.append(f"\n\n[DataFrame Variables]\n{vars_summary}")
+            memory_parts.append(f"\n\n[DataFrame Variables]\n{vars_summary}")
 
-        memory_message = Message(
-            role="user",
-            content="".join(memory_msg_parts),
-        )
-        return [memory_message] + recent
+        return recent, "".join(memory_parts)

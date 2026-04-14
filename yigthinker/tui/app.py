@@ -5,12 +5,12 @@ import asyncio
 import uuid
 from typing import Any
 
+from yigthinker.tui._import_error import TEXTUAL_IMPORT_ERROR
+
 try:
     from textual.app import App
 except ImportError as exc:
-    raise ImportError(
-        "TUI requires the 'textual' package. Install with: pip install yigthinker[tui]"
-    ) from exc
+    raise ImportError(TEXTUAL_IMPORT_ERROR) from exc
 
 from yigthinker.tui.screens.chat import ChatScreen
 from yigthinker.tui.screens.model_picker import ModelPickerScreen
@@ -67,10 +67,6 @@ class YigthinkerTUI(App):
     async def on_mount(self) -> None:
         self.push_screen(ChatScreen(session_key=self._session_key))
         self.run_worker(self._ws_client.connect_loop(), exclusive=True)
-        try:
-            self._status_bar.set_status(session=self._session_key, state="connecting")
-        except Exception:
-            pass  # Widget not yet mounted during early state changes
 
     async def on_input_submitted(self, event: InputBar.Submitted) -> None:
         text = event.value.strip()
@@ -230,12 +226,35 @@ class YigthinkerTUI(App):
                 self._cursor_timer = None
 
     def _on_state_change(self, state: str) -> None:
+        self._apply_state_to_ui(state)
+
+    def _apply_state_to_ui(self, state: str) -> None:
         try:
-            self._status_bar.set_status(session=self._session_key, state=state)
-            input_bar = self.screen.query_one("#input-bar", InputBar)
-            input_bar.disabled = state != "connected"
+            self.screen.query_one("#status-bar", StatusBar).set_status(
+                session=self._session_key, state=state,
+            )
         except Exception:
-            pass  # Widget not yet mounted during early state changes
+            pass
+        try:
+            self.screen.query_one("#input-bar", InputBar).disabled = state != "connected"
+        except Exception:
+            pass
+        # Surface auth failure and reconnection in chat log
+        if state == "auth_failed":
+            try:
+                self.screen.query_one("#chat-log", ChatLog).append_error(
+                    "Gateway authentication failed. Check that the gateway is "
+                    "running and ~/.yigthinker/gateway.token is valid."
+                )
+            except Exception:
+                pass
+        elif state == "reconnecting":
+            try:
+                self.screen.query_one("#chat-log", ChatLog).append_error(
+                    "Gateway connection lost. Reconnecting..."
+                )
+            except Exception:
+                pass
 
     def action_show_session_picker(self) -> None:
         def on_session_selected(key: str | None) -> None:

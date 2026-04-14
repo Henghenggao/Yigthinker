@@ -3,6 +3,8 @@
 $ErrorActionPreference = "Stop"
 
 function Main {
+    $installSource = "git+https://github.com/Henghenggao/Yigthinker.git"
+
     $uvPath = Get-Command uv -ErrorAction SilentlyContinue
     if ($uvPath) {
         Write-Host "uv found: $(uv --version)"
@@ -23,7 +25,8 @@ function Main {
     Write-Host ""
     Write-Host "Starting Yigthinker installer..."
     Write-Host ""
-    uvx yigthinker install
+    $env:YIGTHINKER_INSTALL_SOURCE = $installSource
+    uv tool run --from $installSource yigthinker install
 }
 
 Main

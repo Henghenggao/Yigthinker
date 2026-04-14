@@ -40,7 +40,7 @@ class GChatCardRenderer:
             widgets.append({"textParagraph": {"text": description}})
         widgets.append({
             "buttonList": {"buttons": [{
-                "text": "Open in Dashboard",
+                "text": "Open chart",
                 "onClick": {"openLink": {"url": url}},
             }]},
         })
