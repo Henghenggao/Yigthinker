@@ -48,7 +48,7 @@ def test_snapshot_new_file(tmp_path):
     assert len(ctx.undo_stack) == 1
     entry = ctx.undo_stack[0]
     assert entry.is_new_file is True
-    assert entry.backup_path == _Path("")
+    assert entry.backup_path is None
 
 
 def test_undo_restores_existing(tmp_path):
@@ -90,3 +90,21 @@ def test_snapshot_evicts_oldest_when_full(tmp_path):
     assert len(ctx.undo_stack) == 3
     # Oldest (file_0) should have been evicted and its backup cleaned up
     assert ctx.undo_stack[0].original_path.name == "file_1.txt"
+
+
+def test_eviction_of_new_file_entry_does_not_crash(tmp_path):
+    """Evicting a new-file entry (backup_path=None) must not crash."""
+    ctx = SessionContext()
+
+    # First: snapshot a new file (backup_path will be None)
+    new_target = tmp_path / "new_file.pdf"
+    snapshot_before_write(ctx, "tool", new_target, max_depth=1)
+
+    # Second: snapshot an existing file — triggers eviction of the new-file entry
+    existing = tmp_path / "existing.txt"
+    existing.write_text("data")
+    snapshot_before_write(ctx, "tool", existing, max_depth=1)
+
+    # Should not crash, and stack should have only 1 entry
+    assert len(ctx.undo_stack) == 1
+    assert ctx.undo_stack[0].is_new_file is False

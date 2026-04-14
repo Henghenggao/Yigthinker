@@ -28,7 +28,7 @@ def snapshot_before_write(
         entry = UndoEntry(
             tool_name=tool_name,
             original_path=path,
-            backup_path=Path(""),
+            backup_path=None,
             created_at=time.time(),
             is_new_file=True,
         )
@@ -38,7 +38,7 @@ def snapshot_before_write(
     # Evict oldest if over limit
     while len(ctx.undo_stack) > max_depth:
         evicted = ctx.undo_stack.pop(0)
-        if evicted.backup_path and evicted.backup_path.exists():
+        if evicted.backup_path is not None and evicted.backup_path.exists():
             evicted.backup_path.unlink(missing_ok=True)
 
 
@@ -48,7 +48,7 @@ def undo_file(entry: UndoEntry) -> None:
         if entry.original_path.exists():
             entry.original_path.unlink()
     else:
-        if entry.backup_path.exists():
+        if entry.backup_path is not None and entry.backup_path.exists():
             shutil.copy2(entry.backup_path, entry.original_path)
             entry.backup_path.unlink(missing_ok=True)
 
@@ -56,5 +56,5 @@ def undo_file(entry: UndoEntry) -> None:
 def cleanup_backups(undo_stack: list[UndoEntry]) -> None:
     """Remove all backup files. Called at session end."""
     for entry in undo_stack:
-        if entry.backup_path and entry.backup_path.exists():
+        if entry.backup_path is not None and entry.backup_path.exists():
             entry.backup_path.unlink(missing_ok=True)

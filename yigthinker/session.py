@@ -35,7 +35,7 @@ class VarInfo:
 class UndoEntry:
     tool_name: str
     original_path: _Path
-    backup_path: _Path
+    backup_path: _Path | None
     created_at: float
     is_new_file: bool
 
