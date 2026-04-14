@@ -162,8 +162,15 @@ Recent decisions affecting current work:
 - Phase 11 needs research: UiPath .nupkg Python Activity schema
 - Phase 12 needs research: PA Dataverse clientdata payload, Azure Function deployment
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Status | Directory |
+|---|-------------|------|--------|--------|-----------|
+| 260414-kzg | Teams attachment support | 2026-04-14 | 254abeb | — | [260414-kzg-teams-attachment-support](./quick/260414-kzg-teams-attachment-support/) |
+| 260414-mu3 | Upgrade Yigthinker agent loop: concurrent tools, progressive feedback, result size control, error recovery, multi-layer compaction, model fallback | 2026-04-14 | 3e357f0 | Verified | [260414-mu3-upgrade-yigthinker-agent-loop-concurrent](./quick/260414-mu3-upgrade-yigthinker-agent-loop-concurrent/) |
+
 ## Session Continuity
 
 Last session: 2026-04-14T14:45:32Z
-Stopped at: Completed quick-260414-mu3
+Stopped at: Completed quick-260414-mu3 (agent loop upgrade — 7/7 verified)
 Resume file: None
