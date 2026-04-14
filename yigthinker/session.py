@@ -43,7 +43,7 @@ class UndoEntry:
 
 @dataclass
 class CheckpointData:
-    messages: list[Any]
+    messages: list[Message]
     vars_snapshot: dict[str, Any]
     created_at: float
 
