@@ -2,13 +2,15 @@
 
 ## What This Is
 
-Yigthinker is a Python-based AI agent for financial and data analysis. It uses a flat tool registry, a single agent loop, a hook system for cross-cutting concerns, a permission system, MCP integration for external systems, and a plugin system — all adapted for in-memory DataFrame operations on financial data.
+Yigthinker is a Python-based AI agent for financial and data analysis with workflow automation. It uses a flat tool registry (30 tools), a single agent loop, a hook system for cross-cutting concerns, a permission system, MCP integration for external systems, a plugin system, and a workflow generation/deployment layer — all adapted for in-memory DataFrame operations on financial data. Repeatable analysis patterns become automated workflows deployed to RPA platforms (Power Automate, UiPath) or local OS schedulers.
 
-Design spec: `docs/superpowers/specs/2026-04-01-yigthinker-design.md`
+Design specs:
+- Original: `docs/superpowers/specs/2026-04-01-yigthinker-design.md`
+- Workflow & RPA Bridge: `docs/superpowers/specs/2026-04-09-workflow-rpa-bridge-design.md`
 
 ## Architecture Principles
 
-- **Flat tools** — all 26 tools registered directly in the Agent Loop; no grouping or agent personas at runtime
+- **Flat tools** — all 30 tools registered directly in the Agent Loop; no grouping or agent personas at runtime
 - **Tool Registration** — `(name, input_schema, handler)` tuple; Pydantic model → auto JSON Schema; no `risk_level` or `validate()` on tools
 - **Permissions are external** — settings.json `allow/ask/deny` + pattern matching; PreToolUse Hooks handle validation
 - **Hooks over hardcoded logic** — enterprise features (RBAC, audit, masking, approvals) are Hook implementations, not architectural layers
@@ -36,7 +38,7 @@ class YigthinkerTool(Protocol):
     async def execute(self, input: BaseModel, ctx: SessionContext) -> ToolResult
 ```
 
-All tools: `sql_query`, `sql_explain`, `schema_inspect`, `df_load`, `df_transform`, `df_profile`, `df_merge`, `chart_create`, `chart_modify`, `chart_recommend`, `report_generate`, `report_template`, `report_schedule`, `forecast_timeseries`, `forecast_regression`, `forecast_evaluate`, `explore_overview`, `explore_drilldown`, `explore_anomaly`, `finance_calculate`, `finance_analyze`, `finance_validate`, `finance_budget`, `spawn_agent`, `agent_status`, `agent_cancel`
+All tools: `sql_query`, `sql_explain`, `schema_inspect`, `df_load`, `df_transform`, `df_profile`, `df_merge`, `chart_create`, `chart_modify`, `chart_recommend`, `report_generate`, `report_template`, `report_schedule`, `forecast_timeseries`, `forecast_regression`, `forecast_evaluate`, `explore_overview`, `explore_drilldown`, `explore_anomaly`, `finance_calculate`, `finance_analyze`, `finance_validate`, `finance_budget`, `spawn_agent`, `agent_status`, `agent_cancel`, `workflow_generate`, `workflow_deploy`, `workflow_manage`, `suggest_automation`
 
 ## Hook Pattern
 
@@ -48,7 +50,7 @@ async def my_hook(event: HookEvent) -> HookResult:
 
 Command hooks use exit codes: 0 = allow, 1 = warn user only, 2 = block (stderr → LLM feedback).
 
-Hook events: `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`, `PreCompact`
+Hook events: `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`, `PreCompact`, `SubagentStop`
 
 ## Configuration
 
@@ -92,6 +94,8 @@ Implementations: `ClaudeProvider`, `OpenAIProvider`, `OllamaProvider`, `AzurePro
 - `df_transform` sandbox: restricted `exec()` — no file I/O, no network, only pandas/numpy/polars imports
 - `sql_query`: parameterized queries only; DML triggers permission check; default read-only
 - Secrets: vault integration (`vault://path`) and keyring — never plaintext credentials in settings
+- Workflow templates: Jinja2 `SandboxedEnvironment` + AST validation (two-layer SSTI prevention)
+- Workflow scripts: self-contained, never import Yigthinker; credential placeholders use `vault://` references
 
 ## Plugin Directory Convention
 
@@ -113,17 +117,19 @@ Sessions are saved as JSONL transcripts. Resume via `yigthinker --resume`.
 
 **Yigthinker**
 
-Yigthinker is a Python-based AI agent for financial and data analysis — a headless "data analysis Claude Code" with multi-channel access. It uses a flat tool registry (26 tools), a single Agent Loop, hooks for cross-cutting concerns, and in-memory DataFrame operations. The codebase includes Gateway daemon, Textual TUI, and channel adapters (Feishu/Teams/Google Chat). No web dashboard — product is headless by design.
+Yigthinker is a Python-based AI agent for financial and data analysis with workflow automation — a headless "data analysis Claude Code" with multi-channel access. It uses a flat tool registry (30 tools), a single Agent Loop, hooks for cross-cutting concerns, and in-memory DataFrame operations. The codebase includes Gateway daemon (with RPA self-healing endpoints), Textual TUI, channel adapters (Teams integrated; Feishu/Google Chat adapters exist but are not yet formally validated), and two independent MCP server packages for UiPath and Power Automate. No web dashboard — product is headless by design.
 
-**Core Value:** A user can interact via CLI REPL, IM channels (Feishu/Teams/Google Chat), or TUI connected to the Gateway, having AI-assisted data analysis conversations with tool calls (SQL, DataFrame, charts, forecasts, finance calculations) — same agent, multiple surfaces.
+**Core Value:** A user can interact via CLI REPL, IM channels (Teams), or TUI connected to the Gateway, having AI-assisted data analysis conversations with tool calls (SQL, DataFrame, charts, forecasts, finance calculations) — same agent, multiple surfaces. Repeatable analysis patterns become automated workflows deployed to RPA platforms.
 
 ### Constraints
 
-- **Tech stack**: Python 3.11, existing dependencies (FastAPI, Textual, Typer, Pydantic, etc.)
+- **Tech stack**: Python 3.11, existing dependencies (FastAPI, Textual, Typer, Pydantic, Jinja2, etc.)
 - **Platform**: Must work on Windows (no fork(), gateway runs foreground with --fg)
 - **Bottom-up order**: Agent Loop → Gateway → TUI → Channels (dependency chain)
 - **All 4 providers**: Claude, OpenAI, Ollama, Azure must all work
-- **Feishu 3s ACK**: Webhook must return within 3 seconds, async processing mandatory
+- **Self-contained scripts**: Generated workflows must run without Yigthinker installed
+- **Gateway optional**: Scripts must function with Gateway offline (lose self-healing only)
+- **MCP independence**: MCP server packages are separate packages, not bundled into core
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
@@ -167,6 +173,8 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a head
 - `msal` 1.35.1 - Microsoft Azure AD token acquisition for Teams (`yigthinker/channels/teams/adapter.py`)
 - `google-api-python-client` 2.193.0, `google-auth` 2.49.1 - Google Chat API (`yigthinker/channels/gchat/adapter.py`)
 - `mcp` (SDK) - Model Context Protocol client; loaded lazily in `yigthinker/mcp/client.py` via `from mcp import ClientSession, StdioServerParameters`; missing package is caught silently at startup
+- `jinja2` >=3.1.6 - Sandboxed template rendering for workflow code generation (CVE-2025-27516 fix)
+- `croniter` >=6.0.0 - Cron expression parsing for workflow scheduling
 ## Configuration
 - `ANTHROPIC_API_KEY` - Required for Claude models (`claude-*`)
 - `OPENAI_API_KEY` - Required for OpenAI models (`gpt-*`, `o1`, `o3`, `o4`)
@@ -186,7 +194,7 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a head
 - Python 3.11+
 - Virtual environment at `.venv/`
 - Install with `pip install -e .[dev]` (core + dev extras)
-- Optional extras: `pip install -e .[forecast,gateway,tui]`
+- Optional extras: `pip install -e .[forecast,gateway,tui,rpa-uipath,rpa-powerautomate]`
 - Self-hosted; no cloud platform dependency
 - Can run headless as gateway daemon: `yigthinker gateway start`
 - Supports local Ollama for air-gapped deployments
@@ -244,7 +252,7 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a head
 
 ## Pattern Overview
 - One `AgentLoop` orchestrates all tool execution — no sub-agents, no hierarchical planner at runtime
-- All 26 tools registered at the same level in a flat `ToolRegistry`; no grouping or routing by tool category
+- All 30 tools registered at the same level in a flat `ToolRegistry`; no grouping or routing by tool category
 - `SessionContext` holds the only persistent in-memory state between tool calls (message history + DataFrame variable registry)
 - Cross-cutting concerns (permissions, audit, RBAC) are implemented as Hook functions, not as architectural layers
 - Multiple input surfaces (CLI REPL, Gateway daemon + WebSocket, messaging channel adapters) all funnel into the same `AgentLoop.run()` call
@@ -264,7 +272,7 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a head
 - Used by: `AgentLoop`
 - Purpose: Implement all domain capabilities as independently executable tools
 - Location: `yigthinker/tools/`
-- Contains: 26 registered tools across subgroups (`sql/`, `dataframe/`, `visualization/`, `reports/`, `forecast/`, `exploration/`, `finance/`, `spawn_agent.py`)
+- Contains: 30 registered tools across subgroups (`sql/`, `dataframe/`, `visualization/`, `reports/`, `forecast/`, `exploration/`, `finance/`, `workflow/`, `spawn_agent.py`)
 - Depends on: `SessionContext` (for `ctx.vars` access), `ContextManager` (for result summarization)
 - Used by: `AgentLoop._execute_tool()`
 - Purpose: Hold all session-scoped mutable state — message history, DataFrame registry, stats, settings reference
@@ -302,6 +310,29 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a head
 - Location: `yigthinker/plugins/`
 - Contains: `PluginLoader`, `PluginManifest`, `SlashCommand`, `load_commands_from_dir()`
 - Used by: `__main__.main()`
+- Purpose: Generate, deploy, and manage automated workflows from analysis conversations
+- Location: `yigthinker/tools/workflow/`
+- Contains: `workflow_generate`, `workflow_deploy`, `workflow_manage`, `suggest_automation` tools; `TemplateEngine` (Jinja2 sandbox), `WorkflowRegistry` (file-based JSON), `pa_bundle.py`, `uipath_bundle.py`, `mcp_detection.py`
+- Depends on: `SessionContext`, `PatternStore`, Jinja2 SandboxedEnvironment
+- Used by: `AgentLoop._execute_tool()`
+- Purpose: Self-healing callback and status reporting for RPA-deployed workflows
+- Location: `yigthinker/gateway/rpa_controller.py`, `yigthinker/gateway/rpa_state.py`
+- Contains: `RPAController` (LLM-driven error classification: fix_applied/skip/escalate), `RPAStateStore` (sqlite3 dedup + circuit breaker)
+- Depends on: `LLMProvider`, `GatewayServer`
+- Used by: Gateway routes `/api/rpa/callback`, `/api/rpa/report`
+- Purpose: Async app initialization — builds AgentLoop, ToolRegistry, ConnectionPool from settings
+- Location: `yigthinker/builder.py`
+- Contains: `build()` async factory; initializes optional subsystems (memory, patterns, RPA state, workflow registry)
+- Used by: `__main__._build()`, `GatewayServer`
+- Purpose: Cross-session automation pattern detection and proactive suggestion suppression
+- Location: `yigthinker/memory/patterns.py`
+- Contains: `PatternStore` with filelock + atomic writes, TTL-based suppression expiry, lazy pruning
+- Used by: `AutoDream` (BHV-05), `suggest_automation` tool (BHV-03)
+- Purpose: Feature flag system for gating optional subsystems
+- Location: `yigthinker/gates.py`
+- Contains: `is_enabled(gate_name, settings)` — checks env vars (`YIGTHINKER_GATE_<NAME>`) and settings
+- Gates: session_memory, auto_dream, speculation, agent_teams, advisor, voice, behavior
+- Used by: `builder.py`, `AgentLoop`, `registry_factory.py`
 ## Data Flow
 - `ctx.vars` (`VarRegistry`) — in-memory DataFrames, persists for entire session lifetime
 - `ctx.messages` — full conversation history in `AgentLoop` message format
@@ -309,7 +340,7 @@ Yigthinker is a Python-based AI agent for financial and data analysis — a head
 - Session persistence: JSONL transcript at `~/.yigthinker/sessions/session-<timestamp>-<id>.jsonl`
 - Gateway hibernation: `SessionHibernator` serializes `ManagedSession` to `~/.yigthinker/hibernate/`
 ## Key Abstractions
-- Purpose: Uniform interface for all 26 tools; enables `ToolRegistry` to store heterogeneous tools
+- Purpose: Uniform interface for all 30 tools; enables `ToolRegistry` to store heterogeneous tools
 - Location: `yigthinker/tools/base.py`
 - Pattern: Structural `Protocol` — any class with `name: str`, `description: str`, `input_schema: type[BaseModel]`, and `async execute(input, ctx) -> ToolResult` satisfies it
 - Purpose: Swap LLM backends without touching `AgentLoop`

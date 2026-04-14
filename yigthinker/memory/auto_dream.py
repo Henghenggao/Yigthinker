@@ -128,7 +128,7 @@ class AutoDream:
         cutoff = self._state.last_timestamp
         return [
             f for f in self._sessions_dir.glob("*.jsonl")
-            if max(f.stat().st_mtime, getattr(f.stat(), "st_ctime", 0.0)) > cutoff
+            if f.stat().st_mtime > cutoff
         ]
 
     async def run_background(

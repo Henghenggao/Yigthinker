@@ -62,7 +62,7 @@ async def build_app(
 
     # --- Workflow subsystem ---
     workflow_registry = None
-    if gate("workflow", settings=settings):
+    if gate("workflow", default=True, settings=settings):
         try:
             from yigthinker.tools.workflow.registry import WorkflowRegistry
             workflow_registry = WorkflowRegistry()
@@ -106,9 +106,32 @@ async def build_app(
             ) from None
 
     hook_registry = HookRegistry()
-    hooks = HookExecutor(hook_registry)
-    permissions = PermissionSystem(settings.get("permissions", {}))
+
+    # --- Plugin system: hooks + MCP ---
+    from yigthinker.plugins.loader import PluginLoader
+
+    _plugin_dir_strs = settings.get("plugin_dirs", [])
+    _plugin_dirs = [Path(d) for d in _plugin_dir_strs] if _plugin_dir_strs else None
+    plugin_loader = PluginLoader(plugin_dirs=_plugin_dirs)
+
+    for event_type, matcher, hook_fn in plugin_loader.load_hooks():
+        hook_registry.register(event_type, matcher, hook_fn)
+
+    hook_capabilities = settings.get("hooks", {}).get("capabilities", {})
+    hooks = HookExecutor(hook_registry, capabilities=hook_capabilities)
+    perm_settings = settings.get("permissions", {})
+    perm_mode = perm_settings.get("mode", "default")
+    permissions = PermissionSystem(perm_settings, mode=perm_mode)
     provider = provider_from_settings(settings)
+
+    fallback_provider: LLMProvider | None = None
+    fallback_model = settings.get("fallback_model")
+    if fallback_model:
+        fallback_settings = {**settings, "model": fallback_model}
+        try:
+            fallback_provider = provider_from_settings(fallback_settings)
+        except (ValueError, Exception):
+            pass  # fallback is best-effort
 
     if ask_fn is _SENTINEL:
         from yigthinker.cli.ask_prompt import ask_user_permission
@@ -128,6 +151,7 @@ async def build_app(
         ask_fn=resolved_ask_fn,
         max_iterations=max_iterations,
         timeout_seconds=timeout_seconds,
+        fallback_provider=fallback_provider,
     )
 
     # --- Spawn agent wiring ---

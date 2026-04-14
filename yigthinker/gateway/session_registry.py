@@ -66,6 +66,7 @@ class SessionRegistry:
         self._idle_timeout = idle_timeout
         self._max_sessions = max_sessions
         self._hibernate_dir = _resolve_hibernate_dir(hibernate_dir)
+        self._active_keys: dict[str, str] = {}  # sender_key -> active_session_key
 
     def get_or_create(
         self,
@@ -122,7 +123,14 @@ class SessionRegistry:
         session = self._sessions.pop(key, None)
         if session:
             logger.info("Removed session %s", key)
+            self._purge_active_key(key)
         return session
+
+    def _purge_active_key(self, key: str) -> None:
+        """Remove all sender→key mappings that point to a session key."""
+        stale = [k for k, v in self._active_keys.items() if v == key]
+        for k in stale:
+            del self._active_keys[k]
 
     def list_sessions(self) -> list[dict[str, Any]]:
         sessions = sorted(self._sessions.values(), key=lambda s: s.last_active, reverse=True)
@@ -173,6 +181,7 @@ class SessionRegistry:
             session.touch()
             await hibernator.save(session)
             self._sessions.pop(key, None)
+            self._purge_active_key(key)
             logger.info("Hibernated session %s", key)
             return True
         except Exception:
@@ -208,6 +217,24 @@ class SessionRegistry:
             await self.hibernate(key)
         logger.info("Shut down %d sessions", len(keys))
 
+    def get_active_key(self, sender_key: str) -> str:
+        """Return the active session key for a sender (defaults to sender_key itself)."""
+        return self._active_keys.get(sender_key, sender_key)
+
+    def set_active_key(self, sender_key: str, session_key: str) -> None:
+        """Set the active session key for a sender."""
+        self._active_keys[sender_key] = session_key
+
+    def reset_session(
+        self,
+        key: str,
+        settings: dict[str, Any],
+        channel: str = "cli",
+    ) -> ManagedSession:
+        """Remove and recreate a session (clears all state)."""
+        self.remove(key)
+        return self.get_or_create(key, settings, channel)
+
     def _evict_lru(self) -> None:
         """Remove the least-recently-used unlocked session."""
         candidates = [
@@ -220,6 +247,7 @@ class SessionRegistry:
 
         lru_key, lru_session = min(candidates, key=lambda x: x[1].last_active)
         self._sessions.pop(lru_key, None)
+        self._purge_active_key(lru_key)
         self._schedule_hibernate(lru_session)
         logger.warning("LRU-evicted session %s (at capacity %d)", lru_key, self._max_sessions)
 

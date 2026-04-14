@@ -1,7 +1,10 @@
-# Yigthinker Design Tokens
+# Historical Dashboard Design Tokens
 
-Design tokens and component specifications for the web dashboard.
+Archived design tokens and component specifications for the removed web dashboard.
 Source: CEO Plan 2026-04-07 (Web Dashboard Design Spec section).
+
+The shipped product is headless (`CLI + Gateway + TUI + IM channels`), so this
+document is retained only as historical reference for earlier terminology.
 
 ## CSS Custom Properties
 

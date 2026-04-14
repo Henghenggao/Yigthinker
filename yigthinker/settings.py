@@ -7,7 +7,29 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "model": "claude-sonnet-4-20250514",
     "fallback_model": None,
     "planner": {"enabled": False, "trigger": "auto"},
-    "permissions": {"allow": [], "ask": [], "deny": []},
+    "permissions": {
+        "mode": "default",
+        "allow": [
+            "df_load",
+            "df_profile",
+            "df_merge",
+            "schema_inspect",
+            "explore_overview",
+            "explore_drilldown",
+            "explore_anomaly",
+            "chart_create",
+            "chart_modify",
+            "chart_recommend",
+            "forecast_timeseries",
+            "forecast_regression",
+            "forecast_evaluate",
+            "finance_calculate",
+            "finance_analyze",
+            "finance_validate",
+        ],
+        "ask": [],
+        "deny": [],
+    },
     "connections": {},
     "theme": {
         "number_format": "#,##0",
@@ -15,7 +37,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "advisor": {"enabled": False, "model": "haiku"},
     "voice": {"enabled": False, "language": "zh"},
-    "dashboard_url": "http://localhost:8766",
     "ollama_base_url": "http://localhost:11434",
     "azure_endpoint": "",
     "azure_api_version": "2024-02-01",
@@ -93,11 +114,37 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "timeout_seconds": 60,
         }
     },
+    "thinking": {
+        "enabled": False,
+        "budget_tokens": 10000,
+    },
+    "hooks": {
+        "capabilities": {
+            "inject_system": True,
+            "suppress_output": True,
+            "replace_result": True,
+        },
+    },
+    "undo": {
+        "max_stack_depth": 20,
+    },
+    "session": {
+        "max_checkpoints": 10,
+    },
 }
 
 
-def load_settings(project_dir: Path | None = None) -> dict[str, Any]:
-    """Load and merge settings: defaults → project → user → managed (managed wins)."""
+def load_settings(
+    project_dir: Path | None = None,
+    user_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Load and merge settings: defaults → project → user → managed (managed wins).
+
+    Args:
+        project_dir: Override for the project root (default: cwd).
+        user_dir: Override for the user home directory (default: Path.home()).
+                  Useful in tests to avoid reading the real ~/.yigthinker/settings.json.
+    """
     import os
 
     settings = _deep_merge({}, DEFAULT_SETTINGS)
@@ -108,7 +155,7 @@ def load_settings(project_dir: Path | None = None) -> dict[str, Any]:
         settings = _deep_merge(settings, json.loads(project_path.read_text(encoding="utf-8")))
 
     # 2. User level (~/.yigthinker/settings.json)
-    user_path = Path.home() / ".yigthinker" / "settings.json"
+    user_path = (user_dir or Path.home()) / ".yigthinker" / "settings.json"
     if user_path.exists():
         user_data = json.loads(user_path.read_text(encoding="utf-8"))
         settings = _deep_merge(settings, user_data)

@@ -143,6 +143,13 @@ class FeishuAdapter:
             if not text:
                 return
 
+            # P1-2: route slash commands
+            from yigthinker.channels.command_parser import parse_channel_command
+            cmd = parse_channel_command(text)
+            if cmd is not None:
+                await self.send_response(body, f"Command /{cmd.name} received. Slash commands are processed by the agent.")
+                return
+
             key = self.session_key(body)
             sender_id = event.get("sender", {}).get("sender_id", {}).get("open_id", "")
 

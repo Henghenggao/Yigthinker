@@ -260,7 +260,8 @@ def test_breaker_persists_across_restart(tmp_path: Path) -> None:
                 "traceback": "x",
                 "step_context": {"name": "s", "inputs_summary": {}},
             }, headers=headers)
-    srv1._rpa_controller._state.close()
+    # TestClient exit already runs the helper's fake stop(), which closes the
+    # sqlite connection and clears the injected controller.
 
     # Second server: same db_path → 4th attempt should trip breaker
     srv2 = _build_server_without_rpa(tmp_path)

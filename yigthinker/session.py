@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from yigthinker.subagent.manager import SubagentManager
@@ -28,6 +30,22 @@ class VarInfo:
     shape: tuple[int, ...]
     dtypes: dict[str, str]
     var_type: str = "dataframe"
+
+
+@dataclass
+class UndoEntry:
+    tool_name: str
+    original_path: _Path
+    backup_path: _Path | None
+    created_at: float
+    is_new_file: bool
+
+
+@dataclass
+class CheckpointData:
+    messages: list[Message]
+    vars_snapshot: dict[str, Any]
+    created_at: float
 
 
 class VarRegistry:
@@ -88,7 +106,68 @@ class SessionContext:
     context_manager: ContextManager = field(default_factory=ContextManager)
     stats: StatsAccumulator = field(default_factory=StatsAccumulator)
     messages: list[Message] = field(default_factory=list)
+    undo_stack: list[UndoEntry] = field(default_factory=list)
     subagent_manager: SubagentManager | None = None
+    _progress_callback: Callable[[str], None] | None = field(default=None, repr=False)
+    _on_tool_event: Callable[[str, dict], None] | None = field(default=None, repr=False)
+    _pending_injections: list[str] | None = field(default=None, repr=False)
+    _checkpoints: dict[str, CheckpointData] = field(default_factory=dict, repr=False)
+
+    async def emit_progress(self, message: str) -> None:
+        """Emit a progress message to the UI layer. No-op if no callback set."""
+        if self._progress_callback is not None:
+            self._progress_callback(message)
+
+    def checkpoint(self, label: str) -> None:
+        """Save current state as a named checkpoint."""
+        # Shallow copy for performance — NumPy block data is shared. Avoid in-place
+        # DataFrame mutations after checkpointing if restoration fidelity is required.
+        vars_snapshot: dict[str, Any] = {}
+        for info in self.vars.list():
+            value = self.vars.get(info.name)
+            if isinstance(value, pd.DataFrame):
+                vars_snapshot[info.name] = (value.copy(deep=False), info.var_type)
+            else:
+                vars_snapshot[info.name] = (copy.copy(value), info.var_type)
+
+        self._checkpoints[label] = CheckpointData(
+            messages=copy.deepcopy(self.messages),
+            vars_snapshot=vars_snapshot,
+            created_at=time.time(),
+        )
+
+        max_checkpoints = self.settings.get("session", {}).get("max_checkpoints", 10)
+        while len(self._checkpoints) > max_checkpoints:
+            oldest_key = next(iter(self._checkpoints))
+            del self._checkpoints[oldest_key]
+
+    def branch_from(self, label: str) -> "SessionContext":
+        """Create a new SessionContext from a named checkpoint."""
+        if label not in self._checkpoints:
+            raise KeyError(f"Checkpoint '{label}' not found. Available: {list(self._checkpoints)}")
+        cp = self._checkpoints[label]
+        new_ctx = SessionContext(settings=dict(self.settings))
+        new_ctx.messages = copy.deepcopy(cp.messages)
+        # Shallow copy from snapshot — inherits the same shared-memory trade-off as
+        # checkpoint(). Branched session is independent for index/column operations.
+        for name, (value, var_type) in cp.vars_snapshot.items():
+            if isinstance(value, pd.DataFrame):
+                new_ctx.vars.set(name, value.copy(deep=False), var_type=var_type)
+            else:
+                new_ctx.vars.set(name, copy.copy(value), var_type=var_type)
+        return new_ctx
+
+    def branch(self) -> "SessionContext":
+        """Fork from current state (convenience: checkpoint + branch_from)."""
+        import uuid
+        _temp = f"__branch__{uuid.uuid4().hex}__"
+        self.checkpoint(_temp)
+        branched = self.branch_from(_temp)
+        del self._checkpoints[_temp]
+        return branched
+
+    def list_checkpoints(self) -> list[str]:
+        return list(self._checkpoints.keys())
 
     def mark_active(self) -> None:
         self.last_active = time.monotonic()

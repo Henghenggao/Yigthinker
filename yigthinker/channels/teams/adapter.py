@@ -10,6 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import tempfile
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -22,8 +25,19 @@ from yigthinker.gateway.session_key import SessionKey
 
 if TYPE_CHECKING:
     from yigthinker.gateway.server import GatewayServer
+    from yigthinker.channels.command_parser import ChannelCommand
 
 logger = logging.getLogger(__name__)
+
+_SUPPORTED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".json", ".parquet"}
+
+
+def _sanitize_attachment_name(name: str) -> str:
+    candidate = str(name).strip()
+    basename = PureWindowsPath(PurePosixPath(candidate).name).name
+    if not basename or basename in {".", ".."}:
+        return "attachment"
+    return basename
 
 
 class TeamsAdapter:
@@ -77,26 +91,50 @@ class TeamsAdapter:
         async def teams_webhook(request: Request):
             # HMAC verification — must read raw body BEFORE JSON parsing
             raw_body = await request.body()
-            if self._webhook_secret:
-                auth_header = request.headers.get("Authorization", "")
-                if not verify_teams_hmac_signature(
-                    raw_body, auth_header, self._webhook_secret
-                ):
-                    return JSONResponse(
-                        {"error": "Invalid HMAC signature"}, status_code=401
-                    )
+            if not self._webhook_secret:
+                logger.error(
+                    "Teams webhook_secret not configured — rejecting request"
+                )
+                return JSONResponse(
+                    {"error": "webhook not configured"}, status_code=401
+                )
+            auth_header = request.headers.get("Authorization", "")
+            if not verify_teams_hmac_signature(
+                raw_body, auth_header, self._webhook_secret
+            ):
+                return JSONResponse(
+                    {"error": "invalid signature"}, status_code=401
+                )
 
             body = json.loads(raw_body)
             text = body.get("text", "").strip()
-            if not text:
+
+            # Extract file attachments (skip inline cards, hero cards, etc.)
+            attachments = body.get("attachments", [])
+            file_attachments = []
+            for a in attachments:
+                ct = a.get("contentType", "")
+                # Teams file uploads use a special contentType with
+                # a pre-authenticated downloadUrl inside content.
+                if ct == "application/vnd.microsoft.teams.file.download.info":
+                    file_attachments.append(a)
+                elif a.get("contentUrl") and ct.startswith(
+                    ("application/", "text/")
+                ):
+                    file_attachments.append(a)
+
+            if not text and not file_attachments:
                 return JSONResponse({"type": "message", "text": "Empty message"})
 
             key = self.session_key(body)
 
             # Immediate ACK + async processing (D-05):
             # Return 200 immediately with a "thinking..." card.
-            # Fire async task to process and deliver result via Bot Framework API.
-            asyncio.create_task(self._process_and_respond(key, text, body))
+            # File download + agent processing run in background task
+            # so the ACK is never blocked by slow downloads.
+            asyncio.create_task(
+                self._process_and_respond(key, text, body, file_attachments)
+            )
 
             return JSONResponse({
                 "type": "message",
@@ -226,13 +264,90 @@ class TeamsAdapter:
             self._max_retries, last_error,
         )
 
-    async def _process_and_respond(
-        self, session_key: str, text: str, event: dict[str, Any]
-    ) -> None:
-        """Run agent processing asynchronously and deliver result via Bot Framework API (D-05)."""
+    async def _send_progress_card(self, event: dict[str, Any], tool_name: str, summary: str) -> None:
+        """Fire-and-forget: post a compact progress card to the conversation."""
         try:
+            card = self._renderer.render_tool_progress(tool_name, summary)
+            service_url = (
+                self._service_url_override
+                or event.get("serviceUrl", "")
+                or "https://smba.trafficmanager.net/amer/"
+            )
+            conversation_id = event.get("conversation", {}).get("id", "")
+            if not conversation_id:
+                return
+            token = self._acquire_token()
+            if not token:
+                return
+            url = f"{service_url.rstrip('/')}/v3/conversations/{conversation_id}/activities"
+            payload = {
+                "type": "message",
+                "attachments": [{
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": card,
+                }],
+            }
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            async with httpx.AsyncClient(timeout=5) as client:
+                await client.post(url, json=payload, headers=headers)
+        except Exception:
+            pass  # progress cards are best-effort
+
+    async def _process_and_respond(
+        self,
+        session_key: str,
+        text: str,
+        event: dict[str, Any],
+        file_attachments: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Download files, run agent, deliver result via Bot Framework API.
+
+        File download is deferred to this async task so the webhook
+        returns the "thinking" card instantly (D-05). Typing indicators
+        are sent periodically so the user sees "Bot is typing..." in Teams.
+        """
+        typing_task = asyncio.create_task(self._typing_loop(event))
+
+        try:
+            # --- Phase 1: download attachments (if any) ---
+            if file_attachments:
+                file_lines, error_lines = await self._download_attachments(
+                    file_attachments
+                )
+                prefix_parts = file_lines + error_lines
+                if prefix_parts:
+                    prefix = "\n".join(prefix_parts)
+                    text = f"{prefix}\n{text}" if text else prefix
+
+            if not text:
+                return
+
+            # P1-2: route slash commands before sending to agent
+            from yigthinker.channels.command_parser import parse_channel_command
+            cmd = parse_channel_command(text)
+            if cmd is not None:
+                cmd_result = await self._handle_command(cmd, session_key, event)
+                await self.send_response(event, cmd_result)
+                return
+
+            # --- Phase 2: agent processing with progress callbacks ---
+            _tool_names: dict[str, str] = {}
+
+            def _on_teams_tool_event(event_type: str, data: dict) -> None:
+                if event_type == "tool_call":
+                    _tool_names[data.get("tool_id", "")] = data.get("tool_name", "tool")
+                elif event_type == "tool_result" and not data.get("is_error"):
+                    tool_id = data.get("tool_id", "")
+                    tool_name = _tool_names.get(tool_id, "tool")
+                    content = data.get("content", "")
+                    summary = content[:80] + ("..." if len(content) > 80 else "")
+                    asyncio.create_task(
+                        self._send_progress_card(event, tool_name, summary)
+                    )
+
             result = await self._gateway.handle_message(
-                session_key, text, channel="teams"
+                session_key, text, channel="teams",
+                on_tool_event=_on_teams_tool_event,
             )
             await self.send_response(event, result)
         except Exception:
@@ -243,6 +358,151 @@ class TeamsAdapter:
                 )
             except Exception:
                 logger.exception("Failed to send error card to Teams")
+        finally:
+            typing_task.cancel()
+
+    async def _handle_command(self, cmd: "ChannelCommand", session_key: str, event: dict[str, Any]) -> str:
+        """Handle a slash command from a Teams user."""
+        registry = self._gateway.registry
+        if cmd.name == "new":
+            label = cmd.args[0] if cmd.args else None
+            # Sanitize label: alphanumeric, underscore, hyphen only
+            if label and not re.fullmatch(r"[a-zA-Z0-9_\-]{1,32}", label):
+                return "Session name must be alphanumeric/underscore/hyphen, max 32 chars."
+            new_key = f"{session_key}:{label}" if label else f"{session_key}:new"
+            registry.set_active_key(session_key, new_key)
+            return f"Started new session{': ' + label if label else ''}."
+        elif cmd.name == "sessions":
+            sessions = registry.list_sessions_for_owner(session_key)
+            if not sessions:
+                return "No active sessions."
+            lines = [f"- {s['key']} (idle: {s.get('idle_seconds', 'unknown')}s)" for s in sessions]
+            return "Active sessions:\n" + "\n".join(lines)
+        elif cmd.name == "switch":
+            target = cmd.args[0] if cmd.args else None
+            if not target:
+                return "Usage: /switch <session-name>"
+            # Security: target must be scoped to the sender's own namespace
+            if target != session_key and not target.startswith(session_key + ":"):
+                return f"Cannot switch to '{target}': you can only switch between your own sessions."
+            registry.set_active_key(session_key, target)
+            return f"Switched to session: {target}"
+        elif cmd.name == "undo":
+            return "File undo is available via the agent. Ask: 'undo my last file change'."
+        elif cmd.name == "branch":
+            label = cmd.args[0] if cmd.args else None
+            return "Session branching is available via the SDK. Use sdk.branch() in your integration."
+        return f"Unknown command: /{cmd.name}"
+
+    async def _typing_loop(self, event: dict[str, Any]) -> None:
+        """Send typing indicator every 3 seconds until cancelled."""
+        service_url = (
+            self._service_url_override
+            or event.get("serviceUrl", "")
+            or "https://smba.trafficmanager.net/amer/"
+        )
+        conversation_id = event.get("conversation", {}).get("id", "")
+        if not conversation_id:
+            return
+
+        token = self._acquire_token()
+        if not token:
+            return
+
+        url = (
+            f"{service_url.rstrip('/')}/v3/conversations/"
+            f"{conversation_id}/activities"
+        )
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        payload = {"type": "typing"}
+
+        try:
+            while True:
+                try:
+                    async with httpx.AsyncClient(timeout=5) as client:
+                        await client.post(url, json=payload, headers=headers)
+                except Exception:
+                    pass
+                await asyncio.sleep(3)
+        except asyncio.CancelledError:
+            return
+
+    async def _download_attachments(
+        self, attachments: list[dict[str, Any]]
+    ) -> tuple[list[str], list[str]]:
+        """Download file attachments to temp dir.
+
+        Returns (file_lines, error_lines) where:
+          file_lines = ["[Attached file: name.xlsx -> /path/to/name.xlsx]", ...]
+          error_lines = ["[Skipped unsupported file: x.pdf (...)]", ...]
+        """
+        file_lines: list[str] = []
+        error_lines: list[str] = []
+        supported_str = ", ".join(sorted(_SUPPORTED_EXTENSIONS))
+
+        for att in attachments:
+            raw_name = att.get("name", "unknown")
+            name = _sanitize_attachment_name(raw_name)
+            if name != raw_name:
+                logger.warning(
+                    "Sanitized Teams attachment name '%s' to '%s'",
+                    raw_name,
+                    name,
+                )
+
+            # Teams file uploads put a pre-authenticated download URL
+            # in content.downloadUrl; fall back to contentUrl for other
+            # attachment types (e.g. inline images via Bot Framework).
+            content = att.get("content") or {}
+            download_url = (
+                content.get("downloadUrl")
+                if isinstance(content, dict) else None
+            ) or att.get("contentUrl", "")
+
+            if not download_url:
+                logger.warning(
+                    "Teams attachment '%s' has no downloadUrl — skipping", name
+                )
+                continue
+
+            ext = Path(name).suffix.lower()
+            if ext not in _SUPPORTED_EXTENSIONS:
+                error_lines.append(
+                    f"[Skipped unsupported file: {name} "
+                    f"(supported: {supported_str})]"
+                )
+                continue
+
+            try:
+                # content.downloadUrl is pre-authenticated (SharePoint);
+                # no Bearer token needed. Only add token for plain
+                # contentUrl (Bot Framework hosted attachments).
+                headers: dict[str, str] = {}
+                if not (isinstance(content, dict) and content.get("downloadUrl")):
+                    token = self._acquire_token()
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
+
+                async with httpx.AsyncClient(
+                    timeout=self._timeout, follow_redirects=True,
+                ) as client:
+                    resp = await client.get(download_url, headers=headers)
+                    resp.raise_for_status()
+
+                tmp_dir = tempfile.mkdtemp(prefix="yigthinker_teams_")
+                dest = Path(tmp_dir) / name
+                dest.write_bytes(resp.content)
+
+                file_lines.append(
+                    f"[Attached file: {name} -> {dest}]"
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to download Teams attachment '%s': %s", name, exc
+                )
+                error_lines.append(f"[Failed to download: {name}]")
+
+        return file_lines, error_lines
 
     def _acquire_token(self) -> str | None:
         """Acquire an app-only token via MSAL for Bot Framework API calls."""

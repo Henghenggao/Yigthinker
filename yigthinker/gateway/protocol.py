@@ -111,6 +111,14 @@ class SubagentEventMsg:
     type: str = "subagent_event"
 
 
+@dataclass
+class ToolProgressMsg:
+    """In-flight progress message from a tool execution."""
+    tool: str
+    message: str
+    type: str = "tool_progress"
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def to_json_dict(msg: Any) -> dict[str, Any]:

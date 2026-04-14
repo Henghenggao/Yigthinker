@@ -26,8 +26,6 @@ from yigthinker_mcp_powerautomate.client import (
     PowerAutomateClient,
 )
 
-pytestmark = pytest.mark.asyncio
-
 _PROVIDER = "/providers/Microsoft.ProcessSimple"
 _ENV = "env-1"
 _FLOW = "flow-123"

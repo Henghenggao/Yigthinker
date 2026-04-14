@@ -64,3 +64,11 @@ async def test_stats_command_returns_report(ctx):
     result = await router.handle("/stats", ctx)
     assert result.handled
     assert "SQL queries" in result.output
+
+
+async def test_export_command_omits_removed_dashboard_entries(ctx):
+    router = CommandRouter(pool=ConnectionPool())
+    result = await router.handle("/export", ctx)
+    assert result.handled
+    assert "scheduled_reports" in result.output
+    assert "dashboard_entries" not in result.output

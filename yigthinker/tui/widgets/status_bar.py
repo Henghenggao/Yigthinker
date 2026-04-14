@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from yigthinker.tui._import_error import TEXTUAL_IMPORT_ERROR
+
 try:
     from textual.widgets import Static
 except ImportError as exc:
-    raise ImportError(
-        "TUI requires the 'textual' package. Install with: pip install yigthinker[tui]"
-    ) from exc
+    raise ImportError(TEXTUAL_IMPORT_ERROR) from exc
 
 
 class StatusBar(Static):

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+from yigthinker.tui._import_error import TEXTUAL_IMPORT_ERROR
+
 try:
     from textual.containers import Horizontal, Vertical
     from textual.screen import Screen
     from textual.widgets import Footer, Header
 except ImportError as exc:
-    raise ImportError(
-        "TUI requires the 'textual' package. Install with: pip install yigthinker[tui]"
-    ) from exc
+    raise ImportError(TEXTUAL_IMPORT_ERROR) from exc
 
 from yigthinker.tui.widgets.chat_log import ChatLog
 from yigthinker.tui.widgets.input_bar import InputBar

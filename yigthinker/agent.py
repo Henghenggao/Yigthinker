@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from yigthinker.hooks.executor import HookExecutor
@@ -14,6 +15,10 @@ from yigthinker.types import HookAction, HookEvent, LLMResponse, Message, Stream
 if TYPE_CHECKING:
     from yigthinker.memory.compact import SmartCompact
     from yigthinker.memory.session_memory import MemoryManager
+
+logger = logging.getLogger(__name__)
+
+MAX_RESULT_CHARS = 8000
 
 _ITERATION_LIMIT_SYSTEM_MSG = (
     "[SYSTEM] You have reached the maximum number of tool call iterations. "
@@ -41,6 +46,7 @@ class AgentLoop:
         ask_fn: Callable[[str, dict], Awaitable[Any]] | None = None,
         max_iterations: int = 50,
         timeout_seconds: float = 300.0,
+        fallback_provider: LLMProvider | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tools
@@ -49,6 +55,8 @@ class AgentLoop:
         self._ask_fn = ask_fn
         self._max_iterations = max_iterations
         self._timeout_seconds = timeout_seconds
+        self._fallback_provider = fallback_provider
+        self._max_tokens_recovery_count = 0
         self._memory_manager: MemoryManager | None = None
         self._compact: SmartCompact | None = None
         self._background_tasks: set[asyncio.Task] = set()
@@ -86,9 +94,11 @@ class AgentLoop:
         on_tool_event: Callable[[str, dict], None] | None = None,
         on_token: Callable[[str], None] | None = None,
     ) -> str:
+        self._max_tokens_recovery_count = 0
         messages: list[Message] = list(ctx.messages)
         messages.append(Message(role="user", content=user_input))
-        ctx._on_tool_event = on_tool_event  # type: ignore[attr-defined]
+        ctx._pending_injections = None  # P1-5: clear stale injections from prior run
+        ctx._on_tool_event = on_tool_event
         tool_schemas = self._tools.export_schemas()
         iteration = 0
 
@@ -160,8 +170,25 @@ class AgentLoop:
                             else:
                                 system_prompt = alert
 
+                    # P1-5: inject hook system messages from previous tool execution
+                    pending_injections = getattr(ctx, "_pending_injections", None)
+                    if pending_injections:
+                        injection_text = "\n".join(pending_injections)
+                        # Cap at 8192 chars (~2048 tokens)
+                        if len(injection_text) > 8192:
+                            injection_text = injection_text[:8192] + "\n[hook injections truncated]"
+                        if system_prompt:
+                            system_prompt += f"\n\n[Hook Context]\n{injection_text}"
+                        else:
+                            system_prompt = f"[Hook Context]\n{injection_text}"
+                        ctx._pending_injections = None
+
                     if self._compact is not None:
                         token_est = self._estimate_tokens(messages)
+                        if token_est > ctx.context_manager.history_budget:
+                            # Microcompact pass: replace old referenced tool_results
+                            messages = self._microcompact(messages)
+                            token_est = self._estimate_tokens(messages)
                         if token_est > ctx.context_manager.history_budget:
                             pre_compact_event = HookEvent(
                                 event_type="PreCompact",
@@ -171,7 +198,14 @@ class AgentLoop:
                             await self._hooks.run(pre_compact_event)
                             memory_content = self._memory_manager.load_memory() if self._memory_manager else ""
                             vars_summary = self._format_vars_summary(ctx)
-                            messages = await self._compact.run(messages, memory_content, token_est, vars_summary)
+                            messages, compact_injection = await self._compact.run(messages, memory_content, token_est, vars_summary)
+                            if compact_injection:
+                                if system_prompt:
+                                    system_prompt += f"\n\n{compact_injection}"
+                                else:
+                                    system_prompt = compact_injection
+
+                    using_fallback = False
 
                     if on_token is not None:
                         accumulated_text = ""
@@ -189,8 +223,30 @@ class AgentLoop:
                                     stop_reason = event.stop_reason or "end_turn"
                                 elif event.type == "error":
                                     break
-                        except Exception:
-                            pass
+                        except (TimeoutError, asyncio.CancelledError):
+                            raise
+                        except Exception as exc:
+                            if self._fallback_provider is not None and not using_fallback:
+                                logger.warning("Primary provider failed (%s), switching to fallback", exc)
+                                using_fallback = True
+                                accumulated_text = ""
+                                tool_uses_from_stream = []
+                                stop_reason = "end_turn"
+                                try:
+                                    async for event in self._fallback_provider.stream(messages, tool_schemas, system=system_prompt):
+                                        if event.type == "text":
+                                            accumulated_text += event.text
+                                            on_token(event.text)
+                                        elif event.type == "tool_use" and event.tool_use is not None:
+                                            tool_uses_from_stream.append(event.tool_use)
+                                        elif event.type == "done":
+                                            stop_reason = event.stop_reason or "end_turn"
+                                        elif event.type == "error":
+                                            break
+                                except Exception:
+                                    raise
+                            else:
+                                raise
 
                         response = LLMResponse(
                             stop_reason=stop_reason,
@@ -198,7 +254,29 @@ class AgentLoop:
                             tool_uses=tool_uses_from_stream,
                         )
                     else:
-                        response = await self._provider.chat(messages, tool_schemas, system=system_prompt)
+                        try:
+                            response = await self._provider.chat(messages, tool_schemas, system=system_prompt)
+                        except (TimeoutError, asyncio.CancelledError):
+                            raise
+                        except Exception as exc:
+                            if self._fallback_provider is not None and not using_fallback:
+                                logger.warning("Primary provider failed (%s), switching to fallback", exc)
+                                using_fallback = True
+                                response = await self._fallback_provider.chat(messages, tool_schemas, system=system_prompt)
+                            else:
+                                raise
+
+                    # Max-tokens auto-recovery: inject continuation prompt
+                    if response.stop_reason == "max_tokens" and not response.tool_uses:
+                        self._max_tokens_recovery_count += 1
+                        if self._max_tokens_recovery_count <= 3:
+                            if response.text:
+                                messages.append(Message(role="assistant", content=response.text))
+                            messages.append(Message(
+                                role="user",
+                                content="[System: Output token limit reached. Continue directly from where you left off - no apology, no recap.]",
+                            ))
+                            continue
 
                     if response.stop_reason == "end_turn" or not response.tool_uses:
                         messages.append(Message(role="assistant", content=response.text))
@@ -206,6 +284,9 @@ class AgentLoop:
                         break
 
                     content_blocks: list[dict] = []
+                    # Include thinking blocks before text/tool_use (preserves multi-turn context)
+                    for tb in response.thinking_blocks:
+                        content_blocks.append(tb)
                     if response.text:
                         content_blocks.append({"type": "text", "text": response.text})
                     for tool_use in response.tool_uses:
@@ -219,18 +300,9 @@ class AgentLoop:
                         )
                     messages.append(Message(role="assistant", content=content_blocks))
 
-                    tool_results: list[dict] = []
-                    for tool_use in response.tool_uses:
-                        result = await self._execute_tool(tool_use.name, tool_use.input, tool_use.id, ctx, on_tool_event)
-                        result_content = _serialize_tool_content(result.content)
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_use.id,
-                                "content": result_content,
-                                "is_error": result.is_error,
-                            }
-                        )
+                    tool_results = await self._execute_tool_batch(
+                        response.tool_uses, ctx, on_tool_event
+                    )
                     messages.append(Message(role="user", content=tool_results))
 
                     # Memory extraction after tool calls
@@ -288,6 +360,94 @@ class AgentLoop:
             lines.append(f"{info.name}: {info.shape[0]}x{info.shape[1]} ({info.var_type})")
         return "\n".join(lines)
 
+    async def _execute_tool_batch(
+        self,
+        tool_uses: list[ToolUse],
+        ctx: SessionContext,
+        on_tool_event: Callable[[str, dict], None] | None = None,
+    ) -> list[dict]:
+        """Execute a batch of tool calls, running concurrency-safe tools in parallel."""
+        safe: list[ToolUse] = []
+        unsafe: list[ToolUse] = []
+        for tu in tool_uses:
+            try:
+                tool = self._tools.get(tu.name)
+                if getattr(tool, "is_concurrency_safe", False):
+                    safe.append(tu)
+                else:
+                    unsafe.append(tu)
+            except Exception:
+                unsafe.append(tu)
+
+        results_by_id: dict[str, ToolResult] = {}
+
+        # Run safe tools concurrently
+        if safe:
+            safe_results = await asyncio.gather(
+                *[self._execute_tool(tu.name, tu.input, tu.id, ctx, on_tool_event) for tu in safe]
+            )
+            for tu, result in zip(safe, safe_results):
+                results_by_id[tu.id] = result
+
+        # Run unsafe tools serially
+        for tu in unsafe:
+            result = await self._execute_tool(tu.name, tu.input, tu.id, ctx, on_tool_event)
+            results_by_id[tu.id] = result
+
+        # Build results in original order
+        tool_results: list[dict] = []
+        for tu in tool_uses:
+            result = results_by_id[tu.id]
+            result_content = _serialize_tool_content(result.content)
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tu.id,
+                "content": result_content,
+                "is_error": result.is_error,
+            })
+
+        # P1-5: collect hook injections from tool results
+        hook_injections: list[str] = []
+        for tu in tool_uses:
+            result = results_by_id[tu.id]
+            injections = getattr(result, "_hook_injections", None)
+            if injections:
+                hook_injections.extend(injections)
+
+        # Store injections on ctx for system prompt assembly
+        if hook_injections:
+            ctx._pending_injections = hook_injections
+
+        return tool_results
+
+    def _microcompact(self, messages: list[Message]) -> list[Message]:
+        """Replace old tool_result contents that have been referenced by subsequent assistant messages."""
+        sentinel = "[result referenced - omitted for context efficiency]"
+        # Collect tool_use_ids from tool_result blocks more than 3 messages from the end
+        cutoff = len(messages) - 3
+        if cutoff <= 0:
+            return messages
+
+        # Find all tool_use_ids referenced in assistant messages after the cutoff
+        referenced_ids: set[str] = set()
+        for msg in messages[cutoff:]:
+            if msg.role == "assistant" and isinstance(msg.content, list):
+                for block in msg.content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        referenced_ids.add(block.get("id", ""))
+
+        # Scan old messages for tool_result blocks and replace if referenced
+        for i in range(cutoff):
+            msg = messages[i]
+            if msg.role == "user" and isinstance(msg.content, list):
+                for item in msg.content:
+                    if isinstance(item, dict) and item.get("type") == "tool_result":
+                        tool_id = item.get("tool_use_id", "")
+                        if tool_id in referenced_ids:
+                            item["content"] = sentinel
+
+        return messages
+
     async def _execute_tool(
         self,
         tool_name: str,
@@ -304,11 +464,11 @@ class AgentLoop:
             tool_input=tool_input,
         )
 
-        hook_result = await self._hooks.run(pre_event)
-        if hook_result.action == HookAction.BLOCK:
+        pre_agg = await self._hooks.run(pre_event)
+        if pre_agg.action == HookAction.BLOCK:
             return ToolResult(
                 tool_use_id=tool_use_id,
-                content=f"Blocked: {hook_result.message}",
+                content=f"Blocked: {pre_agg.message}",
                 is_error=True,
             )
 
@@ -342,9 +502,35 @@ class AgentLoop:
         try:
             tool = self._tools.get(tool_name)
             input_obj = tool.input_schema(**tool_input)
+
+            # P1-1: inject progress callback before tool execution.
+            # NOTE: concurrent tool batches share the same ctx, so if multiple
+            # safe tools run via asyncio.gather(), the last one to set
+            # _progress_callback wins. This means progress events may briefly
+            # be attributed to the wrong tool. Acceptable for current use;
+            # rearchitect to a dict keyed by tool_use_id if precise attribution
+            # becomes important.
+            if on_tool_event is not None:
+                ctx._progress_callback = lambda msg: on_tool_event(
+                    "tool_progress", {"tool": tool_name, "message": msg}
+                )
+
             result = await tool.execute(input_obj, ctx)
             result.tool_use_id = tool_use_id
+
+            # P1-1: cleanup progress callback
+            ctx._progress_callback = None
+
+            # Truncate oversized results
+            result_str = _serialize_tool_content(result.content)
+            if len(result_str) > MAX_RESULT_CHARS:
+                total = len(result_str)
+                result.content = result_str[:MAX_RESULT_CHARS] + (
+                    f"\n[truncated - {total} chars total. "
+                    f"Full result in variable registry.]"
+                )
         except Exception as exc:
+            ctx._progress_callback = None  # P1-1: cleanup on error
             result = ToolResult(tool_use_id=tool_use_id, content=str(exc), is_error=True)
 
         post_event = HookEvent(
@@ -355,7 +541,19 @@ class AgentLoop:
             tool_input=tool_input,
             tool_result=result,
         )
-        await self._hooks.run(post_event)
+        post_agg = await self._hooks.run(post_event)
+
+        # P1-5: apply post-hook effects
+        if post_agg.suppress:
+            result = ToolResult(tool_use_id=tool_use_id, content="[output suppressed by hook]", is_error=False)
+            result._suppressed = True
+        elif post_agg.replacement is not None:
+            result.content = post_agg.replacement
+
+        # Collect injections from both pre and post hooks
+        all_injections = pre_agg.injections + post_agg.injections
+        if all_injections:
+            result._hook_injections = all_injections
 
         if on_tool_event is not None:
             serialized_content = _serialize_tool_content(result.content)

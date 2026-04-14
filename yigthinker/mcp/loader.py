@@ -65,6 +65,8 @@ class MCPLoader:
         self._path = mcp_json_path
         self._registry = registry
         self._clients: list[MCPClient] = []
+        self._resource_clients: dict[str, MCPClient] = {}
+        self._resources_registered: bool = False
 
     async def load(self) -> None:
         if not self._path.exists():
@@ -72,18 +74,49 @@ class MCPLoader:
 
         config = json.loads(self._path.read_text(encoding="utf-8"))
         for server_name, server_cfg in config.get("mcpServers", {}).items():
-            env = {key: _resolve_env(value) for key, value in server_cfg.get("env", {}).items()}
-            client = MCPClient(
-                name=server_name,
-                command=server_cfg["command"],
-                args=server_cfg.get("args", []),
-                env=env,
-            )
+            transport = server_cfg.get("transport", "stdio")
+
+            if transport in ("sse", "http"):
+                client = MCPClient(
+                    name=server_name,
+                    transport=transport,
+                    url=server_cfg.get("url", ""),
+                    headers=server_cfg.get("headers", {}),
+                )
+            else:
+                # Default: stdio
+                env = {
+                    key: _resolve_env(value)
+                    for key, value in server_cfg.get("env", {}).items()
+                }
+                client = MCPClient(
+                    name=server_name,
+                    transport="stdio",
+                    command=server_cfg["command"],
+                    args=server_cfg.get("args", []),
+                    env=env,
+                )
+
             await client.start()
             self._clients.append(client)
 
             for tool_def in await client.list_tools():
                 self._registry.register(_MCPToolWrapper(tool_def, client))
+
+            # P1-7: discover resources
+            try:
+                resources = await client.list_resources()
+                if resources:
+                    self._resource_clients[server_name] = client
+            except Exception:
+                pass  # Server doesn't support resources
+
+        # Register resource tools once if any server has resources
+        if self._resource_clients and not self._resources_registered:
+            from yigthinker.mcp.resource_tools import MCPListResourcesTool, MCPReadResourceTool
+            self._registry.register(MCPListResourcesTool(self._resource_clients))
+            self._registry.register(MCPReadResourceTool(self._resource_clients))
+            self._resources_registered = True
 
     async def shutdown(self) -> None:
         for client in self._clients:

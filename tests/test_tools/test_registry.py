@@ -14,6 +14,7 @@ class EchoTool:
     name = "echo"
     description = "Echoes the message back"
     input_schema = EchoInput
+    is_concurrency_safe = False
 
     async def execute(self, input: EchoInput, ctx: SessionContext) -> ToolResult:
         return ToolResult(tool_use_id="", content=f"echo: {input.message}")

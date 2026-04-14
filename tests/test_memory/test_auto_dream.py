@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import time
 import pytest
 from pathlib import Path
@@ -72,12 +73,16 @@ def test_list_sessions_excludes_old_files(tmp_path):
     # Update state (marks current time as last dream)
     state = DreamState(tmp_path / ".dream_state")
     state.update()
+    cutoff = state.last_timestamp
 
     # Create another file AFTER the state update
-    import time as _time
-    _time.sleep(0.01)
     new_f = sessions_dir / "new.jsonl"
     new_f.write_text("")
+
+    old_ts = cutoff - 60
+    new_ts = cutoff + 60
+    os.utime(f, (old_ts, old_ts))
+    os.utime(new_f, (new_ts, new_ts))
 
     dream = AutoDream(config=config, sessions_dir=sessions_dir, state=state)
     sessions = dream.list_sessions_since_last()

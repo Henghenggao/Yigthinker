@@ -9,6 +9,8 @@ class ToolResult:
     tool_use_id: str
     content: Any
     is_error: bool = False
+    _suppressed: bool = field(default=False, repr=False)
+    _hook_injections: list[str] = field(default_factory=list, repr=False)
 
 
 @dataclass
@@ -22,14 +24,20 @@ class HookAction(Enum):
     ALLOW = "allow"
     WARN = "warn"
     BLOCK = "block"
+    INJECT_SYSTEM = "inject_system"
+    SUPPRESS_OUTPUT = "suppress_output"
+    REPLACE_RESULT = "replace_result"
 
 
 class HookResult:
     """
     Usage:
-        HookResult.ALLOW                   # singleton, no parentheses
-        HookResult.warn("message")         # classmethod
-        HookResult.block("reason")         # classmethod
+        HookResult.ALLOW                        # singleton, no parentheses
+        HookResult.warn("message")              # classmethod
+        HookResult.block("reason")              # classmethod
+        HookResult.inject_system("text")        # classmethod — P1-5
+        HookResult.suppress()                   # classmethod — P1-5
+        HookResult.replace(content)             # classmethod — P1-5
     """
 
     ALLOW: ClassVar["HookResult"]  # set after class definition
@@ -37,6 +45,7 @@ class HookResult:
     def __init__(self, action: HookAction, message: str = "") -> None:
         self.action = action
         self.message = message
+        self.replacement: Any = None
 
     @classmethod
     def warn(cls, message: str) -> "HookResult":
@@ -46,11 +55,39 @@ class HookResult:
     def block(cls, message: str) -> "HookResult":
         return cls(HookAction.BLOCK, message)
 
+    @classmethod
+    def inject_system(cls, text: str) -> "HookResult":
+        """Inject text into LLM system prompt for the next call."""
+        return cls(HookAction.INJECT_SYSTEM, text)
+
+    @classmethod
+    def suppress(cls) -> "HookResult":
+        """Suppress tool result — LLM does not see it."""
+        return cls(HookAction.SUPPRESS_OUTPUT)
+
+    @classmethod
+    def replace(cls, content: Any) -> "HookResult":
+        """Replace tool result content with provided value."""
+        r = cls(HookAction.REPLACE_RESULT)
+        r.replacement = content
+        return r
+
     def __repr__(self) -> str:
         return f"HookResult({self.action.value!r}, {self.message!r})"
 
 
 HookResult.ALLOW = HookResult(HookAction.ALLOW)
+
+
+@dataclass
+class HookAggregateResult:
+    """Aggregated result from running all matching hooks."""
+
+    action: HookAction = HookAction.ALLOW
+    message: str = ""
+    injections: list[str] = field(default_factory=list)
+    suppress: bool = False
+    replacement: Any = None
 
 
 @dataclass
@@ -79,10 +116,17 @@ class Message:
 
 
 @dataclass
+class ThinkingConfig:
+    enabled: bool = False
+    budget_tokens: int = 10000
+
+
+@dataclass
 class LLMResponse:
     stop_reason: Literal["tool_use", "end_turn", "max_tokens"]
     text: str = ""
     tool_uses: list[ToolUse] = field(default_factory=list)
+    thinking_blocks: list[dict] = field(default_factory=list)
 
 
 @dataclass

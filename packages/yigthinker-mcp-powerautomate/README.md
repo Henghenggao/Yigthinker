@@ -62,11 +62,10 @@ MCP server will use for authentication.
 From the Yigthinker repo root:
 
 ```bash
-# 1. Install core Yigthinker with the rpa-pa extra metadata
-pip install -e .[rpa-pa]
+# 1. Install core Yigthinker test/runtime deps
+pip install -e .[test]
 
-# 2. Install this package editable (the extra above declares the dep,
-#    but hatchling does not support local path-based resolution yet)
+# 2. Install this package editable
 pip install -e packages/yigthinker-mcp-powerautomate[test]
 ```
 
@@ -75,6 +74,14 @@ Verify the install:
 ```bash
 python -c "import yigthinker_mcp_powerautomate; print(yigthinker_mcp_powerautomate.__file__)"
 python -m yigthinker_mcp_powerautomate  # Ctrl-C to stop; fails with env error if config missing
+```
+
+### GitHub source install (before PyPI)
+
+Until PyPI publication lands, the single-command non-editable install path is:
+
+```bash
+uv tool install "yigthinker[rpa-pa] @ git+https://github.com/Henghenggao/Yigthinker.git"
 ```
 
 ### From PyPI (future)
@@ -418,7 +425,7 @@ If it prints `None`, the package is not installed in Yigthinker's Python
 environment. Reinstall with:
 
 ```bash
-pip install yigthinker[rpa-pa]
+uv tool install "yigthinker[rpa-pa] @ git+https://github.com/Henghenggao/Yigthinker.git"
 # or from the monorepo:
 pip install -e packages/yigthinker-mcp-powerautomate[test]
 ```

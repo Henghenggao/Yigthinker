@@ -5,6 +5,26 @@ from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
 
+
+def _safe_path(source: str, ctx_settings: dict) -> tuple[Path, str | None]:
+    """Return (resolved_path, error_msg). error_msg is None if safe."""
+    workspace = Path(ctx_settings.get("workspace_dir", Path.cwd())).expanduser().resolve()
+    raw_path = Path(source).expanduser()
+    try:
+        candidate = raw_path if raw_path.is_absolute() else workspace / raw_path
+        resolved = candidate.resolve(strict=False)
+    except Exception:
+        return raw_path, f"Cannot resolve path: {source}"
+    try:
+        resolved.relative_to(workspace)
+        return resolved, None
+    except ValueError:
+        return resolved, (
+            f"Access denied: '{source}' is outside the workspace directory "
+            f"'{workspace}'. Use a relative path or configure workspace_dir in settings."
+        )
+
+
 _LOADERS = {
     ".csv": pd.read_csv,
     ".parquet": pd.read_parquet,
@@ -35,7 +55,10 @@ class DfLoadTool:
 
     async def execute(self, input: DfLoadInput, ctx: SessionContext) -> ToolResult:
         try:
-            path = Path(input.source)
+            safe_path, err = _safe_path(input.source, ctx.settings)
+            if err:
+                return ToolResult(tool_use_id="", content=err, is_error=True)
+            path = safe_path
             suffix = path.suffix.lower()
             loader = _LOADERS.get(suffix)
             if loader is None:
@@ -46,8 +69,33 @@ class DfLoadTool:
                 )
 
             kwargs = {}
-            if suffix in (".xlsx", ".xls") and input.sheet_name:
-                kwargs["sheet_name"] = input.sheet_name
+
+            # Excel sheet enumeration: discover sheets before loading
+            if suffix in (".xlsx", ".xls"):
+                xls = pd.ExcelFile(path)
+                sheets = xls.sheet_names
+
+                if input.sheet_name and input.sheet_name not in sheets:
+                    return ToolResult(
+                        tool_use_id="",
+                        content=f"Sheet '{input.sheet_name}' not found. Available sheets: {sheets}",
+                        is_error=True,
+                    )
+
+                if not input.sheet_name and len(sheets) > 1:
+                    return ToolResult(
+                        tool_use_id="",
+                        content={
+                            "message": f"This Excel file has {len(sheets)} sheets. Specify sheet_name to load one.",
+                            "available_sheets": sheets,
+                        },
+                    )
+
+                # Single sheet or explicit sheet_name — proceed with loading
+                if input.sheet_name:
+                    kwargs["sheet_name"] = input.sheet_name
+                else:
+                    kwargs["sheet_name"] = sheets[0]
 
             # header, skiprows, usecols only supported by CSV and Excel loaders;
             # JSON and Parquet do not accept these parameters.

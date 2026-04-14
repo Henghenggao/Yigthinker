@@ -98,7 +98,6 @@ class CommandRouter:
     async def _export(self, args: str, ctx: SessionContext) -> str:
         exports = {
             "variables": [info.name for info in ctx.vars.list()],
-            "dashboard_entries": len(ctx.settings.get("_dashboard_queue", [])),
             "scheduled_reports": len(ctx.settings.get("_scheduled_reports", [])),
             "transcript": ctx.transcript_path or None,
         }

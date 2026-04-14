@@ -129,18 +129,25 @@ def test_previous_version_preserved(
 
 
 def test_concurrent_writes(tmp_path: Path) -> None:
-    """10 concurrent save_index calls do not corrupt registry.json."""
+    """10 concurrent save_index calls do not corrupt registry.json.
+
+    Each thread passes only its own entry to save_index(), which merges
+    under the filelock.  This tests the merge semantic directly rather
+    than reading outside the lock (which is not how production code works).
+    """
     reg = WorkflowRegistry(base_dir=tmp_path)
     reg._ensure_dirs()
 
     def write_entry(i: int) -> None:
-        index = reg.load_index()
-        index["workflows"][f"wf_{i}"] = {
-            "status": "active",
-            "latest_version": 1,
-            "description": f"Workflow {i}",
-        }
-        reg.save_index(index)
+        reg.save_index({
+            "workflows": {
+                f"wf_{i}": {
+                    "status": "active",
+                    "latest_version": 1,
+                    "description": f"Workflow {i}",
+                }
+            }
+        })
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
         futures = [pool.submit(write_entry, i) for i in range(10)]
@@ -148,14 +155,37 @@ def test_concurrent_writes(tmp_path: Path) -> None:
         for f in futures:
             f.result()  # raise if any failed
 
-    # Verify: at least no corruption (valid JSON, some entries present)
     final_index = reg.load_index()
     assert isinstance(final_index["workflows"], dict)
-    # With locking, all 10 should be present. Without locking, some may be lost.
-    # We assert all 10 to prove locking works.
     assert len(final_index["workflows"]) == 10
     for i in range(10):
         assert f"wf_{i}" in final_index["workflows"]
+
+
+def test_concurrent_create_serializes_versions(tmp_path: Path) -> None:
+    """Concurrent create() calls for one workflow must allocate unique versions."""
+    reg = WorkflowRegistry(base_dir=tmp_path)
+
+    def create_version(i: int) -> str:
+        version_dir = reg.create(
+            name="shared_workflow",
+            description=f"Workflow {i}",
+            version_data={"main.py": f"print({i})"},
+        )
+        return version_dir.name
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(create_version, i) for i in range(8)]
+        version_names = sorted(f.result() for f in futures)
+
+    assert version_names == [f"v{i}" for i in range(1, 9)]
+
+    manifest = reg.get_manifest("shared_workflow")
+    assert manifest is not None
+    assert [entry["version"] for entry in manifest["versions"]] == list(range(1, 9))
+
+    index = reg.load_index()
+    assert index["workflows"]["shared_workflow"]["latest_version"] == 8
 
 
 def test_atomic_write(registry: WorkflowRegistry, tmp_path: Path) -> None:

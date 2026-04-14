@@ -108,6 +108,12 @@ class GChatAdapter:
                 if not text:
                     return JSONResponse({"text": "Empty message"})
 
+                # P1-2: route slash commands
+                from yigthinker.channels.command_parser import parse_channel_command
+                cmd = parse_channel_command(text)
+                if cmd is not None:
+                    return JSONResponse({"text": f"Command /{cmd.name} received. Slash commands are processed by the agent."})
+
                 key = self.session_key(body)
                 space_name = body.get("space", {}).get("name", "default")
                 limiter = self._space_semaphores.setdefault(space_name, asyncio.Semaphore(1))

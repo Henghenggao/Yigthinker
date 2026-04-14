@@ -12,8 +12,14 @@ def provider_from_settings(settings: dict[str, Any]) -> LLMProvider:
 
     if model.startswith("claude"):
         from yigthinker.providers.claude import ClaudeProvider
+        from yigthinker.types import ThinkingConfig
 
-        return ClaudeProvider(model=model, api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        thinking_cfg = settings.get("thinking", {})
+        thinking = ThinkingConfig(
+            enabled=thinking_cfg.get("enabled", False),
+            budget_tokens=thinking_cfg.get("budget_tokens", 10000),
+        )
+        return ClaudeProvider(model=model, api_key=os.environ.get("ANTHROPIC_API_KEY"), thinking=thinking)
 
     if model.startswith(("gpt-", "o1", "o3", "o4")):
         from yigthinker.providers.openai import OpenAIProvider

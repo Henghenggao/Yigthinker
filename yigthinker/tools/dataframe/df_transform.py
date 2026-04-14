@@ -36,6 +36,8 @@ _BLOCKED_DUNDERS = frozenset({
     "__globals__", "__builtins__", "__subclasses__", "__bases__",
     "__mro__", "__init__", "__class__", "__dict__", "__module__",
     "__code__", "__func__", "__self__", "__closure__", "__wrapped__",
+    "__getattribute__", "__reduce__", "__reduce_ex__", "__new__",
+    "__get__", "__set__", "__delete__", "__setattr__", "__delattr__",
 })
 
 # Module-level attributes that provide access to dangerous stdlib modules.
@@ -44,6 +46,30 @@ _BLOCKED_ATTRS = frozenset({
     "os", "subprocess", "sys", "importlib", "ctypes", "shutil",
     "pathlib", "socket", "http", "urllib", "ftplib", "smtplib",
     "webbrowser", "code", "codeop", "compileall", "runpy",
+})
+
+# Reject direct access to file/network I/O helpers on injected dataframe libraries.
+# We block attribute access itself so code cannot alias a dangerous helper and call
+# it later via another variable.
+_BLOCKED_IO_ATTRS = frozenset({
+    # pandas / polars / numpy readers
+    "read_csv", "read_table", "read_fwf", "read_json", "read_html",
+    "read_xml", "read_excel", "read_parquet", "read_feather",
+    "read_pickle", "read_orc", "read_spss", "read_sas", "read_stata",
+    "read_sql", "read_sql_query", "read_sql_table", "read_clipboard",
+    "read_gbq", "read_database", "read_database_uri", "read_ipc",
+    "read_ndjson", "scan_csv", "scan_parquet", "scan_ipc",
+    # writers / sinks
+    "to_csv", "to_json", "to_html", "to_xml", "to_excel", "to_parquet",
+    "to_feather", "to_pickle", "to_orc", "to_clipboard", "to_sql",
+    "write_csv", "write_json", "write_ndjson", "write_excel",
+    "write_parquet", "write_ipc", "write_ipc_stream", "write_avro",
+    "sink_csv", "sink_parquet", "sink_ipc",
+    # numpy binary/text I/O
+    "load", "loadtxt", "genfromtxt", "fromfile", "save", "savez",
+    "savez_compressed", "savetxt", "tofile",
+    # helper classes that open external resources
+    "ExcelFile", "ExcelWriter", "HDFStore",
 })
 
 
@@ -68,6 +94,13 @@ class _SandboxChecker(ast.NodeVisitor):
             raise SyntaxError(
                 f"Access to '{node.attr}' is not allowed in df_transform sandbox."
             )
+        if node.attr in _BLOCKED_IO_ATTRS:
+            chain = _get_attr_chain(node)
+            dotted = ".".join(chain) if chain else node.attr
+            raise SyntaxError(
+                f"Access to '{dotted}' is blocked in df_transform sandbox. "
+                "File and network I/O helpers are not allowed."
+            )
         # Block access to dangerous stdlib modules via attribute chains
         # (e.g. pd.io.common.os, np.distutils.exec_command.subprocess)
         if node.attr in _BLOCKED_ATTRS:
@@ -83,6 +116,20 @@ class _SandboxChecker(ast.NodeVisitor):
             raise SyntaxError(
                 f"String literal '{node.value}' matches a blocked dunder attribute."
             )
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if any(alias.name == "*" for alias in node.names):
+            raise SyntaxError("Wildcard imports are not allowed in df_transform sandbox.")
+        if node.module:
+            root = node.module.split(".", 1)[0]
+            if root in _ALLOWED_IMPORT_MAP:
+                for alias in node.names:
+                    if alias.name in _BLOCKED_IO_ATTRS:
+                        raise SyntaxError(
+                            f"Import of '{alias.name}' from '{node.module}' is blocked "
+                            "in df_transform sandbox."
+                        )
         self.generic_visit(node)
 
 

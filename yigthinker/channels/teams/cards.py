@@ -61,7 +61,50 @@ class TeamsCardRenderer:
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.5",
             "body": body,
-            "actions": [{"type": "Action.OpenUrl", "title": "Open in Dashboard", "url": url}],
+            "actions": [{"type": "Action.OpenUrl", "title": "Open chart", "url": url}],
+        }
+
+    def render_file_received(self, filenames: list[str]) -> dict[str, Any]:
+        """Render a card acknowledging received file attachments."""
+        count = len(filenames)
+        header = f"Received {count} file{'s' if count != 1 else ''}"
+        items: list[dict[str, Any]] = [
+            {"type": "TextBlock", "text": header, "weight": "Bolder"},
+        ]
+        for name in filenames:
+            items.append(
+                {"type": "TextBlock", "text": f"- {name}", "wrap": True}
+            )
+        return {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5",
+            "body": items,
+        }
+
+    def render_tool_progress(self, tool_name: str, summary: str) -> dict[str, Any]:
+        """Render a compact progress card showing a tool result summary."""
+        return {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5",
+            "body": [
+                {
+                    "type": "ColumnSet",
+                    "columns": [
+                        {
+                            "type": "Column",
+                            "width": "auto",
+                            "items": [{"type": "TextBlock", "text": tool_name, "weight": "Bolder", "size": "Small"}],
+                        },
+                        {
+                            "type": "Column",
+                            "width": "stretch",
+                            "items": [{"type": "TextBlock", "text": summary, "wrap": True, "size": "Small"}],
+                        },
+                    ],
+                },
+            ],
         }
 
     def render_error(self, message: str) -> dict[str, Any]:
