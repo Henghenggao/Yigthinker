@@ -155,9 +155,12 @@ class SpawnAgentTool:
 
         # 10. Copy DataFrames if specified
         original_names: set[str] = set()
-        if input.dataframes:
+        effective_dataframes = input.dataframes
+        if effective_dataframes == ["*"]:
+            effective_dataframes = [info.name for info in ctx.vars.list()]
+        if effective_dataframes:
             try:
-                copy_dataframes_to_child(ctx.vars, child_ctx.vars, input.dataframes)
+                copy_dataframes_to_child(ctx.vars, child_ctx.vars, effective_dataframes)
                 original_names = set(child_ctx.vars._vars.keys())
             except KeyError as exc:
                 return ToolResult(
@@ -179,7 +182,7 @@ class SpawnAgentTool:
 
                 # Merge back DataFrames if any were specified
                 merge_summary = ""
-                if input.dataframes:
+                if effective_dataframes:
                     merge_summary = merge_back_dataframes(
                         ctx.vars, child_ctx.vars, agent_name, original_names,
                     )
@@ -261,8 +264,10 @@ class SpawnAgentTool:
             hooks = self._hooks
             session_id = ctx.session_id
             transcript_path = ctx.transcript_path
-            parent_vars = ctx.vars
-            dataframes_specified = input.dataframes
+            parent_session_id = ctx.session_id
+            session_registry = getattr(ctx, "_session_registry", None)
+            parent_vars = ctx.vars  # fallback if no registry
+            dataframes_specified = effective_dataframes
             on_tool_event = _on_tool_event
 
             async def _run_background() -> None:
@@ -271,12 +276,25 @@ class SpawnAgentTool:
                 try:
                     result_text = await child_loop.run(full_prompt, child_ctx)
 
-                    # Merge back DataFrames
+                    # Merge back DataFrames — safe for evicted sessions
                     merge_summary = ""
                     if dataframes_specified:
-                        merge_summary = merge_back_dataframes(
-                            parent_vars, child_ctx.vars, agent_name, original_names,
-                        )
+                        target_vars = parent_vars  # default: direct reference
+                        if session_registry is not None:
+                            live_session = session_registry.get(parent_session_id)
+                            if live_session is None:
+                                import logging as _logging
+                                _logging.getLogger(__name__).warning(
+                                    "Parent session %s evicted, skipping DataFrame merge-back for %s",
+                                    parent_session_id, agent_name,
+                                )
+                                target_vars = None
+                            else:
+                                target_vars = live_session.ctx.vars
+                        if target_vars is not None:
+                            merge_summary = merge_back_dataframes(
+                                target_vars, child_ctx.vars, agent_name, original_names,
+                            )
 
                     manager.complete(info.subagent_id, result_text)
                     # D-08: notification for parent LLM

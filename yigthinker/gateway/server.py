@@ -195,6 +195,7 @@ class GatewayServer:
 
         async with session.lock:
             session.touch()
+            session.ctx._session_registry = self._registry  # type: ignore[attr-defined]
 
             def _on_tool_event(event_type: str, data: dict) -> None:
                 """Broadcast tool events to attached WS clients (fire-and-forget)."""
