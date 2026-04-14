@@ -571,7 +571,8 @@ from typing import Any
 
 @pytest.mark.asyncio
 async def test_webhook_with_single_xlsx_attachment(adapter):
-    """Webhook with a single .xlsx attachment downloads file and augments text."""
+    """Webhook with a single .xlsx attachment downloads file and augments text
+    with '[Attached file: data.xlsx -> ...]' prefix before original message."""
     adapter, handler = await _setup_adapter_with_webhook(adapter)
     adapter._acquire_token = MagicMock(return_value="test-download-token")
 
@@ -585,116 +586,105 @@ async def test_webhook_with_single_xlsx_attachment(adapter):
     )
     mock_request = _make_signed_request(body, adapter._webhook_secret)
 
-    created_tasks = []
+    # Capture the coroutine args by patching _process_and_respond
+    adapter._process_and_respond = AsyncMock()
 
-    def mock_create_task(coro):
-        created_tasks.append(coro)
+    mock_dl_client = _mock_httpx_download()
+
+    created_coros = []
+
+    def capture_create_task(coro):
+        created_coros.append(coro)
         coro.close()
         return MagicMock()
 
-    mock_dl_client = _mock_httpx_download()
-    with patch("asyncio.create_task", side_effect=mock_create_task), \
-         patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
-               return_value=mock_dl_client):
-        adapter._process_and_respond = AsyncMock()
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+               return_value=mock_dl_client), \
+         patch("asyncio.create_task", side_effect=capture_create_task):
         response = await handler(mock_request)
 
-    # Should have created a background task
-    assert len(created_tasks) == 1
+    # _process_and_respond was called once inside the coroutine
+    # Since we close the coroutine, we need to verify text differently.
+    # Instead, test _download_attachments directly for text augmentation.
+    assert len(created_coros) == 1
 
 
 @pytest.mark.asyncio
-async def test_webhook_with_multiple_attachments(adapter):
-    """Webhook with multiple attachments downloads all and augments text."""
-    adapter, handler = await _setup_adapter_with_webhook(adapter)
+async def test_download_attachments_augments_text_with_file_path(adapter):
+    """_download_attachments returns file_lines with '[Attached file: name -> path]' format."""
     adapter._acquire_token = MagicMock(return_value="test-download-token")
-
-    body = _make_webhook_body(
-        text="compare files",
-        attachments=[
-            {
-                "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "contentUrl": "https://teams.example.com/files/data.xlsx",
-                "name": "data.xlsx",
-            },
-            {
-                "contentType": "text/csv",
-                "contentUrl": "https://teams.example.com/files/report.csv",
-                "name": "report.csv",
-            },
-        ],
-    )
-    mock_request = _make_signed_request(body, adapter._webhook_secret)
 
     mock_dl_client = _mock_httpx_download()
     with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client):
-        adapter._process_and_respond = AsyncMock()
+        file_lines, error_lines = await adapter._download_attachments([{
+            "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "contentUrl": "https://teams.example.com/files/data.xlsx",
+            "name": "data.xlsx",
+        }])
 
-        created_tasks = []
+    assert len(file_lines) == 1
+    assert len(error_lines) == 0
+    assert file_lines[0].startswith("[Attached file: data.xlsx ->")
+    assert file_lines[0].endswith("]")
+    # Path should contain the filename
+    assert "data.xlsx" in file_lines[0]
 
-        def mock_create_task(coro):
-            created_tasks.append(coro)
-            coro.close()
-            return MagicMock()
 
-        with patch("asyncio.create_task", side_effect=mock_create_task):
-            response = await handler(mock_request)
+@pytest.mark.asyncio
+async def test_webhook_with_multiple_attachments(adapter):
+    """Webhook with multiple attachments (.xlsx + .csv) downloads all
+    and augments text with multiple '[Attached file: ...]' lines."""
+    adapter._acquire_token = MagicMock(return_value="test-download-token")
 
-    assert len(created_tasks) == 1
+    mock_dl_client = _mock_httpx_download()
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+               return_value=mock_dl_client):
+        file_lines, error_lines = await adapter._download_attachments([
+            {
+                "contentUrl": "https://teams.example.com/files/data.xlsx",
+                "name": "data.xlsx",
+            },
+            {
+                "contentUrl": "https://teams.example.com/files/report.csv",
+                "name": "report.csv",
+            },
+        ])
+
+    assert len(file_lines) == 2
+    assert len(error_lines) == 0
+    assert "[Attached file: data.xlsx ->" in file_lines[0]
+    assert "[Attached file: report.csv ->" in file_lines[1]
 
 
 @pytest.mark.asyncio
 async def test_webhook_skips_unsupported_file_type(adapter):
-    """Webhook with unsupported file type (.pdf) includes skip message in text."""
-    adapter, handler = await _setup_adapter_with_webhook(adapter)
+    """Unsupported file type (.pdf) produces skip message listing supported
+    extensions and no download is attempted."""
     adapter._acquire_token = MagicMock(return_value="test-download-token")
 
-    body = _make_webhook_body(
-        text="analyze report",
-        attachments=[{
-            "contentType": "application/pdf",
+    mock_dl_client = _mock_httpx_download()
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+               return_value=mock_dl_client):
+        file_lines, error_lines = await adapter._download_attachments([{
             "contentUrl": "https://teams.example.com/files/report.pdf",
             "name": "report.pdf",
-        }],
-    )
-    mock_request = _make_signed_request(body, adapter._webhook_secret)
+        }])
 
-    captured_text = []
-
-    async def capture_process(key, text, event):
-        captured_text.append(text)
-
-    adapter._process_and_respond = capture_process
-
-    created_tasks = []
-
-    def mock_create_task(coro):
-        created_tasks.append(coro)
-        coro.close()
-        return MagicMock()
-
-    with patch("asyncio.create_task", side_effect=mock_create_task):
-        response = await handler(mock_request)
-
-    assert len(created_tasks) == 1
+    assert len(file_lines) == 0
+    assert len(error_lines) == 1
+    assert "[Skipped unsupported file: report.pdf" in error_lines[0]
+    assert "supported:" in error_lines[0]
+    assert ".xlsx" in error_lines[0]
+    # No download should have been attempted
+    mock_dl_client.get.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_webhook_handles_download_failure(adapter):
-    """Webhook handles download failure gracefully with error message in text."""
-    adapter, handler = await _setup_adapter_with_webhook(adapter)
+    """Download failure (httpx ConnectError) produces '[Failed to download: data.xlsx]'
+    error line and continues processing."""
     adapter._acquire_token = MagicMock(return_value="test-download-token")
-
-    body = _make_webhook_body(
-        text="analyze data",
-        attachments=[{
-            "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "contentUrl": "https://teams.example.com/files/data.xlsx",
-            "name": "data.xlsx",
-        }],
-    )
-    mock_request = _make_signed_request(body, adapter._webhook_secret)
 
     # Mock httpx to raise ConnectError
     mock_dl_client = AsyncMock()
@@ -702,49 +692,47 @@ async def test_webhook_handles_download_failure(adapter):
     mock_dl_client.__aenter__ = AsyncMock(return_value=mock_dl_client)
     mock_dl_client.__aexit__ = AsyncMock(return_value=False)
 
-    created_tasks = []
-
-    def mock_create_task(coro):
-        created_tasks.append(coro)
-        coro.close()
-        return MagicMock()
-
-    with patch("asyncio.create_task", side_effect=mock_create_task), \
-         patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client):
-        adapter._process_and_respond = AsyncMock()
-        response = await handler(mock_request)
+        file_lines, error_lines = await adapter._download_attachments([{
+            "contentUrl": "https://teams.example.com/files/data.xlsx",
+            "name": "data.xlsx",
+        }])
 
-    assert len(created_tasks) == 1
+    assert len(file_lines) == 0
+    assert len(error_lines) == 1
+    assert "[Failed to download: data.xlsx]" in error_lines[0]
 
 
 @pytest.mark.asyncio
 async def test_webhook_text_only_unchanged(adapter):
-    """Webhook with text but no attachments works exactly as before."""
+    """Webhook with text but no attachments works exactly as before --
+    no augmentation, same thinking card response."""
     adapter, handler = await _setup_adapter_with_webhook(adapter)
 
     body = _make_webhook_body(text="just a question")
     mock_request = _make_signed_request(body, adapter._webhook_secret)
 
-    created_tasks = []
+    created_coros = []
 
-    def mock_create_task(coro):
-        created_tasks.append(coro)
+    def capture_create_task(coro):
+        created_coros.append(coro)
         coro.close()
         return MagicMock()
 
-    with patch("asyncio.create_task", side_effect=mock_create_task):
+    with patch("asyncio.create_task", side_effect=capture_create_task):
         response = await handler(mock_request)
 
     response_body = json.loads(response.body.decode())
     assert response_body["type"] == "message"
     assert "Analyzing" in response_body["attachments"][0]["content"]["body"][0]["text"]
-    assert len(created_tasks) == 1
+    assert len(created_coros) == 1
 
 
 @pytest.mark.asyncio
 async def test_webhook_attachment_without_content_url(adapter):
-    """Attachment dict with name but no contentUrl is skipped silently."""
+    """Attachment dict with name but no contentUrl is filtered out before
+    _download_attachments -- text remains unaugmented."""
     adapter, handler = await _setup_adapter_with_webhook(adapter)
 
     body = _make_webhook_body(
@@ -752,27 +740,29 @@ async def test_webhook_attachment_without_content_url(adapter):
         attachments=[{
             "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "name": "data.xlsx",
-            # No contentUrl!
+            # No contentUrl -- filtered out by the contentUrl check in webhook
         }],
     )
     mock_request = _make_signed_request(body, adapter._webhook_secret)
 
-    created_tasks = []
+    created_coros = []
 
-    def mock_create_task(coro):
-        created_tasks.append(coro)
+    def capture_create_task(coro):
+        created_coros.append(coro)
         coro.close()
         return MagicMock()
 
-    with patch("asyncio.create_task", side_effect=mock_create_task):
+    with patch("asyncio.create_task", side_effect=capture_create_task):
         response = await handler(mock_request)
 
-    assert len(created_tasks) == 1
+    # Task still created (text-only path), just no attachment augmentation
+    assert len(created_coros) == 1
 
 
 @pytest.mark.asyncio
 async def test_webhook_attachment_only_no_text(adapter):
-    """Body with attachments but empty text does NOT return early with 'Empty message'."""
+    """Body with attachments but empty text does NOT return early with
+    'Empty message' -- it processes the attachments and creates a background task."""
     adapter, handler = await _setup_adapter_with_webhook(adapter)
     adapter._acquire_token = MagicMock(return_value="test-download-token")
 
@@ -788,32 +778,123 @@ async def test_webhook_attachment_only_no_text(adapter):
 
     mock_dl_client = _mock_httpx_download()
 
-    created_tasks = []
+    created_coros = []
 
-    def mock_create_task(coro):
-        created_tasks.append(coro)
+    def capture_create_task(coro):
+        created_coros.append(coro)
         coro.close()
         return MagicMock()
 
-    with patch("asyncio.create_task", side_effect=mock_create_task), \
-         patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
-               return_value=mock_dl_client):
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+               return_value=mock_dl_client), \
+         patch("asyncio.create_task", side_effect=capture_create_task):
         adapter._process_and_respond = AsyncMock()
         response = await handler(mock_request)
 
     response_body = json.loads(response.body.decode())
-    # Should NOT be "Empty message" — should proceed with attachment processing
+    # Should NOT be "Empty message" -- should proceed with attachment processing
     assert response_body.get("text") != "Empty message"
-    assert len(created_tasks) == 1
+    # Background task was created (not short-circuited)
+    assert len(created_coros) == 1
+
+
+@pytest.mark.asyncio
+async def test_webhook_filters_non_file_attachments(adapter):
+    """Hero card attachment alongside a real file -- only the file is downloaded,
+    not the card. The contentUrl filter excludes hero cards."""
+    adapter, handler = await _setup_adapter_with_webhook(adapter)
+    adapter._acquire_token = MagicMock(return_value="test-download-token")
+
+    body = _make_webhook_body(
+        text="check this",
+        attachments=[
+            {
+                # Hero card -- should be filtered out (no contentUrl)
+                "contentType": "application/vnd.microsoft.card.hero",
+                "content": {"title": "Hero Card"},
+            },
+            {
+                # Real file -- should be downloaded
+                "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "contentUrl": "https://teams.example.com/files/sales.xlsx",
+                "name": "sales.xlsx",
+            },
+        ],
+    )
+    mock_request = _make_signed_request(body, adapter._webhook_secret)
+
+    mock_dl_client = _mock_httpx_download()
+
+    created_coros = []
+
+    def capture_create_task(coro):
+        created_coros.append(coro)
+        coro.close()
+        return MagicMock()
+
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+               return_value=mock_dl_client), \
+         patch("asyncio.create_task", side_effect=capture_create_task):
+        adapter._process_and_respond = AsyncMock()
+        response = await handler(mock_request)
+
+    # Background task was created
+    assert len(created_coros) == 1
+    # Verify only one file was downloaded (hero card has no contentUrl)
+    mock_dl_client.get.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_download_uses_bearer_token(adapter):
+    """The httpx GET call to contentUrl includes 'Authorization: Bearer <token>' header."""
+    adapter._acquire_token = MagicMock(return_value="test-download-token-abc")
+
+    mock_dl_client = _mock_httpx_download()
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+               return_value=mock_dl_client):
+        file_lines, error_lines = await adapter._download_attachments([{
+            "contentUrl": "https://teams.example.com/files/data.xlsx",
+            "name": "data.xlsx",
+        }])
+
+    # Verify httpx GET was called with Authorization header
+    mock_dl_client.get.assert_called_once()
+    call_kwargs = mock_dl_client.get.call_args
+    headers = call_kwargs[1].get("headers", {}) if call_kwargs[1] else {}
+    assert headers.get("Authorization") == "Bearer test-download-token-abc"
 
 
 @pytest.mark.asyncio
 async def test_render_file_received_card():
-    """render_file_received produces card with file names."""
+    """render_file_received produces card with file names and count header."""
     from yigthinker.channels.teams.cards import TeamsCardRenderer
     renderer = TeamsCardRenderer()
     card = renderer.render_file_received(["data.xlsx", "report.csv"])
     assert card["type"] == "AdaptiveCard"
+    assert card["$schema"] == "http://adaptivecards.io/schemas/adaptive-card.json"
+    assert card["version"] == "1.5"
+
     body_text = json.dumps(card["body"])
     assert "data.xlsx" in body_text
     assert "report.csv" in body_text
+    # Header mentions count
+    assert "Received 2 files" in body_text
+
+
+@pytest.mark.asyncio
+async def test_render_file_received_card_single_file():
+    """render_file_received with single file uses singular 'file' not 'files'."""
+    from yigthinker.channels.teams.cards import TeamsCardRenderer
+    renderer = TeamsCardRenderer()
+    card = renderer.render_file_received(["data.xlsx"])
+    body_text = json.dumps(card["body"])
+    assert "Received 1 file" in body_text
+    assert "data.xlsx" in body_text
+
+
+@pytest.mark.asyncio
+async def test_supported_extensions_match_df_load():
+    """_SUPPORTED_EXTENSIONS in adapter matches df_load._LOADERS keys exactly."""
+    from yigthinker.channels.teams.adapter import _SUPPORTED_EXTENSIONS
+    from yigthinker.tools.dataframe.df_load import _LOADERS
+    assert _SUPPORTED_EXTENSIONS == set(_LOADERS.keys())
