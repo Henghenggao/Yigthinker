@@ -36,6 +36,8 @@ _BLOCKED_DUNDERS = frozenset({
     "__globals__", "__builtins__", "__subclasses__", "__bases__",
     "__mro__", "__init__", "__class__", "__dict__", "__module__",
     "__code__", "__func__", "__self__", "__closure__", "__wrapped__",
+    "__getattribute__", "__reduce__", "__reduce_ex__", "__new__",
+    "__get__", "__set__", "__delete__", "__setattr__", "__delattr__",
 })
 
 # Module-level attributes that provide access to dangerous stdlib modules.
