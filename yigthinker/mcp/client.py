@@ -115,3 +115,28 @@ class MCPClient:
         result = await self._session.call_tool(tool_name, tool_input)
         parts = [block.text for block in result.content if hasattr(block, "text")]
         return "\n".join(parts)
+
+    async def list_resources(self) -> list[dict[str, str]]:
+        """List available resources from this MCP server."""
+        if self._session is None:
+            raise RuntimeError(f"MCPClient '{self.name}' not started. Call start() first.")
+        try:
+            result = await self._session.list_resources()
+        except Exception:
+            return []  # Server may not support resources
+        return [
+            {
+                "uri": str(r.uri),
+                "name": r.name or "",
+                "description": getattr(r, "description", "") or "",
+            }
+            for r in result.resources
+        ]
+
+    async def read_resource(self, uri: str) -> str:
+        """Read a specific resource by URI."""
+        if self._session is None:
+            raise RuntimeError(f"MCPClient '{self.name}' not started. Call start() first.")
+        result = await self._session.read_resource(uri)
+        parts = [c.text for c in result.contents if hasattr(c, "text")]
+        return "\n".join(parts)
