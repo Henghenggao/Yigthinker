@@ -3,22 +3,46 @@ import re
 from typing import Literal
 
 PermissionDecision = Literal["allow", "ask", "deny"]
+PermissionMode = Literal["default", "acceptEdits", "bypassAll", "denyAll"]
+
+# Tools auto-allowed in acceptEdits mode: anything that transforms in-memory data.
+# SQL queries, workflow deploys, and external side-effecting tools always ask.
+_ACCEPT_EDITS_AUTO_ALLOW: frozenset[str] = frozenset({
+    "df_load", "df_transform", "df_merge", "df_profile",
+    "chart_create", "chart_modify", "chart_recommend",
+    "report_generate", "report_template",
+    "forecast_timeseries", "forecast_regression", "forecast_evaluate",
+    "explore_overview", "explore_drilldown", "explore_anomaly",
+    "finance_calculate", "finance_analyze", "finance_validate", "finance_budget",
+    "schema_inspect", "sql_explain",
+})
 
 
 class PermissionSystem:
     """Evaluates allow/ask/deny rules from settings.permissions.
 
-    Rule priority (highest first): deny > allow > ask > default(ask).
+    Rule priority (highest first): deny > allow > mode-default > session_overrides > ask > default(ask).
+
+    Modes:
+      "default"     — standard allow/ask/deny rule evaluation (existing behaviour)
+      "acceptEdits" — auto-allow data-transformation tools; ask for SQL DML and deployment
+      "bypassAll"   — allow everything except explicit deny rules
+      "denyAll"     — deny everything
 
     Pattern format:
       - "sql_query"              matches any sql_query call
       - "sql_query(DELETE:*)"    matches sql_query where first SQL keyword is DELETE
     """
 
-    def __init__(self, permissions: dict[str, list[str]]) -> None:
+    def __init__(
+        self,
+        permissions: dict[str, list[str]],
+        mode: PermissionMode = "default",
+    ) -> None:
         self._allow: list[str] = permissions.get("allow", [])
         self._ask: list[str] = permissions.get("ask", [])
         self._deny: list[str] = permissions.get("deny", [])
+        self._mode = mode
         self._session_overrides: dict[str, list[str]] = {}
 
     def allow_for_session(self, tool_name: str, session_id: str) -> None:
@@ -37,15 +61,29 @@ class PermissionSystem:
     ) -> PermissionDecision:
         call_repr = self._call_repr(tool_name, tool_input or {})
 
+        # Explicit deny rules always win regardless of mode
         for pattern in self._deny:
             if self._matches(pattern, call_repr):
                 return "deny"
 
+        # denyAll: deny everything after explicit deny rules already handled
+        if self._mode == "denyAll":
+            return "deny"
+
+        # Explicit allow rules (apply in all modes)
         for pattern in self._allow:
             if self._matches(pattern, call_repr):
                 return "allow"
 
-        # Check session-scoped overrides (after deny, after global allow, before ask)
+        # bypassAll: allow anything not explicitly denied
+        if self._mode == "bypassAll":
+            return "allow"
+
+        # acceptEdits: auto-allow in-memory data transformation tools
+        if self._mode == "acceptEdits" and tool_name in _ACCEPT_EDITS_AUTO_ALLOW:
+            return "allow"
+
+        # Session-scoped overrides (after deny, after global allow, before ask)
         if session_id and session_id in self._session_overrides:
             if tool_name in self._session_overrides[session_id]:
                 return "allow"

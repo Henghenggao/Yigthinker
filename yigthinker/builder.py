@@ -118,7 +118,9 @@ async def build_app(
         hook_registry.register(event_type, matcher, hook_fn)
 
     hooks = HookExecutor(hook_registry)
-    permissions = PermissionSystem(settings.get("permissions", {}))
+    perm_settings = settings.get("permissions", {})
+    perm_mode = perm_settings.get("mode", "default")
+    permissions = PermissionSystem(perm_settings, mode=perm_mode)
     provider = provider_from_settings(settings)
 
     fallback_provider: LLMProvider | None = None

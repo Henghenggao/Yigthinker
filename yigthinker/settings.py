@@ -8,6 +8,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "fallback_model": None,
     "planner": {"enabled": False, "trigger": "auto"},
     "permissions": {
+        "mode": "default",
         "allow": [
             "df_load",
             "df_profile",
