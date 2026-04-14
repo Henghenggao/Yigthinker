@@ -93,7 +93,8 @@ class PluginLoader:
                 for entry in entries:
                     command = entry.get("command", "")
                     matcher = entry.get("matcher", "*")
-                    if command:
+                    enabled = entry.get("enabled", True)
+                    if command and enabled:
                         hooks.append((event_type, matcher, CommandHook(command)))
         return hooks
 

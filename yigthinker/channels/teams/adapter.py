@@ -355,7 +355,7 @@ class TeamsAdapter:
             registry.set_active_key(session_key, new_key)
             return f"Started new session{': ' + label if label else ''}."
         elif cmd.name == "sessions":
-            sessions = registry.list_sessions()
+            sessions = registry.list_sessions_for_owner(session_key)
             if not sessions:
                 return "No active sessions."
             lines = [f"- {s['key']} (idle: {s.get('idle_seconds', 'unknown')}s)" for s in sessions]

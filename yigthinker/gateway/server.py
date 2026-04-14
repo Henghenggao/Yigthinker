@@ -192,6 +192,8 @@ class GatewayServer:
 
         Acquires the per-session lock to prevent concurrent access.
         """
+        # P1-2: resolve active session key (supports /new and /switch commands)
+        session_key = self._registry.get_active_key(session_key)
         session = await self._registry.get_or_restore(session_key, self._settings, channel)
 
         async with session.lock:
