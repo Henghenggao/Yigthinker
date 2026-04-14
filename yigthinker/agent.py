@@ -471,7 +471,13 @@ class AgentLoop:
             tool = self._tools.get(tool_name)
             input_obj = tool.input_schema(**tool_input)
 
-            # P1-1: inject progress callback before tool execution
+            # P1-1: inject progress callback before tool execution.
+            # NOTE: concurrent tool batches share the same ctx, so if multiple
+            # safe tools run via asyncio.gather(), the last one to set
+            # _progress_callback wins. This means progress events may briefly
+            # be attributed to the wrong tool. Acceptable for current use;
+            # rearchitect to a dict keyed by tool_use_id if precise attribution
+            # becomes important.
             if on_tool_event is not None:
                 ctx._progress_callback = lambda msg: on_tool_event(
                     "tool_progress", {"tool": tool_name, "message": msg}
