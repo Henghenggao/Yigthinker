@@ -125,6 +125,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "replace_result": True,
         },
     },
+    "undo": {
+        "max_stack_depth": 20,
+    },
 }
 
 

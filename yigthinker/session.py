@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path as _Path
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -28,6 +29,15 @@ class VarInfo:
     shape: tuple[int, ...]
     dtypes: dict[str, str]
     var_type: str = "dataframe"
+
+
+@dataclass
+class UndoEntry:
+    tool_name: str
+    original_path: _Path
+    backup_path: _Path
+    created_at: float
+    is_new_file: bool
 
 
 class VarRegistry:
@@ -88,6 +98,7 @@ class SessionContext:
     context_manager: ContextManager = field(default_factory=ContextManager)
     stats: StatsAccumulator = field(default_factory=StatsAccumulator)
     messages: list[Message] = field(default_factory=list)
+    undo_stack: list[UndoEntry] = field(default_factory=list)
     subagent_manager: SubagentManager | None = None
     _progress_callback: Callable[[str], None] | None = field(default=None, repr=False)
 
