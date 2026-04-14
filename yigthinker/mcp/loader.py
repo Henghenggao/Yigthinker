@@ -72,13 +72,29 @@ class MCPLoader:
 
         config = json.loads(self._path.read_text(encoding="utf-8"))
         for server_name, server_cfg in config.get("mcpServers", {}).items():
-            env = {key: _resolve_env(value) for key, value in server_cfg.get("env", {}).items()}
-            client = MCPClient(
-                name=server_name,
-                command=server_cfg["command"],
-                args=server_cfg.get("args", []),
-                env=env,
-            )
+            transport = server_cfg.get("transport", "stdio")
+
+            if transport in ("sse", "http"):
+                client = MCPClient(
+                    name=server_name,
+                    transport=transport,
+                    url=server_cfg.get("url", ""),
+                    headers=server_cfg.get("headers", {}),
+                )
+            else:
+                # Default: stdio
+                env = {
+                    key: _resolve_env(value)
+                    for key, value in server_cfg.get("env", {}).items()
+                }
+                client = MCPClient(
+                    name=server_name,
+                    transport="stdio",
+                    command=server_cfg["command"],
+                    args=server_cfg.get("args", []),
+                    env=env,
+                )
+
             await client.start()
             self._clients.append(client)
 
