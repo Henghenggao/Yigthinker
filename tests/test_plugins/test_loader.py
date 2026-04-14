@@ -138,3 +138,51 @@ def test_load_mcp_configs_returns_merged_server_configs(tmp_path):
 
     assert "plugin-server" in configs
     assert configs["plugin-server"]["url"] == "http://plugin/mcp"
+
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+async def test_builder_registers_plugin_hooks(tmp_path, monkeypatch):
+    """Plugin hooks loaded from discovered plugins are registered into HookRegistry."""
+    plugin_dir = tmp_path / "my-plugin"
+    manifest_dir = plugin_dir / ".yigthinker-plugin"
+    manifest_dir.mkdir(parents=True)
+    hooks_dir = plugin_dir / "hooks"
+    hooks_dir.mkdir()
+    (manifest_dir / "plugin.json").write_text(json.dumps({
+        "name": "my-plugin",
+        "version": "1.0.0",
+        "description": "",
+        "author": "",
+        "hooks": "hooks/hooks.json",
+    }))
+    (hooks_dir / "hooks.json").write_text(json.dumps({
+        "PreToolUse": [{"matcher": "sql_query", "command": "echo ok"}]
+    }))
+
+    settings = {
+        "model": "claude-sonnet-4-20250514",
+        "plugin_dirs": [str(tmp_path)],
+        "connections": {},
+        "permissions": {},
+    }
+
+    mock_provider = MagicMock()
+    mock_provider.chat = AsyncMock()
+
+    with patch("yigthinker.providers.factory.provider_from_settings", return_value=mock_provider), \
+         patch("yigthinker.mcp.loader.MCPLoader") as MockMCPLoader:
+        mock_mcp_loader = AsyncMock()
+        mock_mcp_loader.load = AsyncMock()
+        MockMCPLoader.return_value = mock_mcp_loader
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+        from yigthinker.builder import build_app
+        ctx = await build_app(settings, ask_fn=None)
+
+    # Plugin hook should be registered in the hook registry
+    registry = ctx.agent_loop._hooks._registry
+    hooks_for = registry.get_hooks_for("PreToolUse", "sql_query")
+    assert len(hooks_for) >= 1

@@ -106,6 +106,17 @@ async def build_app(
             ) from None
 
     hook_registry = HookRegistry()
+
+    # --- Plugin system: hooks + MCP ---
+    from yigthinker.plugins.loader import PluginLoader
+
+    _plugin_dir_strs = settings.get("plugin_dirs", [])
+    _plugin_dirs = [Path(d) for d in _plugin_dir_strs] if _plugin_dir_strs else None
+    plugin_loader = PluginLoader(plugin_dirs=_plugin_dirs)
+
+    for event_type, matcher, hook_fn in plugin_loader.load_hooks():
+        hook_registry.register(event_type, matcher, hook_fn)
+
     hooks = HookExecutor(hook_registry)
     permissions = PermissionSystem(settings.get("permissions", {}))
     provider = provider_from_settings(settings)
