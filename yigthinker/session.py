@@ -109,6 +109,8 @@ class SessionContext:
     undo_stack: list[UndoEntry] = field(default_factory=list)
     subagent_manager: SubagentManager | None = None
     _progress_callback: Callable[[str], None] | None = field(default=None, repr=False)
+    _on_tool_event: Callable[[str, dict], None] | None = field(default=None, repr=False)
+    _pending_injections: list[str] | None = field(default=None, repr=False)
     _checkpoints: dict[str, CheckpointData] = field(default_factory=dict, repr=False)
 
     async def emit_progress(self, message: str) -> None:

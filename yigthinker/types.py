@@ -9,6 +9,8 @@ class ToolResult:
     tool_use_id: str
     content: Any
     is_error: bool = False
+    _suppressed: bool = field(default=False, repr=False)
+    _hook_injections: list[str] = field(default_factory=list, repr=False)
 
 
 @dataclass

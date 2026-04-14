@@ -140,16 +140,20 @@ class SessionHibernator:
                     var_type = entry.get("var_type", "dataframe")
                     ctx.vars.set(name, value, var_type=var_type)
 
-        session = ManagedSession(
-            key=key,
-            ctx=ctx,
-            created_at=metadata.get("created_at", time.monotonic()),
-            last_active=time.monotonic(),
-            channel_origin=metadata.get("channel_origin", "cli"),
-        )
-        session.ctx.mark_active()
+        try:
+            session = ManagedSession(
+                key=key,
+                ctx=ctx,
+                created_at=metadata.get("created_at", time.monotonic()),
+                last_active=time.monotonic(),
+                channel_origin=metadata.get("channel_origin", "cli"),
+            )
+            session.ctx.mark_active()
+        except Exception:
+            logger.exception("Failed to construct ManagedSession for %s; hibernation data preserved", key)
+            return None
 
-        # Clean up hibernation files
+        # Clean up hibernation files only after successful session construction
         _rmtree(session_dir)
 
         return session

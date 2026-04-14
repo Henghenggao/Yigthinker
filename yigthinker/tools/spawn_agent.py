@@ -281,7 +281,6 @@ class SpawnAgentTool:
                     # Merge back DataFrames — safe for evicted sessions
                     merge_summary = ""
                     if dataframes_specified:
-                        target_vars = parent_vars  # default: direct reference
                         if session_registry is not None:
                             live_session = session_registry.get(session_id)
                             if live_session is None:
@@ -289,12 +288,15 @@ class SpawnAgentTool:
                                     "Parent session %s evicted, skipping DataFrame merge-back for %s",
                                     session_id, agent_name,
                                 )
-                                target_vars = None
                             else:
-                                target_vars = live_session.ctx.vars
-                        if target_vars is not None:
+                                async with live_session.lock:
+                                    merge_summary = merge_back_dataframes(
+                                        live_session.ctx.vars, child_ctx.vars, agent_name, original_names,
+                                    )
+                        else:
+                            # No registry: use direct parent_vars reference (foreground-only path)
                             merge_summary = merge_back_dataframes(
-                                target_vars, child_ctx.vars, agent_name, original_names,
+                                parent_vars, child_ctx.vars, agent_name, original_names,
                             )
 
                     manager.complete(info.subagent_id, result_text)

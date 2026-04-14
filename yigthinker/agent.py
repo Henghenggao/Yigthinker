@@ -97,8 +97,8 @@ class AgentLoop:
         self._max_tokens_recovery_count = 0
         messages: list[Message] = list(ctx.messages)
         messages.append(Message(role="user", content=user_input))
-        ctx._pending_injections = None  # type: ignore[attr-defined]  # P1-5: clear stale injections from prior run
-        ctx._on_tool_event = on_tool_event  # type: ignore[attr-defined]
+        ctx._pending_injections = None  # P1-5: clear stale injections from prior run
+        ctx._on_tool_event = on_tool_event
         tool_schemas = self._tools.export_schemas()
         iteration = 0
 
@@ -181,7 +181,7 @@ class AgentLoop:
                             system_prompt += f"\n\n[Hook Context]\n{injection_text}"
                         else:
                             system_prompt = f"[Hook Context]\n{injection_text}"
-                        ctx._pending_injections = None  # type: ignore[attr-defined]
+                        ctx._pending_injections = None
 
                     if self._compact is not None:
                         token_est = self._estimate_tokens(messages)
@@ -198,7 +198,12 @@ class AgentLoop:
                             await self._hooks.run(pre_compact_event)
                             memory_content = self._memory_manager.load_memory() if self._memory_manager else ""
                             vars_summary = self._format_vars_summary(ctx)
-                            messages = await self._compact.run(messages, memory_content, token_est, vars_summary)
+                            messages, compact_injection = await self._compact.run(messages, memory_content, token_est, vars_summary)
+                            if compact_injection:
+                                if system_prompt:
+                                    system_prompt += f"\n\n{compact_injection}"
+                                else:
+                                    system_prompt = compact_injection
 
                     using_fallback = False
 
@@ -239,9 +244,9 @@ class AgentLoop:
                                         elif event.type == "error":
                                             break
                                 except Exception:
-                                    pass
+                                    raise
                             else:
-                                pass
+                                raise
 
                         response = LLMResponse(
                             stop_reason=stop_reason,
@@ -411,7 +416,7 @@ class AgentLoop:
 
         # Store injections on ctx for system prompt assembly
         if hook_injections:
-            ctx._pending_injections = hook_injections  # type: ignore[attr-defined]
+            ctx._pending_injections = hook_injections
 
         return tool_results
 
@@ -541,14 +546,14 @@ class AgentLoop:
         # P1-5: apply post-hook effects
         if post_agg.suppress:
             result = ToolResult(tool_use_id=tool_use_id, content="[output suppressed by hook]", is_error=False)
-            result._suppressed = True  # type: ignore[attr-defined]
+            result._suppressed = True
         elif post_agg.replacement is not None:
             result.content = post_agg.replacement
 
         # Collect injections from both pre and post hooks
         all_injections = pre_agg.injections + post_agg.injections
         if all_injections:
-            result._hook_injections = all_injections  # type: ignore[attr-defined]
+            result._hook_injections = all_injections
 
         if on_tool_event is not None:
             serialized_content = _serialize_tool_content(result.content)
