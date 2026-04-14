@@ -97,3 +97,17 @@ def test_session_context_independent_context_managers():
     s1 = SessionContext()
     s2 = SessionContext()
     assert s1.context_manager is not s2.context_manager
+
+
+async def test_emit_progress_calls_callback():
+    ctx = SessionContext()
+    calls = []
+    ctx._progress_callback = lambda msg: calls.append(msg)
+    await ctx.emit_progress("loading data")
+    assert calls == ["loading data"]
+
+
+async def test_emit_progress_noop_without_callback():
+    ctx = SessionContext()
+    # Should not raise
+    await ctx.emit_progress("nothing happens")

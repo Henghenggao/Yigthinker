@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from yigthinker.subagent.manager import SubagentManager
@@ -89,6 +89,12 @@ class SessionContext:
     stats: StatsAccumulator = field(default_factory=StatsAccumulator)
     messages: list[Message] = field(default_factory=list)
     subagent_manager: SubagentManager | None = None
+    _progress_callback: Callable[[str], None] | None = field(default=None, repr=False)
+
+    async def emit_progress(self, message: str) -> None:
+        """Emit a progress message to the UI layer. No-op if no callback set."""
+        if self._progress_callback is not None:
+            self._progress_callback(message)
 
     def mark_active(self) -> None:
         self.last_active = time.monotonic()

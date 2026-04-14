@@ -28,6 +28,7 @@ from yigthinker.gateway.protocol import (
     SubagentEventMsg,
     TokenStreamMsg,
     ToolCallMsg,
+    ToolProgressMsg,
     ToolResultMsg,
     VarsUpdateMsg,
     parse_client_msg,
@@ -217,6 +218,11 @@ class GatewayServer:
                         subagent_name=data.get("subagent_name", ""),
                         event=data.get("event", ""),
                         detail=data.get("detail", ""),
+                    ))
+                elif event_type == "tool_progress":
+                    msg = to_json_dict(ToolProgressMsg(
+                        tool=data.get("tool", ""),
+                        message=data.get("message", ""),
                     ))
                 else:
                     return

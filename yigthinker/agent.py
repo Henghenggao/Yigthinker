@@ -470,8 +470,19 @@ class AgentLoop:
         try:
             tool = self._tools.get(tool_name)
             input_obj = tool.input_schema(**tool_input)
+
+            # P1-1: inject progress callback before tool execution
+            if on_tool_event is not None:
+                ctx._progress_callback = lambda msg: on_tool_event(
+                    "tool_progress", {"tool": tool_name, "message": msg}
+                )
+
             result = await tool.execute(input_obj, ctx)
             result.tool_use_id = tool_use_id
+
+            # P1-1: cleanup progress callback
+            ctx._progress_callback = None
+
             # Truncate oversized results
             result_str = _serialize_tool_content(result.content)
             if len(result_str) > MAX_RESULT_CHARS:
@@ -481,6 +492,7 @@ class AgentLoop:
                     f"Full result in variable registry.]"
                 )
         except Exception as exc:
+            ctx._progress_callback = None  # P1-1: cleanup on error
             result = ToolResult(tool_use_id=tool_use_id, content=str(exc), is_error=True)
 
         post_event = HookEvent(
