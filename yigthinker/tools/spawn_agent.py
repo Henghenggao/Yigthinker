@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
     from yigthinker.permissions import PermissionSystem
     from yigthinker.providers.base import LLMProvider
     from yigthinker.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class SpawnAgentInput(BaseModel):
@@ -264,7 +267,6 @@ class SpawnAgentTool:
             hooks = self._hooks
             session_id = ctx.session_id
             transcript_path = ctx.transcript_path
-            parent_session_id = ctx.session_id
             session_registry = getattr(ctx, "_session_registry", None)
             parent_vars = ctx.vars  # fallback if no registry
             dataframes_specified = effective_dataframes
@@ -281,12 +283,11 @@ class SpawnAgentTool:
                     if dataframes_specified:
                         target_vars = parent_vars  # default: direct reference
                         if session_registry is not None:
-                            live_session = session_registry.get(parent_session_id)
+                            live_session = session_registry.get(session_id)
                             if live_session is None:
-                                import logging as _logging
-                                _logging.getLogger(__name__).warning(
+                                logger.warning(
                                     "Parent session %s evicted, skipping DataFrame merge-back for %s",
-                                    parent_session_id, agent_name,
+                                    session_id, agent_name,
                                 )
                                 target_vars = None
                             else:
