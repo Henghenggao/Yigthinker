@@ -124,3 +124,36 @@ async def test_default_header_zero_preserves_csv_behavior(tmp_path):
     df = ctx.vars.get("normal")
     assert list(df.columns) == ["col_a", "col_b"]
     assert len(df) == 2
+
+
+async def test_relative_path_resolves_within_workspace(tmp_path):
+    """Relative paths are anchored to workspace_dir, not the process cwd."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    path = workspace / "inside.csv"
+    path.write_text("name,score\nAlice,90\n")
+
+    tool = DfLoadTool()
+    ctx = SessionContext(settings={"workspace_dir": str(workspace)})
+    input_obj = tool.input_schema(source="inside.csv", var_name="inside")
+    result = await tool.execute(input_obj, ctx)
+
+    assert not result.is_error, result.content
+    df = ctx.vars.get("inside")
+    assert list(df.columns) == ["name", "score"]
+
+
+async def test_relative_parent_path_outside_workspace_is_blocked(tmp_path):
+    """Relative ../ paths must not escape workspace_dir."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "secret.csv"
+    outside.write_text("name,score\nMallory,100\n")
+
+    tool = DfLoadTool()
+    ctx = SessionContext(settings={"workspace_dir": str(workspace)})
+    input_obj = tool.input_schema(source="../secret.csv", var_name="blocked")
+    result = await tool.execute(input_obj, ctx)
+
+    assert result.is_error
+    assert "outside the workspace directory" in str(result.content)

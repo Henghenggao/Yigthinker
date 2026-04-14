@@ -922,6 +922,30 @@ async def test_download_uses_content_download_url_without_bearer(adapter):
 
 
 @pytest.mark.asyncio
+async def test_download_sanitizes_attachment_name(adapter, tmp_path):
+    """Attachment names are reduced to a basename before writing to disk."""
+    adapter._acquire_token = MagicMock(return_value="test-download-token")
+    download_dir = tmp_path / "downloads"
+    download_dir.mkdir()
+
+    mock_dl_client = _mock_httpx_download()
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+               return_value=mock_dl_client), \
+         patch("yigthinker.channels.teams.adapter.tempfile.mkdtemp",
+               return_value=str(download_dir)):
+        file_lines, error_lines = await adapter._download_attachments([{
+            "contentUrl": "https://teams.example.com/files/data.csv",
+            "name": "../escape.csv",
+        }])
+
+    assert len(error_lines) == 0
+    assert len(file_lines) == 1
+    assert "[Attached file: escape.csv ->" in file_lines[0]
+    assert (download_dir / "escape.csv").exists()
+    assert not (tmp_path / "escape.csv").exists()
+
+
+@pytest.mark.asyncio
 async def test_webhook_recognizes_teams_file_download_info_content_type(adapter):
     """Attachments with contentType 'application/vnd.microsoft.teams.file.download.info'
     are recognized as file attachments and passed to _process_and_respond."""

@@ -226,7 +226,7 @@ class YigthinkerTUI(App):
                 self._cursor_timer = None
 
     def _on_state_change(self, state: str) -> None:
-        self.call_after_refresh(self._apply_state_to_ui, state)
+        self._apply_state_to_ui(state)
 
     def _apply_state_to_ui(self, state: str) -> None:
         try:

@@ -1,5 +1,4 @@
 from __future__ import annotations
-import os
 from pathlib import Path
 import pandas as pd
 from pydantic import BaseModel
@@ -9,16 +8,13 @@ from yigthinker.session import SessionContext
 
 def _safe_path(source: str, ctx_settings: dict) -> tuple[Path, str | None]:
     """Return (resolved_path, error_msg). error_msg is None if safe."""
-    p = Path(source).expanduser()
-    # Relative paths are always allowed (relative to cwd)
-    if not p.is_absolute():
-        return p, None
-    # For absolute paths, check against configured workspace_dir or cwd
-    workspace = Path(ctx_settings.get("workspace_dir", Path.cwd())).resolve()
+    workspace = Path(ctx_settings.get("workspace_dir", Path.cwd())).expanduser().resolve()
+    raw_path = Path(source).expanduser()
     try:
-        resolved = p.resolve()
+        candidate = raw_path if raw_path.is_absolute() else workspace / raw_path
+        resolved = candidate.resolve(strict=False)
     except Exception:
-        return p, f"Cannot resolve path: {source}"
+        return raw_path, f"Cannot resolve path: {source}"
     try:
         resolved.relative_to(workspace)
         return resolved, None

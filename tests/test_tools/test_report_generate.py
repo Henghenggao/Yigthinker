@@ -39,3 +39,37 @@ async def test_generate_with_missing_var_returns_error(tmp_path):
     )
     result = await tool.execute(input_obj, ctx)
     assert result.is_error
+
+
+async def test_generate_relative_output_inside_workspace(tmp_path):
+    tool = ReportGenerateTool()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    ctx = _make_ctx(workspace)
+
+    input_obj = tool.input_schema(
+        var_name="pl_data",
+        format="csv",
+        output_path="report.csv",
+    )
+    result = await tool.execute(input_obj, ctx)
+
+    assert not result.is_error, result.content
+    assert (workspace / "report.csv").exists()
+
+
+async def test_generate_relative_parent_output_outside_workspace_is_blocked(tmp_path):
+    tool = ReportGenerateTool()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    ctx = _make_ctx(workspace)
+
+    input_obj = tool.input_schema(
+        var_name="pl_data",
+        format="csv",
+        output_path="../leak.csv",
+    )
+    result = await tool.execute(input_obj, ctx)
+
+    assert result.is_error
+    assert "outside workspace" in str(result.content)

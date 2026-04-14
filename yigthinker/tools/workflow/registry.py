@@ -71,6 +71,40 @@ class WorkflowRegistry:
     def _ensure_dirs(self) -> None:
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
+    def _read_index_raw(self) -> dict:
+        if not self._index_path.exists():
+            return {"workflows": {}, "suppressed_suggestions": []}
+        return json.loads(self._index_path.read_text(encoding="utf-8"))
+
+    def _read_manifest_raw(self, name: str) -> dict | None:
+        manifest_path = self._base_dir / name / "manifest.json"
+        if not manifest_path.exists():
+            return None
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    def _write_json_atomic(self, path: Path, data: dict) -> None:
+        fd = None
+        tmp_path = None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(path.parent), suffix=".tmp",
+            )
+            content = json.dumps(data, indent=2, ensure_ascii=False)
+            os.write(fd, content.encode("utf-8"))
+            os.close(fd)
+            fd = None
+            os.replace(tmp_path, str(path))
+            tmp_path = None
+        finally:
+            if fd is not None:
+                os.close(fd)
+            if tmp_path is not None:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
     def load_index(self) -> dict:
         """Load the global registry index. Returns empty structure if missing.
 
@@ -79,9 +113,7 @@ class WorkflowRegistry:
         ``JSONDecodeError`` on a corrupted file PROPAGATES (Pitfall 5) —
         callers surface it as ``ToolResult(is_error=True)``.
         """
-        if not self._index_path.exists():
-            return {"workflows": {}, "suppressed_suggestions": []}
-        data = json.loads(self._index_path.read_text(encoding="utf-8"))
+        data = self._read_index_raw()
         for entry in data.get("workflows", {}).values():
             _fill_workflow_entry_defaults(entry)
         return data
@@ -97,12 +129,7 @@ class WorkflowRegistry:
         tmp_path = None
         try:
             with self._lock:
-                # Read current state inside the lock for safe merging
-                current = (
-                    json.loads(self._index_path.read_text(encoding="utf-8"))
-                    if self._index_path.exists()
-                    else {"workflows": {}, "suppressed_suggestions": []}
-                )
+                current = self._read_index_raw()
                 # Per-entry merge: patches preserve existing fields instead
                 # of replacing the whole entry (Phase 9 write-through).
                 for wf_name, wf_patch in data.get("workflows", {}).items():
@@ -111,15 +138,7 @@ class WorkflowRegistry:
                     current["workflows"][wf_name] = existing
                 if "suppressed_suggestions" in data:
                     current["suppressed_suggestions"] = data["suppressed_suggestions"]
-                fd, tmp_path = tempfile.mkstemp(
-                    dir=str(self._base_dir), suffix=".tmp",
-                )
-                content = json.dumps(current, indent=2, ensure_ascii=False)
-                os.write(fd, content.encode("utf-8"))
-                os.close(fd)
-                fd = None
-                os.replace(tmp_path, str(self._index_path))
-                tmp_path = None
+                self._write_json_atomic(self._index_path, current)
         finally:
             if fd is not None:
                 os.close(fd)
@@ -131,20 +150,20 @@ class WorkflowRegistry:
 
     def next_version(self, name: str) -> int:
         """Return the next version number for a workflow (1-based sequential)."""
-        manifest = self.get_manifest(name)
-        if manifest is None:
-            return 1
-        return len(manifest["versions"]) + 1
+        with self._lock:
+            manifest = self._read_manifest_raw(name)
+            if manifest is None:
+                return 1
+            return len(manifest.get("versions", [])) + 1
 
     def get_manifest(self, name: str) -> dict | None:
         """Read the per-workflow manifest. Returns None if workflow doesn't exist.
 
         Phase 9: fills Phase 9 default fields on every version entry (D-13).
         """
-        manifest_path = self._base_dir / name / "manifest.json"
-        if not manifest_path.exists():
+        manifest = self._read_manifest_raw(name)
+        if manifest is None:
             return None
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         for version in manifest.get("versions", []):
             _fill_version_entry_defaults(version)
         return manifest
@@ -158,15 +177,7 @@ class WorkflowRegistry:
         tmp_path = None
         try:
             with self._lock:
-                fd, tmp_path = tempfile.mkstemp(
-                    dir=str(workflow_dir), suffix=".tmp",
-                )
-                content = json.dumps(manifest, indent=2, ensure_ascii=False)
-                os.write(fd, content.encode("utf-8"))
-                os.close(fd)
-                fd = None
-                os.replace(tmp_path, str(manifest_path))
-                tmp_path = None
+                self._write_json_atomic(manifest_path, manifest)
         finally:
             if fd is not None:
                 os.close(fd)
@@ -183,44 +194,46 @@ class WorkflowRegistry:
         if not workflow_dir.is_relative_to(self._base_dir.resolve()):
             raise ValueError(f"Invalid workflow name: '{name}' escapes workflow directory")
         now = datetime.now(timezone.utc).isoformat()
-        version = self.next_version(name)
-        version_dir = self._base_dir / name / f"v{version}"
-        version_dir.mkdir(parents=True, exist_ok=True)
 
-        # Write version files
-        for filename, content in version_data.items():
-            (version_dir / filename).write_text(content, encoding="utf-8")
+        with self._lock:
+            manifest = self._read_manifest_raw(name)
+            if manifest is None:
+                manifest = {"name": name, "versions": []}
+            version = len(manifest.get("versions", [])) + 1
+            version_dir = workflow_dir / f"v{version}"
+            version_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build version entry
-        version_entry = {
-            "version": version,
-            "created_at": now,
-            "description": description,
-            "files": list(version_data.keys()),
-        }
+            for filename, content in version_data.items():
+                (version_dir / filename).write_text(content, encoding="utf-8")
 
-        # Update manifest
-        manifest = self.get_manifest(name)
-        if manifest is None:
-            manifest = {"name": name, "versions": []}
-        manifest["versions"].append(version_entry)
-        self.save_manifest(name, manifest)
-
-        # Update registry index
-        index = self.load_index()
-        if name not in index["workflows"]:
-            index["workflows"][name] = {
-                "status": "active",
-                "latest_version": version,
-                "description": description,
+            version_entry = {
+                "version": version,
                 "created_at": now,
-                "updated_at": now,
+                "description": description,
+                "files": list(version_data.keys()),
             }
-        else:
-            index["workflows"][name]["latest_version"] = version
-            index["workflows"][name]["description"] = description
-            index["workflows"][name]["updated_at"] = now
-        self.save_index(index)
+            manifest.setdefault("name", name)
+            manifest.setdefault("versions", [])
+            manifest["versions"].append(version_entry)
+            self._write_json_atomic(workflow_dir / "manifest.json", manifest)
+
+            index = self._read_index_raw()
+            workflows = index.setdefault("workflows", {})
+            existing = workflows.get(name)
+            if existing is None:
+                workflows[name] = {
+                    "status": "active",
+                    "latest_version": version,
+                    "description": description,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            else:
+                existing["latest_version"] = version
+                existing["description"] = description
+                existing["updated_at"] = now
+            index.setdefault("suppressed_suggestions", [])
+            self._write_json_atomic(self._index_path, index)
 
         return version_dir
 
@@ -233,15 +246,15 @@ class WorkflowRegistry:
     ) -> Path:
         """Create a new version of an existing workflow. Previous versions untouched."""
         version_dir = self.create(name, description, version_data)
+        version = int(version_dir.name.removeprefix("v"))
 
         # Append changelog entry
         if changelog:
             changelog_path = self._base_dir / name / "changelog.txt"
-            manifest = self.get_manifest(name)
-            version = manifest["versions"][-1]["version"] if manifest else 1
             entry = f"v{version} ({datetime.now(timezone.utc).isoformat()}): {changelog}\n"
-            with open(changelog_path, "a", encoding="utf-8") as f:
-                f.write(entry)
+            with self._lock:
+                with open(changelog_path, "a", encoding="utf-8") as f:
+                    f.write(entry)
 
         return version_dir
 

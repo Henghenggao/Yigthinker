@@ -1,0 +1,45 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "a269f38f-af2a-4d66-8016-76534d696781",
+  "developer": {
+    "name": "Yigthinker",
+    "websiteUrl": "https://github.com/user/yigthinker",
+    "privacyUrl": "https://github.com/user/yigthinker",
+    "termsOfUseUrl": "https://github.com/user/yigthinker"
+  },
+  "name": {
+    "short": "Yigthinker",
+    "full": "Yigthinker AI Data Analyst"
+  },
+  "description": {
+    "short": "AI-powered financial data analysis agent",
+    "full": "Yigthinker is an AI agent for financial and data analysis. Load data, run SQL queries, create charts, generate forecasts, and automate workflows — all from Teams."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#4F6BED",
+  "bots": [
+    {
+      "botId": "a269f38f-af2a-4d66-8016-76534d696781",
+      "scopes": ["personal", "team", "groupChat"],
+      "supportsFiles": true,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal"],
+          "commands": [
+            { "title": "help", "description": "Show available commands" },
+            { "title": "vars", "description": "List loaded DataFrames" },
+            { "title": "schema", "description": "Inspect database schema" }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": ["hull-autistic-affecting.ngrok-free.dev"]
+}

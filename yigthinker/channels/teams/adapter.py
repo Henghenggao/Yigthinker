@@ -12,7 +12,7 @@ import json
 import logging
 import re
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -30,6 +30,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".json", ".parquet"}
+
+
+def _sanitize_attachment_name(name: str) -> str:
+    candidate = str(name).strip()
+    basename = PureWindowsPath(PurePosixPath(candidate).name).name
+    if not basename or basename in {".", ".."}:
+        return "attachment"
+    return basename
 
 
 class TeamsAdapter:
@@ -433,7 +441,14 @@ class TeamsAdapter:
         supported_str = ", ".join(sorted(_SUPPORTED_EXTENSIONS))
 
         for att in attachments:
-            name = att.get("name", "unknown")
+            raw_name = att.get("name", "unknown")
+            name = _sanitize_attachment_name(raw_name)
+            if name != raw_name:
+                logger.warning(
+                    "Sanitized Teams attachment name '%s' to '%s'",
+                    raw_name,
+                    name,
+                )
 
             # Teams file uploads put a pre-authenticated download URL
             # in content.downloadUrl; fall back to contentUrl for other

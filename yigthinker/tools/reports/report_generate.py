@@ -11,14 +11,13 @@ ReportFormat = Literal["excel", "pdf", "csv"]
 
 def _safe_output_path(output_path: str, ctx_settings: dict) -> tuple[Path, str | None]:
     """Return (resolved_path, error_msg). error_msg is None if safe."""
-    p = Path(output_path).expanduser()
-    if not p.is_absolute():
-        return p, None
-    workspace = Path(ctx_settings.get("workspace_dir", Path.cwd())).resolve()
+    workspace = Path(ctx_settings.get("workspace_dir", Path.cwd())).expanduser().resolve()
+    raw_path = Path(output_path).expanduser()
     try:
-        resolved = p.resolve()
+        candidate = raw_path if raw_path.is_absolute() else workspace / raw_path
+        resolved = candidate.resolve(strict=False)
     except Exception:
-        return p, f"Cannot resolve output path: {output_path}"
+        return raw_path, f"Cannot resolve output path: {output_path}"
     try:
         resolved.relative_to(workspace)
         return resolved, None

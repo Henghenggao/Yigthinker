@@ -162,6 +162,32 @@ def test_concurrent_writes(tmp_path: Path) -> None:
         assert f"wf_{i}" in final_index["workflows"]
 
 
+def test_concurrent_create_serializes_versions(tmp_path: Path) -> None:
+    """Concurrent create() calls for one workflow must allocate unique versions."""
+    reg = WorkflowRegistry(base_dir=tmp_path)
+
+    def create_version(i: int) -> str:
+        version_dir = reg.create(
+            name="shared_workflow",
+            description=f"Workflow {i}",
+            version_data={"main.py": f"print({i})"},
+        )
+        return version_dir.name
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(create_version, i) for i in range(8)]
+        version_names = sorted(f.result() for f in futures)
+
+    assert version_names == [f"v{i}" for i in range(1, 9)]
+
+    manifest = reg.get_manifest("shared_workflow")
+    assert manifest is not None
+    assert [entry["version"] for entry in manifest["versions"]] == list(range(1, 9))
+
+    index = reg.load_index()
+    assert index["workflows"]["shared_workflow"]["latest_version"] == 8
+
+
 def test_atomic_write(registry: WorkflowRegistry, tmp_path: Path) -> None:
     """Atomic write ensures file is either old or new content, never partial."""
     # Write initial index
