@@ -36,10 +36,10 @@ def json_file(tmp_path):
     return path
 
 
-async def test_header_none_loads_without_header(csv_no_header):
+async def test_header_none_loads_without_header(csv_no_header, tmp_path):
     """header=None should load CSV without treating first row as header."""
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(
         source=str(csv_no_header), var_name="raw", header=None,
     )
@@ -50,10 +50,10 @@ async def test_header_none_loads_without_header(csv_no_header):
     assert list(df.columns) == [0, 1]  # positional column names
 
 
-async def test_skiprows_skips_metadata(csv_with_skiprows):
+async def test_skiprows_skips_metadata(csv_with_skiprows, tmp_path):
     """skiprows=2 should skip the two metadata rows."""
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(
         source=str(csv_with_skiprows), var_name="clean", skiprows=2,
     )
@@ -80,7 +80,7 @@ async def test_usecols_selects_columns_excel_syntax(tmp_path):
     wb.save(path)
 
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(
         source=str(path), var_name="narrow", usecols="A:B",
     )
@@ -91,10 +91,10 @@ async def test_usecols_selects_columns_excel_syntax(tmp_path):
     assert len(df) == 2
 
 
-async def test_json_ignores_header_param(json_file):
+async def test_json_ignores_header_param(json_file, tmp_path):
     """JSON loader must not receive header kwarg -- it would crash."""
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     # header defaults to 0, but should NOT be passed to read_json
     input_obj = tool.input_schema(source=str(json_file), var_name="j")
     result = await tool.execute(input_obj, ctx)
@@ -103,10 +103,10 @@ async def test_json_ignores_header_param(json_file):
     assert len(df) == 2
 
 
-async def test_json_with_explicit_header_none_still_works(json_file):
+async def test_json_with_explicit_header_none_still_works(json_file, tmp_path):
     """Even if LLM sends header=null for a JSON file, it should not crash."""
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(source=str(json_file), var_name="j2", header=None)
     result = await tool.execute(input_obj, ctx)
     assert not result.is_error, f"JSON load with header=None failed: {result.content}"
@@ -117,7 +117,7 @@ async def test_default_header_zero_preserves_csv_behavior(tmp_path):
     path = tmp_path / "normal.csv"
     path.write_text("col_a,col_b\n1,2\n3,4\n")
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(source=str(path), var_name="normal")
     result = await tool.execute(input_obj, ctx)
     assert not result.is_error

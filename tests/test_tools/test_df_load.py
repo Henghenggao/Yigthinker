@@ -43,9 +43,9 @@ def xlsx_single_sheet(tmp_path):
     return path
 
 
-async def test_load_csv(csv_file):
+async def test_load_csv(csv_file, tmp_path):
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(source=str(csv_file), var_name="scores")
     result = await tool.execute(input_obj, ctx)
     assert not result.is_error
@@ -55,9 +55,9 @@ async def test_load_csv(csv_file):
     assert len(df) == 2
 
 
-async def test_load_json(json_file):
+async def test_load_json(json_file, tmp_path):
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(source=str(json_file), var_name="xy")
     result = await tool.execute(input_obj, ctx)
     assert not result.is_error
@@ -72,10 +72,10 @@ async def test_load_missing_file_returns_error():
     assert result.is_error
 
 
-async def test_load_excel_multi_sheet_enumerates_sheets(xlsx_multi_sheet):
+async def test_load_excel_multi_sheet_enumerates_sheets(xlsx_multi_sheet, tmp_path):
     """Multi-sheet Excel without sheet_name returns available sheets for LLM selection."""
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(source=str(xlsx_multi_sheet), var_name="data")
     result = await tool.execute(input_obj, ctx)
     assert not result.is_error
@@ -84,10 +84,10 @@ async def test_load_excel_multi_sheet_enumerates_sheets(xlsx_multi_sheet):
     assert "data" not in ctx.vars  # nothing loaded yet
 
 
-async def test_load_excel_single_sheet_loads_directly(xlsx_single_sheet):
+async def test_load_excel_single_sheet_loads_directly(xlsx_single_sheet, tmp_path):
     """Single-sheet Excel without sheet_name loads that sheet directly."""
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(source=str(xlsx_single_sheet), var_name="data")
     result = await tool.execute(input_obj, ctx)
     assert not result.is_error
@@ -97,10 +97,10 @@ async def test_load_excel_single_sheet_loads_directly(xlsx_single_sheet):
     assert len(df) == 2
 
 
-async def test_load_excel_wrong_sheet_name_shows_available(xlsx_multi_sheet):
+async def test_load_excel_wrong_sheet_name_shows_available(xlsx_multi_sheet, tmp_path):
     """Wrong sheet_name returns error listing available sheets."""
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(
         source=str(xlsx_multi_sheet), var_name="data", sheet_name="Nonexistent",
     )
@@ -110,10 +110,10 @@ async def test_load_excel_wrong_sheet_name_shows_available(xlsx_multi_sheet):
     assert "Costs" in str(result.content)
 
 
-async def test_load_excel_correct_sheet_name(xlsx_multi_sheet):
+async def test_load_excel_correct_sheet_name(xlsx_multi_sheet, tmp_path):
     """Explicit sheet_name loads that sheet correctly."""
     tool = DfLoadTool()
-    ctx = SessionContext()
+    ctx = SessionContext(settings={"workspace_dir": str(tmp_path)})
     input_obj = tool.input_schema(
         source=str(xlsx_multi_sheet), var_name="rev", sheet_name="Revenue",
     )

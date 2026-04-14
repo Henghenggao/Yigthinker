@@ -1,9 +1,33 @@
 from __future__ import annotations
+import os
 from pathlib import Path
 import pandas as pd
 from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
+
+
+def _safe_path(source: str, ctx_settings: dict) -> tuple[Path, str | None]:
+    """Return (resolved_path, error_msg). error_msg is None if safe."""
+    p = Path(source).expanduser()
+    # Relative paths are always allowed (relative to cwd)
+    if not p.is_absolute():
+        return p, None
+    # For absolute paths, check against configured workspace_dir or cwd
+    workspace = Path(ctx_settings.get("workspace_dir", Path.cwd())).resolve()
+    try:
+        resolved = p.resolve()
+    except Exception:
+        return p, f"Cannot resolve path: {source}"
+    try:
+        resolved.relative_to(workspace)
+        return resolved, None
+    except ValueError:
+        return resolved, (
+            f"Access denied: '{source}' is outside the workspace directory "
+            f"'{workspace}'. Use a relative path or configure workspace_dir in settings."
+        )
+
 
 _LOADERS = {
     ".csv": pd.read_csv,
@@ -35,7 +59,10 @@ class DfLoadTool:
 
     async def execute(self, input: DfLoadInput, ctx: SessionContext) -> ToolResult:
         try:
-            path = Path(input.source)
+            safe_path, err = _safe_path(input.source, ctx.settings)
+            if err:
+                return ToolResult(tool_use_id="", content=err, is_error=True)
+            path = safe_path
             suffix = path.suffix.lower()
             loader = _LOADERS.get(suffix)
             if loader is None:

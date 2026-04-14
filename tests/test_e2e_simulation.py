@@ -181,7 +181,7 @@ async def test_full_user_session_load_and_profile(tmp_path):
         hooks=hooks,
         permissions=perms,
     )
-    ctx = SessionContext(settings={"model": "claude-sonnet-4-5"})
+    ctx = SessionContext(settings={"model": "claude-sonnet-4-5", "workspace_dir": str(tmp_path)})
 
     # ── Run the session ──
     print("\n" + "=" * 60)

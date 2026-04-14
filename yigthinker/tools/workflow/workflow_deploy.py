@@ -18,12 +18,13 @@ tool NEVER calls MCP tools directly or subprocess-execs anything.
 """
 from __future__ import annotations
 
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from yigthinker.session import SessionContext
 from yigthinker.tools.workflow.registry import WorkflowRegistry
@@ -44,6 +45,15 @@ class WorkflowDeployInput(BaseModel):
     schedule: str | None = None
     credentials: dict[str, str] = Field(default_factory=dict)
     notify_on_complete: str | None = None
+
+    @field_validator("workflow_name")
+    @classmethod
+    def validate_workflow_name(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-zA-Z0-9_\-]{1,64}", v):
+            raise ValueError(
+                "workflow name must be alphanumeric, underscore or hyphen, max 64 chars"
+            )
+        return v
 
 
 def cron_to_ts_trigger(schedule: str, start_ref: datetime) -> dict[str, Any]:

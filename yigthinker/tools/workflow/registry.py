@@ -179,6 +179,9 @@ class WorkflowRegistry:
     def create(self, name: str, description: str, version_data: dict) -> Path:
         """Create a new workflow version. Returns the version directory path."""
         self._ensure_dirs()
+        workflow_dir = (self._base_dir / name).resolve()
+        if not workflow_dir.is_relative_to(self._base_dir.resolve()):
+            raise ValueError(f"Invalid workflow name: '{name}' escapes workflow directory")
         now = datetime.now(timezone.utc).isoformat()
         version = self.next_version(name)
         version_dir = self._base_dir / name / f"v{version}"

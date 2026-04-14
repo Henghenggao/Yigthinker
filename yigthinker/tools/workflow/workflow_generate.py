@@ -6,9 +6,10 @@ from conversation tool_use messages.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from yigthinker.session import SessionContext
 from yigthinker.tools.workflow.registry import WorkflowRegistry
@@ -42,6 +43,15 @@ class WorkflowGenerateInput(BaseModel):
     target: Literal["python", "power_automate", "uipath"] = "python"
     schedule: str | None = None
     update_of: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-zA-Z0-9_\-]{1,64}", v):
+            raise ValueError(
+                "workflow name must be alphanumeric, underscore or hyphen, max 64 chars"
+            )
+        return v
 
 
 def _extract_steps_from_history(messages: list[Message]) -> list[WorkflowStep]:
