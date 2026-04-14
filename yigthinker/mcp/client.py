@@ -1,7 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+
+# Module-level imports so test patches (patch("yigthinker.mcp.client.X")) work correctly.
+# Each import is guarded separately since older MCP SDK versions may lack sse/streamable_http.
+try:
+    from mcp import ClientSession
+    from mcp import StdioServerParameters
+    from mcp.client.stdio import stdio_client
+except ImportError:
+    ClientSession = None  # type: ignore[assignment,misc]
+    StdioServerParameters = None  # type: ignore[assignment]
+    stdio_client = None  # type: ignore[assignment]
+
+try:
+    from mcp.client.sse import sse_client
+except ImportError:
+    sse_client = None  # type: ignore[assignment]
+
+try:
+    from mcp.client.streamable_http import streamablehttp_client
+except ImportError:
+    streamablehttp_client = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -12,33 +33,57 @@ class MCPToolDef:
 
 
 class MCPClient:
-    """Manages one MCP server process and exposes its tools."""
+    """Manages one MCP server and exposes its tools.
+
+    Supports three transports:
+    - "stdio": subprocess (default, existing behaviour)
+    - "sse":   HTTP SSE endpoint
+    - "http":  Streamable HTTP endpoint
+    """
 
     def __init__(
         self,
         name: str,
-        command: str,
-        args: list[str],
+        transport: Literal["stdio", "sse", "http"] = "stdio",
+        # stdio params
+        command: str = "",
+        args: list[str] | None = None,
         env: dict[str, str] | None = None,
+        # sse / http params
+        url: str = "",
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.name = name
+        self._transport = transport
         self._command = command
-        self._args = args
+        self._args = args or []
         self._env = env or {}
+        self._url = url
+        self._headers = headers or {}
         self._session = None
-        self._stdio_cm = None
+        self._cm = None
 
     async def start(self) -> None:
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
+        if self._transport == "stdio":
+            params = StdioServerParameters(
+                command=self._command,
+                args=self._args,
+                env=self._env or None,
+            )
+            self._cm = stdio_client(params)
+            read, write = await self._cm.__aenter__()
 
-        params = StdioServerParameters(
-            command=self._command,
-            args=self._args,
-            env=self._env or None,
-        )
-        self._stdio_cm = stdio_client(params)
-        read, write = await self._stdio_cm.__aenter__()
+        elif self._transport == "sse":
+            self._cm = sse_client(self._url, headers=self._headers)
+            read, write = await self._cm.__aenter__()
+
+        elif self._transport == "http":
+            self._cm = streamablehttp_client(self._url, headers=self._headers)
+            read, write, _ = await self._cm.__aenter__()
+
+        else:
+            raise ValueError(f"Unknown MCP transport: {self._transport!r}")
+
         self._session = ClientSession(read, write)
         await self._session.__aenter__()
         await self._session.initialize()
@@ -47,9 +92,9 @@ class MCPClient:
         if self._session is not None:
             await self._session.__aexit__(None, None, None)
             self._session = None
-        if self._stdio_cm is not None:
-            await self._stdio_cm.__aexit__(None, None, None)
-            self._stdio_cm = None
+        if self._cm is not None:
+            await self._cm.__aexit__(None, None, None)
+            self._cm = None
 
     async def list_tools(self) -> list[MCPToolDef]:
         if self._session is None:
