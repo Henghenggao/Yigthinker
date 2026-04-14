@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -24,6 +26,8 @@ if TYPE_CHECKING:
     from yigthinker.gateway.server import GatewayServer
 
 logger = logging.getLogger(__name__)
+
+_SUPPORTED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".json", ".parquet"}
 
 
 class TeamsAdapter:
@@ -88,6 +92,25 @@ class TeamsAdapter:
 
             body = json.loads(raw_body)
             text = body.get("text", "").strip()
+
+            # Extract file attachments (skip inline cards, hero cards, etc.)
+            attachments = body.get("attachments", [])
+            file_attachments = [
+                a for a in attachments
+                if a.get("contentUrl") and a.get("contentType", "").startswith(
+                    ("application/", "text/")
+                )
+            ]
+
+            if file_attachments:
+                file_lines, error_lines = await self._download_attachments(
+                    file_attachments
+                )
+                prefix_parts = file_lines + error_lines
+                if prefix_parts:
+                    prefix = "\n".join(prefix_parts)
+                    text = f"{prefix}\n{text}" if text else prefix
+
             if not text:
                 return JSONResponse({"type": "message", "text": "Empty message"})
 
@@ -243,6 +266,61 @@ class TeamsAdapter:
                 )
             except Exception:
                 logger.exception("Failed to send error card to Teams")
+
+    async def _download_attachments(
+        self, attachments: list[dict[str, Any]]
+    ) -> tuple[list[str], list[str]]:
+        """Download file attachments to temp dir.
+
+        Returns (file_lines, error_lines) where:
+          file_lines = ["[Attached file: name.xlsx -> /path/to/name.xlsx]", ...]
+          error_lines = ["[Skipped unsupported file: x.pdf (...)]", ...]
+        """
+        file_lines: list[str] = []
+        error_lines: list[str] = []
+        supported_str = ", ".join(sorted(_SUPPORTED_EXTENSIONS))
+
+        for att in attachments:
+            name = att.get("name", "unknown")
+            content_url = att.get("contentUrl", "")
+            if not content_url:
+                logger.warning(
+                    "Teams attachment '%s' has no contentUrl — skipping", name
+                )
+                continue
+
+            ext = Path(name).suffix.lower()
+            if ext not in _SUPPORTED_EXTENSIONS:
+                error_lines.append(
+                    f"[Skipped unsupported file: {name} "
+                    f"(supported: {supported_str})]"
+                )
+                continue
+
+            try:
+                token = self._acquire_token()
+                headers = {}
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.get(content_url, headers=headers)
+                    resp.raise_for_status()
+
+                tmp_dir = tempfile.mkdtemp(prefix="yigthinker_teams_")
+                dest = Path(tmp_dir) / name
+                dest.write_bytes(resp.content)
+
+                file_lines.append(
+                    f"[Attached file: {name} -> {dest}]"
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to download Teams attachment '%s': %s", name, exc
+                )
+                error_lines.append(f"[Failed to download: {name}]")
+
+        return file_lines, error_lines
 
     def _acquire_token(self) -> str | None:
         """Acquire an app-only token via MSAL for Bot Framework API calls."""
