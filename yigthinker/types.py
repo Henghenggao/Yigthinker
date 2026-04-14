@@ -79,10 +79,17 @@ class Message:
 
 
 @dataclass
+class ThinkingConfig:
+    enabled: bool = False
+    budget_tokens: int = 10000
+
+
+@dataclass
 class LLMResponse:
     stop_reason: Literal["tool_use", "end_turn", "max_tokens"]
     text: str = ""
     tool_uses: list[ToolUse] = field(default_factory=list)
+    thinking_blocks: list[dict] = field(default_factory=list)
 
 
 @dataclass

@@ -1,5 +1,5 @@
 from yigthinker.types import (
-    ToolResult, ToolUse, HookAction, HookResult, HookEvent, Message, LLMResponse
+    ToolResult, ToolUse, HookAction, HookResult, HookEvent, Message, LLMResponse, ThinkingConfig
 )
 
 def test_tool_result_defaults():
@@ -29,3 +29,26 @@ def test_llm_response_defaults():
     r = LLMResponse(stop_reason="end_turn")
     assert r.text == ""
     assert r.tool_uses == []
+
+
+def test_thinking_config_defaults():
+    tc = ThinkingConfig()
+    assert tc.enabled is False
+    assert tc.budget_tokens == 10000
+
+
+def test_thinking_config_enabled():
+    tc = ThinkingConfig(enabled=True, budget_tokens=5000)
+    assert tc.enabled is True
+    assert tc.budget_tokens == 5000
+
+
+def test_llm_response_has_thinking_blocks():
+    r = LLMResponse(stop_reason="end_turn", text="hi", thinking_blocks=[{"type": "thinking", "thinking": "I reasoned"}])
+    assert len(r.thinking_blocks) == 1
+    assert r.thinking_blocks[0]["thinking"] == "I reasoned"
+
+
+def test_llm_response_thinking_blocks_default_empty():
+    r = LLMResponse(stop_reason="end_turn", text="hi")
+    assert r.thinking_blocks == []
