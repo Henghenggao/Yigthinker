@@ -123,6 +123,10 @@ class SessionRegistry:
         session = self._sessions.pop(key, None)
         if session:
             logger.info("Removed session %s", key)
+            # Clean up any sender->key mappings that pointed to this session
+            stale = [k for k, v in self._active_keys.items() if v == key]
+            for k in stale:
+                del self._active_keys[k]
         return session
 
     def list_sessions(self) -> list[dict[str, Any]]:

@@ -118,6 +118,8 @@ class SessionContext:
 
     def checkpoint(self, label: str) -> None:
         """Save current state as a named checkpoint."""
+        # Shallow copy for performance — NumPy block data is shared. Avoid in-place
+        # DataFrame mutations after checkpointing if restoration fidelity is required.
         vars_snapshot: dict[str, Any] = {}
         for info in self.vars.list():
             value = self.vars.get(info.name)
@@ -144,6 +146,8 @@ class SessionContext:
         cp = self._checkpoints[label]
         new_ctx = SessionContext(settings=dict(self.settings))
         new_ctx.messages = copy.deepcopy(cp.messages)
+        # Shallow copy from snapshot — inherits the same shared-memory trade-off as
+        # checkpoint(). Branched session is independent for index/column operations.
         for name, (value, var_type) in cp.vars_snapshot.items():
             if isinstance(value, pd.DataFrame):
                 new_ctx.vars.set(name, value.copy(deep=False), var_type=var_type)
@@ -153,9 +157,11 @@ class SessionContext:
 
     def branch(self) -> "SessionContext":
         """Fork from current state (convenience: checkpoint + branch_from)."""
-        self.checkpoint("_branch_now")
-        branched = self.branch_from("_branch_now")
-        del self._checkpoints["_branch_now"]
+        import uuid
+        _temp = f"__branch__{uuid.uuid4().hex}__"
+        self.checkpoint(_temp)
+        branched = self.branch_from(_temp)
+        del self._checkpoints[_temp]
         return branched
 
     def list_checkpoints(self) -> list[str]:

@@ -53,6 +53,8 @@ def test_branch_convenience():
     assert len(branched.messages) == 1
     assert "df1" in branched.vars
     assert branched.session_id != ctx.session_id
+    # Internal temp label must be cleaned up
+    assert not any(label.startswith("__branch__") for label in ctx.list_checkpoints())
 
 
 def test_checkpoint_limit_evicts_oldest():

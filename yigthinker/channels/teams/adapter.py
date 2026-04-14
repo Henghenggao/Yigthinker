@@ -24,6 +24,7 @@ from yigthinker.gateway.session_key import SessionKey
 
 if TYPE_CHECKING:
     from yigthinker.gateway.server import GatewayServer
+    from yigthinker.channels.command_parser import ChannelCommand
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +307,14 @@ class TeamsAdapter:
             if not text:
                 return
 
+            # P1-2: route slash commands before sending to agent
+            from yigthinker.channels.command_parser import parse_channel_command
+            cmd = parse_channel_command(text)
+            if cmd is not None:
+                cmd_result = await self._handle_command(cmd, session_key, event)
+                await self.send_response(event, cmd_result)
+                return
+
             # --- Phase 2: agent processing with progress callbacks ---
             _tool_names: dict[str, str] = {}
 
@@ -336,6 +345,34 @@ class TeamsAdapter:
                 logger.exception("Failed to send error card to Teams")
         finally:
             typing_task.cancel()
+
+    async def _handle_command(self, cmd: "ChannelCommand", session_key: str, event: dict[str, Any]) -> str:
+        """Handle a slash command from a Teams user."""
+        from yigthinker.channels.command_parser import ChannelCommand
+        registry = self._gateway._registry
+        if cmd.name == "new":
+            label = cmd.args[0] if cmd.args else None
+            new_key = f"{session_key}:{label}" if label else f"{session_key}:new"
+            registry.set_active_key(session_key, new_key)
+            return f"Started new session{': ' + label if label else ''}."
+        elif cmd.name == "sessions":
+            sessions = registry.list_sessions()
+            if not sessions:
+                return "No active sessions."
+            lines = [f"- {s['key']} (last active: {s.get('last_active', 'unknown')})" for s in sessions]
+            return "Active sessions:\n" + "\n".join(lines)
+        elif cmd.name == "switch":
+            target = cmd.args[0] if cmd.args else None
+            if not target:
+                return "Usage: /switch <session-name>"
+            registry.set_active_key(session_key, target)
+            return f"Switched to session: {target}"
+        elif cmd.name == "undo":
+            return "File undo is available via the agent. Ask: 'undo my last file change'."
+        elif cmd.name == "branch":
+            label = cmd.args[0] if cmd.args else None
+            return "Session branching is available via the SDK. Use sdk.branch() in your integration."
+        return f"Unknown command: /{cmd.name}"
 
     async def _typing_loop(self, event: dict[str, Any]) -> None:
         """Send typing indicator every 3 seconds until cancelled."""

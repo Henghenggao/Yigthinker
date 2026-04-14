@@ -49,3 +49,59 @@ async def test_sdk_session_list_vars_delegates_to_ctx():
 
     assert len(vars_list) == 1
     mock_ctx.vars.list.assert_called_once()
+
+
+async def test_sdk_session_checkpoint_delegates_to_ctx():
+    mock_loop = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.session_id = "s1"
+
+    session = SDKSession(agent_loop=mock_loop, ctx=mock_ctx)
+    session.checkpoint("my_label")
+
+    mock_ctx.checkpoint.assert_called_once_with("my_label")
+
+
+async def test_sdk_session_branch_from_returns_new_sdk_session():
+    mock_loop = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.session_id = "s1"
+    new_ctx = MagicMock()
+    new_ctx.session_id = "s2"
+    mock_ctx.branch_from.return_value = new_ctx
+
+    session = SDKSession(agent_loop=mock_loop, ctx=mock_ctx)
+    branched = session.branch_from("my_label")
+
+    mock_ctx.branch_from.assert_called_once_with("my_label")
+    assert isinstance(branched, SDKSession)
+    assert branched.session_id == "s2"
+
+
+async def test_sdk_session_branch_returns_new_sdk_session():
+    mock_loop = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.session_id = "s1"
+    new_ctx = MagicMock()
+    new_ctx.session_id = "s3"
+    mock_ctx.branch.return_value = new_ctx
+
+    session = SDKSession(agent_loop=mock_loop, ctx=mock_ctx)
+    branched = session.branch()
+
+    mock_ctx.branch.assert_called_once()
+    assert isinstance(branched, SDKSession)
+    assert branched.session_id == "s3"
+
+
+async def test_sdk_session_list_checkpoints_delegates_to_ctx():
+    mock_loop = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.session_id = "s1"
+    mock_ctx.list_checkpoints.return_value = ["cp1", "cp2"]
+
+    session = SDKSession(agent_loop=mock_loop, ctx=mock_ctx)
+    labels = session.list_checkpoints()
+
+    mock_ctx.list_checkpoints.assert_called_once()
+    assert labels == ["cp1", "cp2"]
