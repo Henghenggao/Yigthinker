@@ -64,6 +64,24 @@ class TeamsCardRenderer:
             "actions": [{"type": "Action.OpenUrl", "title": "Open in Dashboard", "url": url}],
         }
 
+    def render_file_received(self, filenames: list[str]) -> dict[str, Any]:
+        """Render a card acknowledging received file attachments."""
+        count = len(filenames)
+        header = f"Received {count} file{'s' if count != 1 else ''}"
+        items: list[dict[str, Any]] = [
+            {"type": "TextBlock", "text": header, "weight": "Bolder"},
+        ]
+        for name in filenames:
+            items.append(
+                {"type": "TextBlock", "text": f"- {name}", "wrap": True}
+            )
+        return {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5",
+            "body": items,
+        }
+
     def render_error(self, message: str) -> dict[str, Any]:
         return {
             "type": "AdaptiveCard",
