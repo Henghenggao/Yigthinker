@@ -123,11 +123,14 @@ class SessionRegistry:
         session = self._sessions.pop(key, None)
         if session:
             logger.info("Removed session %s", key)
-            # Clean up any sender->key mappings that pointed to this session
-            stale = [k for k, v in self._active_keys.items() if v == key]
-            for k in stale:
-                del self._active_keys[k]
+            self._purge_active_key(key)
         return session
+
+    def _purge_active_key(self, key: str) -> None:
+        """Remove all sender→key mappings that point to a session key."""
+        stale = [k for k, v in self._active_keys.items() if v == key]
+        for k in stale:
+            del self._active_keys[k]
 
     def list_sessions(self) -> list[dict[str, Any]]:
         sessions = sorted(self._sessions.values(), key=lambda s: s.last_active, reverse=True)
@@ -178,6 +181,7 @@ class SessionRegistry:
             session.touch()
             await hibernator.save(session)
             self._sessions.pop(key, None)
+            self._purge_active_key(key)
             logger.info("Hibernated session %s", key)
             return True
         except Exception:
@@ -243,6 +247,7 @@ class SessionRegistry:
 
         lru_key, lru_session = min(candidates, key=lambda x: x[1].last_active)
         self._sessions.pop(lru_key, None)
+        self._purge_active_key(lru_key)
         self._schedule_hibernate(lru_session)
         logger.warning("LRU-evicted session %s (at capacity %d)", lru_key, self._max_sessions)
 

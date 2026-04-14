@@ -348,8 +348,7 @@ class TeamsAdapter:
 
     async def _handle_command(self, cmd: "ChannelCommand", session_key: str, event: dict[str, Any]) -> str:
         """Handle a slash command from a Teams user."""
-        from yigthinker.channels.command_parser import ChannelCommand
-        registry = self._gateway._registry
+        registry = self._gateway.registry
         if cmd.name == "new":
             label = cmd.args[0] if cmd.args else None
             new_key = f"{session_key}:{label}" if label else f"{session_key}:new"
@@ -359,7 +358,7 @@ class TeamsAdapter:
             sessions = registry.list_sessions()
             if not sessions:
                 return "No active sessions."
-            lines = [f"- {s['key']} (last active: {s.get('last_active', 'unknown')})" for s in sessions]
+            lines = [f"- {s['key']} (idle: {s.get('idle_seconds', 'unknown')}s)" for s in sessions]
             return "Active sessions:\n" + "\n".join(lines)
         elif cmd.name == "switch":
             target = cmd.args[0] if cmd.args else None
