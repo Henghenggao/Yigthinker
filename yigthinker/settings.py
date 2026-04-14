@@ -36,7 +36,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "advisor": {"enabled": False, "model": "haiku"},
     "voice": {"enabled": False, "language": "zh"},
-    "dashboard_url": "http://localhost:8766",
     "ollama_base_url": "http://localhost:11434",
     "azure_endpoint": "",
     "azure_api_version": "2024-02-01",

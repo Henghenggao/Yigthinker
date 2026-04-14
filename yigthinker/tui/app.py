@@ -5,12 +5,12 @@ import asyncio
 import uuid
 from typing import Any
 
+from yigthinker.tui._import_error import TEXTUAL_IMPORT_ERROR
+
 try:
     from textual.app import App
 except ImportError as exc:
-    raise ImportError(
-        "TUI requires the 'textual' package. Install with: pip install yigthinker[tui]"
-    ) from exc
+    raise ImportError(TEXTUAL_IMPORT_ERROR) from exc
 
 from yigthinker.tui.screens.chat import ChatScreen
 from yigthinker.tui.screens.model_picker import ModelPickerScreen

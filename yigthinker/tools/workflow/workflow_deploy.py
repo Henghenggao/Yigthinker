@@ -13,7 +13,7 @@ Auto mode (Plan 09-02): informational-only. Uses mcp_detection.check_mcp_install
 to see whether the expected MCP package is importable (via importlib.util.find_spec,
 never an actual import). On success, builds the guided bundle as a hand-off
 artifact and returns structured next_steps naming the MCP tool + bundle path.
-On missing package, returns is_error=True with pip extras hint. Per D-02 the
+On missing package, returns is_error=True with an install hint. Per D-02 the
 tool NEVER calls MCP tools directly or subprocess-execs anything.
 """
 from __future__ import annotations

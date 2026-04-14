@@ -27,11 +27,10 @@ through MCP `tools/call` messages (the architect-not-executor invariant).
 From the Yigthinker repo root:
 
 ```bash
-# 1. Install core Yigthinker with the rpa-uipath extra metadata
-pip install -e .[rpa-uipath]
+# 1. Install core Yigthinker test/runtime deps
+pip install -e .[test]
 
-# 2. Install this package editable (the extra above declares the dep,
-#    but hatchling does not support local path-based resolution yet)
+# 2. Install this package editable
 pip install -e packages/yigthinker-mcp-uipath[test]
 ```
 
@@ -40,6 +39,14 @@ Verify the install:
 ```bash
 python -c "import yigthinker_mcp_uipath; print(yigthinker_mcp_uipath.__file__)"
 python -m yigthinker_mcp_uipath  # Ctrl-C to stop; fails with env error if config missing
+```
+
+### GitHub source install (before PyPI)
+
+Until PyPI publication lands, the single-command non-editable install path is:
+
+```bash
+uv tool install "yigthinker[rpa-uipath] @ git+https://github.com/Henghenggao/Yigthinker.git"
 ```
 
 ### From PyPI (future)
@@ -382,7 +389,13 @@ Causes and fixes:
   ```
 
   It should print a `ModuleSpec`, not `None`. If it prints `None`,
-  reinstall with `pip install -e packages/yigthinker-mcp-uipath[test]`.
+  reinstall with one of:
+
+  ```bash
+  uv tool install "yigthinker[rpa-uipath] @ git+https://github.com/Henghenggao/Yigthinker.git"
+  # or from the monorepo:
+  pip install -e packages/yigthinker-mcp-uipath[test]
+  ```
 
 ### Server exits at startup with "missing required env vars"
 

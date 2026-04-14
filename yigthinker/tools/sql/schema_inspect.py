@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Any
 import sqlalchemy as sa
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
 from yigthinker.tools.sql.connection import ConnectionPool
@@ -10,7 +10,7 @@ from yigthinker.tools.sql.connection import ConnectionPool
 class SchemaInspectInput(BaseModel):
     connection: str = "default"
     table: str | None = None
-    sample_rows: int = 3
+    sample_rows: int = Field(default=3, ge=0, le=100)
 
 
 class SchemaInspectTool:
@@ -55,15 +55,27 @@ class SchemaInspectTool:
                     )
                     sample: list[dict] = []
                     if input.sample_rows > 0:
-                        result = await conn.execute(
-                            sa.text(f"SELECT * FROM {sa.quoted_name(tbl, quote=True)} LIMIT {input.sample_rows}")
+                        sample = await conn.run_sync(
+                            lambda sync_conn, t=tbl, limit=input.sample_rows: _fetch_sample_rows(
+                                sync_conn,
+                                t,
+                                limit,
+                            )
                         )
-                        rows = result.fetchall()
-                        col_names = list(result.keys())
-                        sample = [dict(zip(col_names, row)) for row in rows]
 
                     schema[tbl] = {"columns": columns, "sample": sample}
 
             return ToolResult(tool_use_id="", content=schema)
         except Exception as exc:
             return ToolResult(tool_use_id="", content=str(exc), is_error=True)
+
+
+def _fetch_sample_rows(
+    sync_conn: sa.Connection,
+    table_name: str,
+    sample_rows: int,
+) -> list[dict[str, Any]]:
+    metadata = sa.MetaData()
+    table = sa.Table(table_name, metadata, autoload_with=sync_conn)
+    result = sync_conn.execute(sa.select(table).limit(sample_rows))
+    return [dict(row) for row in result.mappings().all()]

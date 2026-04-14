@@ -13,7 +13,7 @@ from typer.main import get_command
 
 app = typer.Typer(help="Yigthinker - AI-powered financial analysis agent")
 console = Console()
-_ROOT_COMMANDS = frozenset({"install", "main", "quickstart", "gateway", "tui"})
+_ROOT_COMMANDS = frozenset({"install", "setup", "main", "quickstart", "gateway", "tui"})
 _ROOT_HELP_FLAGS = frozenset({"--help", "--install-completion", "--show-completion"})
 
 
@@ -23,6 +23,14 @@ def install_command() -> None:
     from yigthinker.cli.installer import run_install
 
     run_install()
+
+
+@app.command("setup")
+def setup_command() -> None:
+    """Configure your LLM provider and API key without launching the gateway."""
+    from yigthinker.cli.setup_wizard import run_setup
+
+    run_setup()
 
 
 def _default_transcript_path() -> Path:
@@ -63,7 +71,6 @@ def _resolve_gateway_binding(
     resolved_port = port or gw_cfg.get("port") or 8766
     gw_cfg["host"] = resolved_host
     gw_cfg["port"] = resolved_port
-    settings["dashboard_url"] = f"http://{_client_url_host(resolved_host)}:{resolved_port}"
     return resolved_host, resolved_port
 
 

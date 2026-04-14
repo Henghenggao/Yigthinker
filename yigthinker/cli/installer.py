@@ -9,6 +9,13 @@ import sys
 
 from rich.console import Console
 from rich.panel import Panel
+from yigthinker.install_hints import (
+    DEFAULT_INSTALL_SOURCE,
+    INSTALL_SOURCE_ENV,
+    build_install_requirement,
+    build_uv_tool_install_hint,
+    get_install_source,
+)
 
 console = Console()
 
@@ -60,12 +67,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "gchat": "Google Chat",
         "prompt_platforms": "Enter numbers separated by commas, or press Enter to skip",
         "installing": "Installing yigthinker",
-        "done": "Installed! Run [bold cyan]yigthinker setup[/] to configure API keys and data sources.",
+        "done": "Installed! Run [bold cyan]yigthinker setup[/] to configure API keys, or [bold cyan]yigthinker quickstart[/] for the guided first run.",
         "already_installed": "Yigthinker is already installed. Reconfigure components?",
         "yes_no": "[Y/n]",
         "abort": "Installation cancelled.",
         "uv_missing": "Error: uv is not available. Install it first: https://docs.astral.sh/uv/",
-        "install_failed": "Installation failed. Try manually: uv tool install yigthinker",
+        "install_failed": "Installation failed.",
+        "manual_install": "Manual fallback:",
     },
     "zh": {
         "title": "Yigthinker 安装向导",
@@ -85,12 +93,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "gchat": "Google Chat",
         "prompt_platforms": "输入编号，用逗号分隔，或直接回车跳过",
         "installing": "正在安装 yigthinker",
-        "done": "安装完成！运行 [bold cyan]yigthinker setup[/] 配置 API Key 和数据源。",
+        "done": "安装完成！运行 [bold cyan]yigthinker setup[/] 配置 API Key，或运行 [bold cyan]yigthinker quickstart[/] 进入引导式首跑。",
         "already_installed": "Yigthinker 已安装。是否重新配置组件？",
         "yes_no": "[Y/n]",
         "abort": "安装已取消。",
         "uv_missing": "错误：未找到 uv。请先安装：https://docs.astral.sh/uv/",
-        "install_failed": "安装失败。请尝试手动安装：uv tool install yigthinker",
+        "install_failed": "安装失败。",
+        "manual_install": "可手动执行：",
     },
 }
 
@@ -108,6 +117,11 @@ def build_extras(mode: str, platforms: list[str]) -> str:
         if p not in parts:
             parts.append(p)
     return ",".join(parts)
+
+
+def build_manual_install_command(extras: str, source: str | None = None) -> str:
+    """Return a copy-pasteable `uv` command for manual fallback installs."""
+    return build_uv_tool_install_hint(extras, source=source)
 
 
 def _is_yigthinker_installed() -> bool:
@@ -196,14 +210,16 @@ def run_install() -> None:
     # Build extras and install
     extras = build_extras(mode, platforms)
     console.print(f"\n[bold]{s['installing']}[/] [dim]({extras})[/]\n")
+    install_requirement = build_install_requirement(extras)
 
     result = subprocess.run(
-        ["uv", "tool", "install", f"yigthinker[{extras}]"],
+        ["uv", "tool", "install", install_requirement],
         capture_output=False,
     )
 
     if result.returncode != 0:
         console.print(f"\n[red]{s['install_failed']}[/]")
+        console.print(f"[dim]{s['manual_install']} {build_manual_install_command(extras)}[/]")
         sys.exit(1)
 
     console.print(f"\n{s['done']}")

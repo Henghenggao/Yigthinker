@@ -88,6 +88,21 @@ def test_create_session_via_api(server):
     assert body["channel_origin"] == "tui"
 
 
+def test_removed_dashboard_routes_return_404(server):
+    with TestClient(server.app) as client:
+        response = client.get(
+            "/api/dashboard/entries",
+            headers={"Authorization": f"Bearer {server.auth.token}"},
+        )
+        post_response = client.post(
+            "/api/dashboard/push",
+            json={"title": "x"},
+            headers={"Authorization": f"Bearer {server.auth.token}"},
+        )
+    assert response.status_code == 404
+    assert post_response.status_code == 404
+
+
 def test_websocket_round_trip_and_vars_update(server):
     with TestClient(server.app) as client:
         with client.websocket_connect("/ws") as ws:

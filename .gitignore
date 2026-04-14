@@ -49,6 +49,10 @@ logs/
 # Yigthinker runtime (generated, not source)
 .yigthinker/sessions/
 .yigthinker/projects/
+.yigthinker/settings.json
+.yigthinker/gateway.token
+.yigthinker/hibernate/
+.yigthinker/rpa/
 *.jsonl
 
 # Local dev scripts

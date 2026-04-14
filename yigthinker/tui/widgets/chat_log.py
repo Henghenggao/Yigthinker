@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from rich.markdown import Markdown
 from rich.text import Text
+from yigthinker.tui._import_error import TEXTUAL_IMPORT_ERROR
 
 try:
     from textual.widgets import RichLog
 except ImportError as exc:
-    raise ImportError(
-        "TUI requires the 'textual' package. Install with: pip install yigthinker[tui]"
-    ) from exc
+    raise ImportError(TEXTUAL_IMPORT_ERROR) from exc
 
 
 class ChatLog(RichLog):

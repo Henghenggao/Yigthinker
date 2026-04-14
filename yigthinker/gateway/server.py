@@ -86,9 +86,6 @@ class GatewayServer:
         self._eviction_task: asyncio.Task | None = None
         self._shutting_down = False
         self._adapters = self._build_adapters(settings.get("channels", {}))
-        self._dashboard_entries: list[dict[str, Any]] = []  # kept for API compat
-        self._max_dashboard_entries: int = int(gw_cfg.get("max_dashboard_entries", 500))
-
         # Build allowed origins set from defaults + settings
         extra_origins = gw_cfg.get("allowed_origins", [])
         self._allowed_origins = _build_allowed_origins(
@@ -276,36 +273,6 @@ class GatewayServer:
                 return self._registry.list_sessions_for_owner(owner)
             return self._registry.list_sessions()
 
-        @app.get("/api/dashboard/entries")
-        async def list_dashboard_entries(request: Request):
-            token = _extract_token(request)
-            if not self._auth.verify(token):
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
-            return list(self._dashboard_entries)
-
-        @app.post("/api/dashboard/push")
-        async def push_dashboard_entry(request: Request):
-            token = _extract_token(request)
-            if not self._auth.verify(token):
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-            body = await request.json()
-            entry = {
-                "dashboard_id": str(body.get("dashboard_id", "")).strip(),
-                "title": str(body.get("title", "")).strip(),
-                "chart_json": str(body.get("chart_json", "")).strip(),
-                "description": str(body.get("description", "")).strip(),
-            }
-            if not entry["dashboard_id"] or not entry["title"] or not entry["chart_json"]:
-                return JSONResponse({"error": "dashboard_id, title, and chart_json are required"}, status_code=400)
-
-            self._dashboard_entries.append(entry)
-            # LRU eviction: drop oldest entries when cap is reached
-            if len(self._dashboard_entries) > self._max_dashboard_entries:
-                self._dashboard_entries = self._dashboard_entries[-self._max_dashboard_entries:]
-            await self._broadcast_dashboard_entry(entry)
-            return {"ok": True, "dashboard_id": entry["dashboard_id"]}
-
         @app.post("/api/sessions")
         async def create_session(request: Request):
             token = _extract_token(request)
@@ -408,7 +375,7 @@ class GatewayServer:
                     self._ws_clients.remove(client)
 
     async def _ws_read_loop(self, client: _WSClient) -> None:
-        """Process incoming WebSocket messages from a TUI or dashboard client."""
+        """Process incoming WebSocket messages from an attached WebSocket client."""
         while True:
             raw = await client.ws.receive_text()
             data = json.loads(raw)
@@ -416,7 +383,7 @@ class GatewayServer:
 
             if msg.type == "attach":
                 # Restore first so we can reject ownership mismatches before
-                # auto-creating a fresh session. After auth, dashboard and TUI
+                # auto-creating a fresh session. After auth, TUI or API
                 # clients should be able to attach to a clean session
                 # immediately, which keeps the session picker and vars panel in
                 # sync on first load.
@@ -495,17 +462,6 @@ class GatewayServer:
                     await client.ws.send_json(msg)
                 except Exception:
                     dead.append(client)
-        for client in dead:
-            self._ws_clients.remove(client)
-
-    async def _broadcast_dashboard_entry(self, entry: dict[str, Any]) -> None:
-        dead: list[_WSClient] = []
-        message = {"type": "dashboard_entry", "entry": entry}
-        for client in self._ws_clients:
-            try:
-                await client.ws.send_json(message)
-            except Exception:
-                dead.append(client)
         for client in dead:
             self._ws_clients.remove(client)
 

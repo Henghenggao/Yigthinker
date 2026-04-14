@@ -12,7 +12,7 @@ this invariant so that future edits cannot silently regress it.
 If this test fails after editing workflow tools:
   1. Check if you reintroduced 'yigthinker_uipath_mcp' (underscore-swapped
      legacy name) or 'uipath_publish_package' (legacy tool name) or the
-     'pip install yigthinker[uipath-mcp]' hint.
+     legacy `yigthinker[uipath-mcp]` hint.
   2. The canonical names are:
        package:      yigthinker_mcp_uipath   (module name)
        distribution: yigthinker-mcp-uipath   (PyPI/pip name)
@@ -65,7 +65,7 @@ def test_canonical_uipath_identifiers_present_in_mcp_detection() -> None:
     detection = (WORKFLOW_DIR / "mcp_detection.py").read_text(encoding="utf-8")
     assert "yigthinker_mcp_uipath" in detection, "canonical package name missing"
     assert "ui_deploy_process" in detection, "canonical suggested_tool missing"
-    assert "pip install yigthinker[rpa-uipath]" in detection, "canonical install hint missing"
+    assert 'build_uv_tool_install_hint("rpa-uipath")' in detection, "canonical install hint missing"
 
 
 def test_suggest_automation_pinned_to_canonical_identifier() -> None:
@@ -134,7 +134,7 @@ def test_canonical_pa_identifiers_present_in_mcp_detection() -> None:
     detection = (WORKFLOW_DIR / "mcp_detection.py").read_text(encoding="utf-8")
     assert "yigthinker_mcp_powerautomate" in detection, "canonical PA package name missing"
     assert "pa_deploy_flow" in detection, "canonical PA suggested_tool missing"
-    assert "pip install yigthinker[rpa-pa]" in detection, "canonical PA install hint missing"
+    assert 'build_uv_tool_install_hint("rpa-pa")' in detection, "canonical PA install hint missing"
 
 
 def test_suggest_automation_pinned_to_canonical_pa_identifier() -> None:

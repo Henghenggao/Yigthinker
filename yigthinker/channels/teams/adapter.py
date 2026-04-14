@@ -95,31 +95,30 @@ class TeamsAdapter:
 
             # Extract file attachments (skip inline cards, hero cards, etc.)
             attachments = body.get("attachments", [])
-            file_attachments = [
-                a for a in attachments
-                if a.get("contentUrl") and a.get("contentType", "").startswith(
+            file_attachments = []
+            for a in attachments:
+                ct = a.get("contentType", "")
+                # Teams file uploads use a special contentType with
+                # a pre-authenticated downloadUrl inside content.
+                if ct == "application/vnd.microsoft.teams.file.download.info":
+                    file_attachments.append(a)
+                elif a.get("contentUrl") and ct.startswith(
                     ("application/", "text/")
-                )
-            ]
+                ):
+                    file_attachments.append(a)
 
-            if file_attachments:
-                file_lines, error_lines = await self._download_attachments(
-                    file_attachments
-                )
-                prefix_parts = file_lines + error_lines
-                if prefix_parts:
-                    prefix = "\n".join(prefix_parts)
-                    text = f"{prefix}\n{text}" if text else prefix
-
-            if not text:
+            if not text and not file_attachments:
                 return JSONResponse({"type": "message", "text": "Empty message"})
 
             key = self.session_key(body)
 
             # Immediate ACK + async processing (D-05):
             # Return 200 immediately with a "thinking..." card.
-            # Fire async task to process and deliver result via Bot Framework API.
-            asyncio.create_task(self._process_and_respond(key, text, body))
+            # File download + agent processing run in background task
+            # so the ACK is never blocked by slow downloads.
+            asyncio.create_task(
+                self._process_and_respond(key, text, body, file_attachments)
+            )
 
             return JSONResponse({
                 "type": "message",
@@ -279,10 +278,35 @@ class TeamsAdapter:
             pass  # progress cards are best-effort
 
     async def _process_and_respond(
-        self, session_key: str, text: str, event: dict[str, Any]
+        self,
+        session_key: str,
+        text: str,
+        event: dict[str, Any],
+        file_attachments: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Run agent processing asynchronously and deliver result via Bot Framework API (D-05)."""
+        """Download files, run agent, deliver result via Bot Framework API.
+
+        File download is deferred to this async task so the webhook
+        returns the "thinking" card instantly (D-05). Typing indicators
+        are sent periodically so the user sees "Bot is typing..." in Teams.
+        """
+        typing_task = asyncio.create_task(self._typing_loop(event))
+
         try:
+            # --- Phase 1: download attachments (if any) ---
+            if file_attachments:
+                file_lines, error_lines = await self._download_attachments(
+                    file_attachments
+                )
+                prefix_parts = file_lines + error_lines
+                if prefix_parts:
+                    prefix = "\n".join(prefix_parts)
+                    text = f"{prefix}\n{text}" if text else prefix
+
+            if not text:
+                return
+
+            # --- Phase 2: agent processing with progress callbacks ---
             _tool_names: dict[str, str] = {}
 
             def _on_teams_tool_event(event_type: str, data: dict) -> None:
@@ -310,6 +334,41 @@ class TeamsAdapter:
                 )
             except Exception:
                 logger.exception("Failed to send error card to Teams")
+        finally:
+            typing_task.cancel()
+
+    async def _typing_loop(self, event: dict[str, Any]) -> None:
+        """Send typing indicator every 3 seconds until cancelled."""
+        service_url = (
+            self._service_url_override
+            or event.get("serviceUrl", "")
+            or "https://smba.trafficmanager.net/amer/"
+        )
+        conversation_id = event.get("conversation", {}).get("id", "")
+        if not conversation_id:
+            return
+
+        token = self._acquire_token()
+        if not token:
+            return
+
+        url = (
+            f"{service_url.rstrip('/')}/v3/conversations/"
+            f"{conversation_id}/activities"
+        )
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        payload = {"type": "typing"}
+
+        try:
+            while True:
+                try:
+                    async with httpx.AsyncClient(timeout=5) as client:
+                        await client.post(url, json=payload, headers=headers)
+                except Exception:
+                    pass
+                await asyncio.sleep(3)
+        except asyncio.CancelledError:
+            return
 
     async def _download_attachments(
         self, attachments: list[dict[str, Any]]
@@ -326,10 +385,19 @@ class TeamsAdapter:
 
         for att in attachments:
             name = att.get("name", "unknown")
-            content_url = att.get("contentUrl", "")
-            if not content_url:
+
+            # Teams file uploads put a pre-authenticated download URL
+            # in content.downloadUrl; fall back to contentUrl for other
+            # attachment types (e.g. inline images via Bot Framework).
+            content = att.get("content") or {}
+            download_url = (
+                content.get("downloadUrl")
+                if isinstance(content, dict) else None
+            ) or att.get("contentUrl", "")
+
+            if not download_url:
                 logger.warning(
-                    "Teams attachment '%s' has no contentUrl — skipping", name
+                    "Teams attachment '%s' has no downloadUrl — skipping", name
                 )
                 continue
 
@@ -342,13 +410,19 @@ class TeamsAdapter:
                 continue
 
             try:
-                token = self._acquire_token()
-                headers = {}
-                if token:
-                    headers["Authorization"] = f"Bearer {token}"
+                # content.downloadUrl is pre-authenticated (SharePoint);
+                # no Bearer token needed. Only add token for plain
+                # contentUrl (Bot Framework hosted attachments).
+                headers: dict[str, str] = {}
+                if not (isinstance(content, dict) and content.get("downloadUrl")):
+                    token = self._acquire_token()
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
 
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.get(content_url, headers=headers)
+                async with httpx.AsyncClient(
+                    timeout=self._timeout, follow_redirects=True,
+                ) as client:
+                    resp = await client.get(download_url, headers=headers)
                     resp.raise_for_status()
 
                 tmp_dir = tempfile.mkdtemp(prefix="yigthinker_teams_")

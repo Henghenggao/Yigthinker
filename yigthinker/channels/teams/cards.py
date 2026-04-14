@@ -61,7 +61,7 @@ class TeamsCardRenderer:
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.5",
             "body": body,
-            "actions": [{"type": "Action.OpenUrl", "title": "Open in Dashboard", "url": url}],
+            "actions": [{"type": "Action.OpenUrl", "title": "Open chart", "url": url}],
         }
 
     def render_file_received(self, filenames: list[str]) -> dict[str, Any]:

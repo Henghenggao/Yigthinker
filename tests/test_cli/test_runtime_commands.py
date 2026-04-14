@@ -22,6 +22,5 @@ def test_gateway_command_prefers_cli_host_and_port():
     assert kwargs["port"] == 9000
     assert settings["gateway"]["host"] == "0.0.0.0"
     assert settings["gateway"]["port"] == 9000
-    assert settings["dashboard_url"] == "http://127.0.0.1:9000"
-
+    assert "dashboard_url" not in settings
 

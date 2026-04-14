@@ -13,21 +13,23 @@ from __future__ import annotations
 
 import importlib.util
 
+from yigthinker.install_hints import build_uv_tool_install_hint
+
 # Target -> MCP package name mapping (Phase 9 Research Pattern 4).
 MCP_PACKAGE_MAP: dict[str, str] = {
     "power_automate": "yigthinker_mcp_powerautomate",
     "uipath": "yigthinker_mcp_uipath",
 }
 
-# Target -> suggested MCP tool + pip extras hint.
+# Target -> suggested MCP tool + install hint.
 MCP_TOOL_MAP: dict[str, dict[str, str]] = {
     "power_automate": {
         "suggested_tool": "pa_deploy_flow",
-        "install_hint": "pip install yigthinker[rpa-pa]",
+        "install_hint": build_uv_tool_install_hint("rpa-pa"),
     },
     "uipath": {
         "suggested_tool": "ui_deploy_process",
-        "install_hint": "pip install yigthinker[rpa-uipath]",
+        "install_hint": build_uv_tool_install_hint("rpa-uipath"),
     },
 }
 

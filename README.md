@@ -22,6 +22,7 @@ irm https://raw.githubusercontent.com/Henghenggao/Yigthinker/master/install.ps1 
 ```
 
 The installer sets up [uv](https://docs.astral.sh/uv/) and walks you through component selection.
+Until PyPI publication lands, it runs Yigthinker directly from this GitHub repo and installs the selected extras from the same source.
 
 ### 2. First run
 
@@ -52,21 +53,23 @@ The agent will use `sql_query` on the sample database, then render a summary.
 
 ## Manual Installation
 
+Current manual installs also use the GitHub source directly:
+
 ```bash
 # Core (CLI + all tools)
-pip install yigthinker
+uv tool install "yigthinker @ git+https://github.com/Henghenggao/Yigthinker.git"
 
 # With gateway + TUI
-pip install "yigthinker[gateway,tui]"
+uv tool install "yigthinker[gateway,tui] @ git+https://github.com/Henghenggao/Yigthinker.git"
 
-# With workflow automation (Jinja2 templates, cron scheduling)
-pip install "yigthinker[workflow]"
+# With workflow automation compatibility extra
+uv tool install "yigthinker[workflow] @ git+https://github.com/Henghenggao/Yigthinker.git"
 
 # With forecasting (statsmodels, scikit-learn, prophet)
-pip install "yigthinker[forecast]"
+uv tool install "yigthinker[forecast] @ git+https://github.com/Henghenggao/Yigthinker.git"
 
-# Everything including channel adapters
-pip install "yigthinker[gateway,tui,forecast,workflow,feishu,teams,gchat]"
+# Everything including channel adapters and RPA bridges
+uv tool install "yigthinker[gateway,tui,forecast,workflow,feishu,teams,gchat,rpa-uipath,rpa-pa] @ git+https://github.com/Henghenggao/Yigthinker.git"
 ```
 
 ### Extras Reference
@@ -76,7 +79,7 @@ pip install "yigthinker[gateway,tui,forecast,workflow,feishu,teams,gchat]"
 | `forecast` | statsmodels, scikit-learn, prophet |
 | `gateway` | FastAPI, uvicorn, websockets, pyarrow |
 | `tui` | Textual, websockets |
-| `workflow` | Jinja2 (templates), croniter (scheduling) |
+| `workflow` | Backwards-compat alias; workflow deps are in the core install |
 | `feishu` | Lark/Feishu SDK |
 | `teams` | httpx, msal (Azure AD) |
 | `gchat` | Google API client, google-auth |
@@ -88,8 +91,7 @@ pip install "yigthinker[gateway,tui,forecast,workflow,feishu,teams,gchat]"
 ```bash
 git clone https://github.com/Henghenggao/Yigthinker.git
 cd Yigthinker
-pip install -e ".[test]"
-python -m pytest -q
+python scripts/run_all_tests.py
 ```
 
 ## CLI Commands
@@ -98,6 +100,7 @@ python -m pytest -q
 yigthinker                      # Start interactive REPL
 yigthinker "your query here"    # Single-shot query
 yigthinker --resume             # Resume last session
+yigthinker setup                # Configure provider + API key only
 yigthinker quickstart           # First-time guided setup
 yigthinker install              # Interactive component installer
 yigthinker gateway              # Start gateway daemon (foreground)
@@ -239,20 +242,24 @@ Channel adapters handle platform-specific auth (Feishu token verification, Teams
 ## Testing
 
 ```bash
-python -m pytest -q          # Full suite
-python -m pytest tests/test_gateway/ -q    # Gateway tests only
-python -m pytest tests/test_tools/ -q      # Tool tests only
+python scripts/run_all_tests.py                 # Install test deps + run all suites
+python scripts/run_all_tests.py --skip-install  # Reuse current environment
+python -m pytest tests/test_gateway/ -q         # Gateway tests only
+python -m pytest tests/test_tools/ -q           # Tool tests only
 ```
 
-Current status: **665 tests passing** in ~13 seconds.
+Current workspace status:
+
+- Core repo: **676 passed, 4 skipped**
+- `yigthinker-mcp-uipath`: **47 passed**
+- `yigthinker-mcp-powerautomate`: **52 passed**
 
 ## Limitations
 
-- **Not yet published to PyPI.** The one-line installers and `pip install yigthinker` commands will not work until the package is published. Use the "For Contributors" setup for now.
+- **PyPI publication is still pending.** The one-line installer and manual `uv tool install` examples currently install from the GitHub repo source.
 - The gateway runs in the foreground; no built-in daemon manager (use systemd, supervisor, or similar).
 - `report_schedule` stores schedules in session memory only; not persisted across restarts.
 - Forecast tools only register when their scientific dependencies are installed.
-- Workflow tools require the `workflow` extra (`jinja2`, `croniter`).
 - Channel adapters are functional but should be treated as integration-level features.
 - SQL queries pass LLM-generated SQL directly; use read-only database users for safety.
 
