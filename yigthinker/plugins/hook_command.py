@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shlex
+import sys
 
 from yigthinker.types import HookAction, HookEvent, HookResult
 
@@ -25,8 +27,13 @@ class CommandHook:
         }).encode()
 
         try:
-            proc = await asyncio.create_subprocess_shell(
-                self._command,
+            # Replace create_subprocess_shell with exec to avoid shell injection
+            if sys.platform == "win32":
+                args = ["cmd", "/c"] + shlex.split(self._command, posix=False)
+            else:
+                args = shlex.split(self._command)
+            proc = await asyncio.create_subprocess_exec(
+                *args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

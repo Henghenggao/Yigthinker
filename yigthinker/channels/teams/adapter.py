@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -82,14 +83,20 @@ class TeamsAdapter:
         async def teams_webhook(request: Request):
             # HMAC verification — must read raw body BEFORE JSON parsing
             raw_body = await request.body()
-            if self._webhook_secret:
-                auth_header = request.headers.get("Authorization", "")
-                if not verify_teams_hmac_signature(
-                    raw_body, auth_header, self._webhook_secret
-                ):
-                    return JSONResponse(
-                        {"error": "Invalid HMAC signature"}, status_code=401
-                    )
+            if not self._webhook_secret:
+                logger.error(
+                    "Teams webhook_secret not configured — rejecting request"
+                )
+                return JSONResponse(
+                    {"error": "webhook not configured"}, status_code=401
+                )
+            auth_header = request.headers.get("Authorization", "")
+            if not verify_teams_hmac_signature(
+                raw_body, auth_header, self._webhook_secret
+            ):
+                return JSONResponse(
+                    {"error": "invalid signature"}, status_code=401
+                )
 
             body = json.loads(raw_body)
             text = body.get("text", "").strip()
@@ -351,6 +358,9 @@ class TeamsAdapter:
         registry = self._gateway.registry
         if cmd.name == "new":
             label = cmd.args[0] if cmd.args else None
+            # Sanitize label: alphanumeric, underscore, hyphen only
+            if label and not re.fullmatch(r"[a-zA-Z0-9_\-]{1,32}", label):
+                return "Session name must be alphanumeric/underscore/hyphen, max 32 chars."
             new_key = f"{session_key}:{label}" if label else f"{session_key}:new"
             registry.set_active_key(session_key, new_key)
             return f"Started new session{': ' + label if label else ''}."
@@ -364,6 +374,9 @@ class TeamsAdapter:
             target = cmd.args[0] if cmd.args else None
             if not target:
                 return "Usage: /switch <session-name>"
+            # Security: target must be scoped to the sender's own namespace
+            if target != session_key and not target.startswith(session_key + ":"):
+                return f"Cannot switch to '{target}': you can only switch between your own sessions."
             registry.set_active_key(session_key, target)
             return f"Switched to session: {target}"
         elif cmd.name == "undo":

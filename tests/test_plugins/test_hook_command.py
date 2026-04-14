@@ -21,7 +21,7 @@ async def test_command_hook_exit_0_returns_allow():
     mock_proc.returncode = 0
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
 
-    with patch("asyncio.create_subprocess_shell", new=AsyncMock(return_value=mock_proc)):
+    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
         result = await hook(make_event())
 
     assert result.action == HookAction.ALLOW
@@ -33,7 +33,7 @@ async def test_command_hook_exit_1_returns_warn():
     mock_proc.returncode = 1
     mock_proc.communicate = AsyncMock(return_value=(b"", b"rate limit warning"))
 
-    with patch("asyncio.create_subprocess_shell", new=AsyncMock(return_value=mock_proc)):
+    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
         result = await hook(make_event())
 
     assert result.action == HookAction.WARN
@@ -46,7 +46,7 @@ async def test_command_hook_exit_2_returns_block():
     mock_proc.returncode = 2
     mock_proc.communicate = AsyncMock(return_value=(b"", b"blocked: PII detected"))
 
-    with patch("asyncio.create_subprocess_shell", new=AsyncMock(return_value=mock_proc)):
+    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
         result = await hook(make_event())
 
     assert result.action == HookAction.BLOCK
@@ -65,7 +65,7 @@ async def test_command_hook_passes_event_as_json_on_stdin():
 
     mock_proc.communicate = mock_communicate
 
-    with patch("asyncio.create_subprocess_shell", new=AsyncMock(return_value=mock_proc)):
+    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
         await hook(make_event())
 
     assert received_input[0] is not None
@@ -78,7 +78,7 @@ async def test_command_hook_exception_returns_warn():
     """A crashing hook command should not block execution — returns WARN."""
     hook = CommandHook(command="nonexistent-command")
 
-    with patch("asyncio.create_subprocess_shell", side_effect=FileNotFoundError("no such file")):
+    with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("no such file")):
         result = await hook(make_event())
 
     assert result.action == HookAction.WARN
