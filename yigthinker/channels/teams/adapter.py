@@ -249,13 +249,57 @@ class TeamsAdapter:
             self._max_retries, last_error,
         )
 
+    async def _send_progress_card(self, event: dict[str, Any], tool_name: str, summary: str) -> None:
+        """Fire-and-forget: post a compact progress card to the conversation."""
+        try:
+            card = self._renderer.render_tool_progress(tool_name, summary)
+            service_url = (
+                self._service_url_override
+                or event.get("serviceUrl", "")
+                or "https://smba.trafficmanager.net/amer/"
+            )
+            conversation_id = event.get("conversation", {}).get("id", "")
+            if not conversation_id:
+                return
+            token = self._acquire_token()
+            if not token:
+                return
+            url = f"{service_url.rstrip('/')}/v3/conversations/{conversation_id}/activities"
+            payload = {
+                "type": "message",
+                "attachments": [{
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": card,
+                }],
+            }
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            async with httpx.AsyncClient(timeout=5) as client:
+                await client.post(url, json=payload, headers=headers)
+        except Exception:
+            pass  # progress cards are best-effort
+
     async def _process_and_respond(
         self, session_key: str, text: str, event: dict[str, Any]
     ) -> None:
         """Run agent processing asynchronously and deliver result via Bot Framework API (D-05)."""
         try:
+            _tool_names: dict[str, str] = {}
+
+            def _on_teams_tool_event(event_type: str, data: dict) -> None:
+                if event_type == "tool_call":
+                    _tool_names[data.get("tool_id", "")] = data.get("tool_name", "tool")
+                elif event_type == "tool_result" and not data.get("is_error"):
+                    tool_id = data.get("tool_id", "")
+                    tool_name = _tool_names.get(tool_id, "tool")
+                    content = data.get("content", "")
+                    summary = content[:80] + ("..." if len(content) > 80 else "")
+                    asyncio.create_task(
+                        self._send_progress_card(event, tool_name, summary)
+                    )
+
             result = await self._gateway.handle_message(
-                session_key, text, channel="teams"
+                session_key, text, channel="teams",
+                on_tool_event=_on_teams_tool_event,
             )
             await self.send_response(event, result)
         except Exception:

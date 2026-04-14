@@ -14,7 +14,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -188,6 +188,7 @@ class GatewayServer:
         session_key: str,
         user_input: str,
         channel: str = "cli",
+        on_tool_event: Callable[[str, dict], None] | None = None,
     ) -> str:
         """Route a user message to the agent loop within a managed session.
 
@@ -228,6 +229,9 @@ class GatewayServer:
                             asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
                         except Exception:
                             pass
+                # Passthrough to external on_tool_event callback (e.g. Teams progress)
+                if on_tool_event is not None:
+                    on_tool_event(event_type, data)
 
             def _on_token(text: str) -> None:
                 """Broadcast token stream to all WS clients attached to this session (fire-and-forget per D-04)."""

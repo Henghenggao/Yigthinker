@@ -20,6 +20,7 @@ class SchemaInspectTool:
         "Always read-only. Output is injected into the Context Manager as data context."
     )
     input_schema = SchemaInspectInput
+    is_concurrency_safe = True
 
     def __init__(self, pool: ConnectionPool) -> None:
         self._pool = pool

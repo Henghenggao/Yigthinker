@@ -20,6 +20,7 @@ class ExploreDrilldownTool:
         "Outputs filtered/grouped data and stores result in output_var."
     )
     input_schema = ExploreDrilldownInput
+    is_concurrency_safe = True
 
     async def execute(self, input: ExploreDrilldownInput, ctx: SessionContext) -> ToolResult:
         try:
