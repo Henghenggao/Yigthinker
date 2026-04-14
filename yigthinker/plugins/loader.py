@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from yigthinker.plugins.command import SlashCommand, load_commands_from_dir
 
@@ -14,10 +15,13 @@ class PluginManifest:
     description: str
     author: str
     plugin_dir: Path
+    hooks_config: Path | None = None
+    mcp_servers: dict[str, Any] = field(default_factory=dict)
+    agents_dir: Path | None = None
 
 
 class PluginLoader:
-    """Discovers Yigthinker plugins and loads their slash commands."""
+    """Discovers Yigthinker plugins and loads their components."""
 
     def __init__(self, plugin_dirs: list[Path] | None = None) -> None:
         self._dirs = plugin_dirs or [
@@ -38,6 +42,19 @@ class PluginLoader:
                     data = json.loads(manifest_path.read_text(encoding="utf-8"))
                 except json.JSONDecodeError:
                     continue
+
+                hooks_config: Path | None = None
+                if hooks_rel := data.get("hooks"):
+                    hooks_path = candidate / hooks_rel
+                    if hooks_path.exists():
+                        hooks_config = hooks_path
+
+                agents_dir: Path | None = None
+                if agents_rel := data.get("agents"):
+                    agents_path = candidate / agents_rel
+                    if agents_path.is_dir():
+                        agents_dir = agents_path
+
                 manifests.append(
                     PluginManifest(
                         name=data.get("name", candidate.name),
@@ -45,6 +62,9 @@ class PluginLoader:
                         description=data.get("description", ""),
                         author=data.get("author", ""),
                         plugin_dir=candidate,
+                        hooks_config=hooks_config,
+                        mcp_servers=data.get("mcpServers", {}),
+                        agents_dir=agents_dir,
                     )
                 )
         return manifests
@@ -56,3 +76,34 @@ class PluginLoader:
             if commands_dir.exists():
                 commands.extend(load_commands_from_dir(commands_dir))
         return commands
+
+    def load_hooks(self) -> list[tuple[str, str, Any]]:
+        """Return (event_type, matcher, CommandHook) tuples from all plugins."""
+        from yigthinker.plugins.hook_command import CommandHook
+
+        hooks: list[tuple[str, str, Any]] = []
+        for manifest in self.discover():
+            if manifest.hooks_config is None:
+                continue
+            try:
+                data = json.loads(manifest.hooks_config.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            for event_type, entries in data.items():
+                for entry in entries:
+                    command = entry.get("command", "")
+                    matcher = entry.get("matcher", "*")
+                    if command:
+                        hooks.append((event_type, matcher, CommandHook(command)))
+        return hooks
+
+    def load_mcp_configs(self) -> dict[str, Any]:
+        """Return merged mcpServers dict from all plugins."""
+        merged: dict[str, Any] = {}
+        for manifest in self.discover():
+            merged.update(manifest.mcp_servers)
+        return merged
+
+    def load_agent_dirs(self) -> list[Path]:
+        """Return paths to agents/ directories contributed by plugins."""
+        return [m.agents_dir for m in self.discover() if m.agents_dir is not None]
