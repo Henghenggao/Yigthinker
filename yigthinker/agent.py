@@ -169,6 +169,19 @@ class AgentLoop:
                             else:
                                 system_prompt = alert
 
+                    # P1-5: inject hook system messages from previous tool execution
+                    pending_injections = getattr(ctx, "_pending_injections", None)
+                    if pending_injections:
+                        injection_text = "\n".join(pending_injections)
+                        # Cap at 8192 chars (~2048 tokens)
+                        if len(injection_text) > 8192:
+                            injection_text = injection_text[:8192] + "\n[hook injections truncated]"
+                        if system_prompt:
+                            system_prompt += f"\n\n[Hook Context]\n{injection_text}"
+                        else:
+                            system_prompt = f"[Hook Context]\n{injection_text}"
+                        ctx._pending_injections = None  # type: ignore[attr-defined]
+
                     if self._compact is not None:
                         token_est = self._estimate_tokens(messages)
                         if token_est > ctx.context_manager.history_budget:
@@ -386,6 +399,19 @@ class AgentLoop:
                 "content": result_content,
                 "is_error": result.is_error,
             })
+
+        # P1-5: collect hook injections from tool results
+        hook_injections: list[str] = []
+        for tu in tool_uses:
+            result = results_by_id[tu.id]
+            injections = getattr(result, "_hook_injections", None)
+            if injections:
+                hook_injections.extend(injections)
+
+        # Store injections on ctx for system prompt assembly
+        if hook_injections:
+            ctx._pending_injections = hook_injections  # type: ignore[attr-defined]
+
         return tool_results
 
     def _microcompact(self, messages: list[Message]) -> list[Message]:
@@ -432,11 +458,11 @@ class AgentLoop:
             tool_input=tool_input,
         )
 
-        hook_result = await self._hooks.run(pre_event)
-        if hook_result.action == HookAction.BLOCK:
+        pre_agg = await self._hooks.run(pre_event)
+        if pre_agg.action == HookAction.BLOCK:
             return ToolResult(
                 tool_use_id=tool_use_id,
-                content=f"Blocked: {hook_result.message}",
+                content=f"Blocked: {pre_agg.message}",
                 is_error=True,
             )
 
@@ -509,7 +535,19 @@ class AgentLoop:
             tool_input=tool_input,
             tool_result=result,
         )
-        await self._hooks.run(post_event)
+        post_agg = await self._hooks.run(post_event)
+
+        # P1-5: apply post-hook effects
+        if post_agg.suppress:
+            result = ToolResult(tool_use_id=tool_use_id, content="[output suppressed by hook]", is_error=False)
+            result._suppressed = True  # type: ignore[attr-defined]
+        elif post_agg.replacement is not None:
+            result.content = post_agg.replacement
+
+        # Collect injections from both pre and post hooks
+        all_injections = pre_agg.injections + post_agg.injections
+        if all_injections:
+            result._hook_injections = all_injections  # type: ignore[attr-defined]
 
         if on_tool_event is not None:
             serialized_content = _serialize_tool_content(result.content)

@@ -117,7 +117,8 @@ async def build_app(
     for event_type, matcher, hook_fn in plugin_loader.load_hooks():
         hook_registry.register(event_type, matcher, hook_fn)
 
-    hooks = HookExecutor(hook_registry)
+    hook_capabilities = settings.get("hooks", {}).get("capabilities", {})
+    hooks = HookExecutor(hook_registry, capabilities=hook_capabilities)
     perm_settings = settings.get("permissions", {})
     perm_mode = perm_settings.get("mode", "default")
     permissions = PermissionSystem(perm_settings, mode=perm_mode)

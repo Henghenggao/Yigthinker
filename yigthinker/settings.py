@@ -118,6 +118,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "enabled": False,
         "budget_tokens": 10000,
     },
+    "hooks": {
+        "capabilities": {
+            "inject_system": True,
+            "suppress_output": True,
+            "replace_result": True,
+        },
+    },
 }
 
 
