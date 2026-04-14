@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from yigthinker.hooks.executor import HookExecutor
@@ -14,6 +15,10 @@ from yigthinker.types import HookAction, HookEvent, LLMResponse, Message, Stream
 if TYPE_CHECKING:
     from yigthinker.memory.compact import SmartCompact
     from yigthinker.memory.session_memory import MemoryManager
+
+logger = logging.getLogger(__name__)
+
+MAX_RESULT_CHARS = 8000
 
 _ITERATION_LIMIT_SYSTEM_MSG = (
     "[SYSTEM] You have reached the maximum number of tool call iterations. "
@@ -41,6 +46,7 @@ class AgentLoop:
         ask_fn: Callable[[str, dict], Awaitable[Any]] | None = None,
         max_iterations: int = 50,
         timeout_seconds: float = 300.0,
+        fallback_provider: LLMProvider | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tools
@@ -49,6 +55,8 @@ class AgentLoop:
         self._ask_fn = ask_fn
         self._max_iterations = max_iterations
         self._timeout_seconds = timeout_seconds
+        self._fallback_provider = fallback_provider
+        self._max_tokens_recovery_count = 0
         self._memory_manager: MemoryManager | None = None
         self._compact: SmartCompact | None = None
         self._background_tasks: set[asyncio.Task] = set()
@@ -86,6 +94,7 @@ class AgentLoop:
         on_tool_event: Callable[[str, dict], None] | None = None,
         on_token: Callable[[str], None] | None = None,
     ) -> str:
+        self._max_tokens_recovery_count = 0
         messages: list[Message] = list(ctx.messages)
         messages.append(Message(role="user", content=user_input))
         ctx._on_tool_event = on_tool_event  # type: ignore[attr-defined]
@@ -163,6 +172,10 @@ class AgentLoop:
                     if self._compact is not None:
                         token_est = self._estimate_tokens(messages)
                         if token_est > ctx.context_manager.history_budget:
+                            # Microcompact pass: replace old referenced tool_results
+                            messages = self._microcompact(messages)
+                            token_est = self._estimate_tokens(messages)
+                        if token_est > ctx.context_manager.history_budget:
                             pre_compact_event = HookEvent(
                                 event_type="PreCompact",
                                 session_id=ctx.session_id,
@@ -172,6 +185,8 @@ class AgentLoop:
                             memory_content = self._memory_manager.load_memory() if self._memory_manager else ""
                             vars_summary = self._format_vars_summary(ctx)
                             messages = await self._compact.run(messages, memory_content, token_est, vars_summary)
+
+                    using_fallback = False
 
                     if on_token is not None:
                         accumulated_text = ""
@@ -189,8 +204,30 @@ class AgentLoop:
                                     stop_reason = event.stop_reason or "end_turn"
                                 elif event.type == "error":
                                     break
-                        except Exception:
-                            pass
+                        except (TimeoutError, asyncio.CancelledError):
+                            raise
+                        except Exception as exc:
+                            if self._fallback_provider is not None and not using_fallback:
+                                logger.warning("Primary provider failed (%s), switching to fallback", exc)
+                                using_fallback = True
+                                accumulated_text = ""
+                                tool_uses_from_stream = []
+                                stop_reason = "end_turn"
+                                try:
+                                    async for event in self._fallback_provider.stream(messages, tool_schemas, system=system_prompt):
+                                        if event.type == "text":
+                                            accumulated_text += event.text
+                                            on_token(event.text)
+                                        elif event.type == "tool_use" and event.tool_use is not None:
+                                            tool_uses_from_stream.append(event.tool_use)
+                                        elif event.type == "done":
+                                            stop_reason = event.stop_reason or "end_turn"
+                                        elif event.type == "error":
+                                            break
+                                except Exception:
+                                    pass
+                            else:
+                                pass
 
                         response = LLMResponse(
                             stop_reason=stop_reason,
@@ -198,7 +235,29 @@ class AgentLoop:
                             tool_uses=tool_uses_from_stream,
                         )
                     else:
-                        response = await self._provider.chat(messages, tool_schemas, system=system_prompt)
+                        try:
+                            response = await self._provider.chat(messages, tool_schemas, system=system_prompt)
+                        except (TimeoutError, asyncio.CancelledError):
+                            raise
+                        except Exception as exc:
+                            if self._fallback_provider is not None and not using_fallback:
+                                logger.warning("Primary provider failed (%s), switching to fallback", exc)
+                                using_fallback = True
+                                response = await self._fallback_provider.chat(messages, tool_schemas, system=system_prompt)
+                            else:
+                                raise
+
+                    # Max-tokens auto-recovery: inject continuation prompt
+                    if response.stop_reason == "max_tokens" and not response.tool_uses:
+                        self._max_tokens_recovery_count += 1
+                        if self._max_tokens_recovery_count <= 3:
+                            if response.text:
+                                messages.append(Message(role="assistant", content=response.text))
+                            messages.append(Message(
+                                role="user",
+                                content="[System: Output token limit reached. Continue directly from where you left off - no apology, no recap.]",
+                            ))
+                            continue
 
                     if response.stop_reason == "end_turn" or not response.tool_uses:
                         messages.append(Message(role="assistant", content=response.text))
@@ -219,18 +278,9 @@ class AgentLoop:
                         )
                     messages.append(Message(role="assistant", content=content_blocks))
 
-                    tool_results: list[dict] = []
-                    for tool_use in response.tool_uses:
-                        result = await self._execute_tool(tool_use.name, tool_use.input, tool_use.id, ctx, on_tool_event)
-                        result_content = _serialize_tool_content(result.content)
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_use.id,
-                                "content": result_content,
-                                "is_error": result.is_error,
-                            }
-                        )
+                    tool_results = await self._execute_tool_batch(
+                        response.tool_uses, ctx, on_tool_event
+                    )
                     messages.append(Message(role="user", content=tool_results))
 
                     # Memory extraction after tool calls
@@ -288,6 +338,81 @@ class AgentLoop:
             lines.append(f"{info.name}: {info.shape[0]}x{info.shape[1]} ({info.var_type})")
         return "\n".join(lines)
 
+    async def _execute_tool_batch(
+        self,
+        tool_uses: list[ToolUse],
+        ctx: SessionContext,
+        on_tool_event: Callable[[str, dict], None] | None = None,
+    ) -> list[dict]:
+        """Execute a batch of tool calls, running concurrency-safe tools in parallel."""
+        safe: list[ToolUse] = []
+        unsafe: list[ToolUse] = []
+        for tu in tool_uses:
+            try:
+                tool = self._tools.get(tu.name)
+                if getattr(tool, "is_concurrency_safe", False):
+                    safe.append(tu)
+                else:
+                    unsafe.append(tu)
+            except Exception:
+                unsafe.append(tu)
+
+        results_by_id: dict[str, ToolResult] = {}
+
+        # Run safe tools concurrently
+        if safe:
+            safe_results = await asyncio.gather(
+                *[self._execute_tool(tu.name, tu.input, tu.id, ctx, on_tool_event) for tu in safe]
+            )
+            for tu, result in zip(safe, safe_results):
+                results_by_id[tu.id] = result
+
+        # Run unsafe tools serially
+        for tu in unsafe:
+            result = await self._execute_tool(tu.name, tu.input, tu.id, ctx, on_tool_event)
+            results_by_id[tu.id] = result
+
+        # Build results in original order
+        tool_results: list[dict] = []
+        for tu in tool_uses:
+            result = results_by_id[tu.id]
+            result_content = _serialize_tool_content(result.content)
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tu.id,
+                "content": result_content,
+                "is_error": result.is_error,
+            })
+        return tool_results
+
+    def _microcompact(self, messages: list[Message]) -> list[Message]:
+        """Replace old tool_result contents that have been referenced by subsequent assistant messages."""
+        sentinel = "[result referenced - omitted for context efficiency]"
+        # Collect tool_use_ids from tool_result blocks more than 3 messages from the end
+        cutoff = len(messages) - 3
+        if cutoff <= 0:
+            return messages
+
+        # Find all tool_use_ids referenced in assistant messages after the cutoff
+        referenced_ids: set[str] = set()
+        for msg in messages[cutoff:]:
+            if msg.role == "assistant" and isinstance(msg.content, list):
+                for block in msg.content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        referenced_ids.add(block.get("id", ""))
+
+        # Scan old messages for tool_result blocks and replace if referenced
+        for i in range(cutoff):
+            msg = messages[i]
+            if msg.role == "user" and isinstance(msg.content, list):
+                for item in msg.content:
+                    if isinstance(item, dict) and item.get("type") == "tool_result":
+                        tool_id = item.get("tool_use_id", "")
+                        if tool_id in referenced_ids:
+                            item["content"] = sentinel
+
+        return messages
+
     async def _execute_tool(
         self,
         tool_name: str,
@@ -344,6 +469,14 @@ class AgentLoop:
             input_obj = tool.input_schema(**tool_input)
             result = await tool.execute(input_obj, ctx)
             result.tool_use_id = tool_use_id
+            # Truncate oversized results
+            result_str = _serialize_tool_content(result.content)
+            if len(result_str) > MAX_RESULT_CHARS:
+                total = len(result_str)
+                result.content = result_str[:MAX_RESULT_CHARS] + (
+                    f"\n[truncated - {total} chars total. "
+                    f"Full result in variable registry.]"
+                )
         except Exception as exc:
             result = ToolResult(tool_use_id=tool_use_id, content=str(exc), is_error=True)
 

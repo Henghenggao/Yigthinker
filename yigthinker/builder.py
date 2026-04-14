@@ -110,6 +110,15 @@ async def build_app(
     permissions = PermissionSystem(settings.get("permissions", {}))
     provider = provider_from_settings(settings)
 
+    fallback_provider: LLMProvider | None = None
+    fallback_model = settings.get("fallback_model")
+    if fallback_model:
+        fallback_settings = {**settings, "model": fallback_model}
+        try:
+            fallback_provider = provider_from_settings(fallback_settings)
+        except (ValueError, Exception):
+            pass  # fallback is best-effort
+
     if ask_fn is _SENTINEL:
         from yigthinker.cli.ask_prompt import ask_user_permission
         resolved_ask_fn = ask_user_permission
@@ -128,6 +137,7 @@ async def build_app(
         ask_fn=resolved_ask_fn,
         max_iterations=max_iterations,
         timeout_seconds=timeout_seconds,
+        fallback_provider=fallback_provider,
     )
 
     # --- Spawn agent wiring ---

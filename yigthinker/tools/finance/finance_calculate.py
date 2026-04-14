@@ -60,6 +60,7 @@ class FinanceCalculateTool:
         "depreciation (cost, salvage, life, method, period?)."
     )
     input_schema = FinanceCalculateInput
+    is_concurrency_safe = True
 
     async def execute(self, input: FinanceCalculateInput, ctx: SessionContext) -> ToolResult:
         try:
