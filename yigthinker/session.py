@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -38,6 +39,13 @@ class UndoEntry:
     backup_path: _Path | None
     created_at: float
     is_new_file: bool
+
+
+@dataclass
+class CheckpointData:
+    messages: list[Any]
+    vars_snapshot: dict[str, Any]
+    created_at: float
 
 
 class VarRegistry:
@@ -101,11 +109,57 @@ class SessionContext:
     undo_stack: list[UndoEntry] = field(default_factory=list)
     subagent_manager: SubagentManager | None = None
     _progress_callback: Callable[[str], None] | None = field(default=None, repr=False)
+    _checkpoints: dict[str, CheckpointData] = field(default_factory=dict, repr=False)
 
     async def emit_progress(self, message: str) -> None:
         """Emit a progress message to the UI layer. No-op if no callback set."""
         if self._progress_callback is not None:
             self._progress_callback(message)
+
+    def checkpoint(self, label: str) -> None:
+        """Save current state as a named checkpoint."""
+        vars_snapshot: dict[str, Any] = {}
+        for info in self.vars.list():
+            value = self.vars.get(info.name)
+            if isinstance(value, pd.DataFrame):
+                vars_snapshot[info.name] = (value.copy(deep=False), info.var_type)
+            else:
+                vars_snapshot[info.name] = (copy.copy(value), info.var_type)
+
+        self._checkpoints[label] = CheckpointData(
+            messages=copy.deepcopy(self.messages),
+            vars_snapshot=vars_snapshot,
+            created_at=time.time(),
+        )
+
+        max_checkpoints = self.settings.get("session", {}).get("max_checkpoints", 10)
+        while len(self._checkpoints) > max_checkpoints:
+            oldest_key = next(iter(self._checkpoints))
+            del self._checkpoints[oldest_key]
+
+    def branch_from(self, label: str) -> "SessionContext":
+        """Create a new SessionContext from a named checkpoint."""
+        if label not in self._checkpoints:
+            raise KeyError(f"Checkpoint '{label}' not found. Available: {list(self._checkpoints)}")
+        cp = self._checkpoints[label]
+        new_ctx = SessionContext(settings=dict(self.settings))
+        new_ctx.messages = copy.deepcopy(cp.messages)
+        for name, (value, var_type) in cp.vars_snapshot.items():
+            if isinstance(value, pd.DataFrame):
+                new_ctx.vars.set(name, value.copy(deep=False), var_type=var_type)
+            else:
+                new_ctx.vars.set(name, copy.copy(value), var_type=var_type)
+        return new_ctx
+
+    def branch(self) -> "SessionContext":
+        """Fork from current state (convenience: checkpoint + branch_from)."""
+        self.checkpoint("_branch_now")
+        branched = self.branch_from("_branch_now")
+        del self._checkpoints["_branch_now"]
+        return branched
+
+    def list_checkpoints(self) -> list[str]:
+        return list(self._checkpoints.keys())
 
     def mark_active(self) -> None:
         self.last_active = time.monotonic()
