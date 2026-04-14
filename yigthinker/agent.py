@@ -97,6 +97,7 @@ class AgentLoop:
         self._max_tokens_recovery_count = 0
         messages: list[Message] = list(ctx.messages)
         messages.append(Message(role="user", content=user_input))
+        ctx._pending_injections = None  # type: ignore[attr-defined]  # P1-5: clear stale injections from prior run
         ctx._on_tool_event = on_tool_event  # type: ignore[attr-defined]
         tool_schemas = self._tools.export_schemas()
         iteration = 0

@@ -81,7 +81,7 @@ HookResult.ALLOW = HookResult(HookAction.ALLOW)
 class HookAggregateResult:
     """Aggregated result from running all matching hooks."""
 
-    action: HookAction = field(default_factory=lambda: HookAction.ALLOW)
+    action: HookAction = HookAction.ALLOW
     message: str = ""
     injections: list[str] = field(default_factory=list)
     suppress: bool = False
