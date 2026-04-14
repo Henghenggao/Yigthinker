@@ -64,6 +64,31 @@ class TeamsCardRenderer:
             "actions": [{"type": "Action.OpenUrl", "title": "Open in Dashboard", "url": url}],
         }
 
+    def render_tool_progress(self, tool_name: str, summary: str) -> dict[str, Any]:
+        """Render a compact progress card showing a tool result summary."""
+        return {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5",
+            "body": [
+                {
+                    "type": "ColumnSet",
+                    "columns": [
+                        {
+                            "type": "Column",
+                            "width": "auto",
+                            "items": [{"type": "TextBlock", "text": tool_name, "weight": "Bolder", "size": "Small"}],
+                        },
+                        {
+                            "type": "Column",
+                            "width": "stretch",
+                            "items": [{"type": "TextBlock", "text": summary, "wrap": True, "size": "Small"}],
+                        },
+                    ],
+                },
+            ],
+        }
+
     def render_error(self, message: str) -> dict[str, Any]:
         return {
             "type": "AdaptiveCard",
