@@ -168,9 +168,10 @@ Recent decisions affecting current work:
 |---|-------------|------|--------|--------|-----------|
 | 260414-kzg | Teams attachment support | 2026-04-14 | 254abeb | — | [260414-kzg-teams-attachment-support](./quick/260414-kzg-teams-attachment-support/) |
 | 260414-mu3 | Upgrade Yigthinker agent loop: concurrent tools, progressive feedback, result size control, error recovery, multi-layer compaction, model fallback | 2026-04-14 | 3e357f0 | Verified | [260414-mu3-upgrade-yigthinker-agent-loop-concurrent](./quick/260414-mu3-upgrade-yigthinker-agent-loop-concurrent/) |
+| 260414-p13 | Task 1.3: Preserve thinking blocks in AgentLoop message history, wire ThinkingConfig from settings into factory | 2026-04-14 | — | Done | [260414-p13-thinking-blocks-agent-loop-settings](./quick/260414-p13-thinking-blocks-agent-loop-settings/) |
 
 ## Session Continuity
 
 Last session: 2026-04-14T14:45:32Z
-Stopped at: Completed quick-260414-mu3 (agent loop upgrade — 7/7 verified)
+Stopped at: Completed quick-260414-p13 (thinking blocks in agent loop + settings wiring)
 Resume file: None

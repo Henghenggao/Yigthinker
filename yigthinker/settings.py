@@ -113,6 +113,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "timeout_seconds": 60,
         }
     },
+    "thinking": {
+        "enabled": False,
+        "budget_tokens": 10000,
+    },
 }
 
 

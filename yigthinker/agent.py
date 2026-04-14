@@ -265,6 +265,9 @@ class AgentLoop:
                         break
 
                     content_blocks: list[dict] = []
+                    # Include thinking blocks before text/tool_use (preserves multi-turn context)
+                    for tb in response.thinking_blocks:
+                        content_blocks.append(tb)
                     if response.text:
                         content_blocks.append({"type": "text", "text": response.text})
                     for tool_use in response.tool_uses:
