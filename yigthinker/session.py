@@ -119,7 +119,13 @@ class SessionContext:
             self._progress_callback(message)
 
     def checkpoint(self, label: str) -> None:
-        """Save current state as a named checkpoint."""
+        """Save current state as a named checkpoint.
+
+        Deep-copies all DataFrames so that in-place mutations after
+        checkpointing do not corrupt stored state. This is O(n) in DataFrame
+        memory — avoid checkpointing sessions with very large DataFrames
+        (VarRegistry memory limit enforced separately).
+        """
         vars_snapshot: dict[str, Any] = {}
         for info in self.vars.list():
             value = self.vars.get(info.name)
@@ -140,7 +146,11 @@ class SessionContext:
             del self._checkpoints[oldest_key]
 
     def branch_from(self, label: str) -> "SessionContext":
-        """Create a new SessionContext from a named checkpoint."""
+        """Create a new SessionContext from a named checkpoint.
+
+        Deep-copies DataFrames from the snapshot so the branched context is
+        fully independent of both the checkpoint store and the parent context.
+        """
         if label not in self._checkpoints:
             raise KeyError(f"Checkpoint '{label}' not found. Available: {list(self._checkpoints)}")
         cp = self._checkpoints[label]
