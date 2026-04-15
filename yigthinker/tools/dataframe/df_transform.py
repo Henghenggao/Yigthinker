@@ -176,6 +176,7 @@ class DfTransformInput(BaseModel):
     code: str
     input_var: str = "df1"
     output_var: str = "df_result"
+    extra_vars: list[str] = []
 
 
 class DfTransformTool:
@@ -184,6 +185,9 @@ class DfTransformTool:
         "Execute Pandas/Polars code against a registered DataFrame. "
         "Code runs in a sandboxed namespace — no file I/O, no network, "
         "no imports beyond pandas/numpy/polars. "
+        "The input DataFrame is bound to both 'df' and its input_var name. "
+        "Use extra_vars=[...] to inject additional registered DataFrames under "
+        "their own names for multi-DataFrame merges/joins. "
         "Assign the result to 'result'; it will be stored as output_var."
     )
     input_schema = DfTransformInput
@@ -200,11 +204,24 @@ class DfTransformTool:
             return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
         sandbox_builtins = {**_SAFE_BUILTINS, "__import__": _safe_import}
-        namespace = {
+        namespace: dict = {
             "__builtins__": sandbox_builtins,
             "df": df,
             **_ALLOWED_IMPORT_MAP,
         }
+        # Also expose the input DataFrame under its own name so code can use
+        # natural variable names when joining/merging with extra_vars.
+        if input.input_var and input.input_var not in namespace:
+            namespace[input.input_var] = df
+
+        # Inject extra variables into the namespace under their registered names.
+        for var_name in input.extra_vars:
+            if var_name == input.input_var:
+                continue
+            try:
+                namespace[var_name] = ctx.vars.get(var_name)
+            except KeyError as exc:
+                return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
         # Resolve timeout from settings with a 30s default. Users can tune via
         # settings["df_transform"]["timeout"] (seconds, float).
