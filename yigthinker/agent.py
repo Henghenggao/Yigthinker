@@ -190,7 +190,13 @@ class AgentLoop:
 
                     steerings = ctx.drain_steerings()
                     if steerings:
-                        numbered = "\n".join(f"{i+1}. {s}" for i, s in enumerate(steerings))
+                        # Task 20 extension: sanitize steering messages before injecting
+                        # into the system prompt — same guard applied to hook injections.
+                        # Steerings originate from WebSocket user_input and Teams/Feishu
+                        # Bot Framework payloads; both are external trust boundaries.
+                        from yigthinker.context_manager import _sanitize_memory_content
+                        sanitized_steerings = [_sanitize_memory_content(s) for s in steerings]
+                        numbered = "\n".join(f"{i+1}. {s}" for i, s in enumerate(sanitized_steerings))
                         steering_block = f"[User Follow-up (sent while you were working)]\n{numbered}"
                         if system_prompt:
                             system_prompt += f"\n\n{steering_block}"
@@ -574,6 +580,7 @@ class AgentLoop:
             on_tool_event("tool_result", {
                 "tool_id": tool_use_id,
                 "content": serialized_content,
+                "content_obj": result.content,
                 "is_error": result.is_error,
             })
 

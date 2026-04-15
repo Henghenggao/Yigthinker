@@ -42,6 +42,16 @@ logger = logging.getLogger(__name__)
 CHART_CACHE_DIR = Path.home() / ".yigthinker" / "chart_cache"
 
 
+def _prepend_quoted_context(user_input: str, quoted_messages: list | None) -> str:
+    """Inline quoted references so the agent sees them on the next turn."""
+    if not quoted_messages:
+        return user_input
+    refs = "\n".join(
+        f'[Referenced: "{q.original_text[:200]}"]' for q in quoted_messages
+    )
+    return f"{refs}\n{user_input}"
+
+
 def _resolve_chart_path(chart_id: str, suffix: str) -> Path | None:
     """Resolve chart_id to a safe path within CHART_CACHE_DIR, or None if unsafe.
 
@@ -232,12 +242,7 @@ class GatewayServer:
         # When steering, prepend any quoted context so the running agent sees
         # the reference alongside the follow-up input.
         def _build_steer_text() -> str:
-            if not quoted_messages:
-                return user_input
-            refs = "\n".join(
-                f'[Referenced: "{q.original_text[:200]}"]' for q in quoted_messages
-            )
-            return f"{refs}\n{user_input}"
+            return _prepend_quoted_context(user_input, quoted_messages)
 
         # Fast-path: observed _is_running=True without acquiring the lock.
         if session.ctx._is_running:
@@ -308,8 +313,9 @@ class GatewayServer:
                         pass
 
         try:
+            effective_input = _prepend_quoted_context(user_input, quoted_messages)
             result = await self._agent_loop.run(
-                user_input, session.ctx,
+                effective_input, session.ctx,
                 on_tool_event=_on_tool_event,
                 on_token=_on_token,
             )

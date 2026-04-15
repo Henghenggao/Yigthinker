@@ -84,7 +84,7 @@ class ChartCreateTool:
     name = "chart_create"
     description = (
         "Generate a Plotly chart from a registered DataFrame. "
-        "Supported types: bar, line, scatter, pie, histogram, area, heatmap. "
+        "Supported types: bar, line, scatter, pie, histogram, area, heatmap, waterfall. "
         "Applies theme from settings. Stores chart JSON as chart_name in var registry."
     )
     input_schema = ChartCreateInput

@@ -204,22 +204,37 @@ class DfTransformTool:
             return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
         sandbox_builtins = {**_SAFE_BUILTINS, "__import__": _safe_import}
+        # Protected namespace keys that extra_vars must not overwrite.
+        _PROTECTED_KEYS = frozenset({"df", "__builtins__", "pd", "np", "pandas", "numpy", "polars", "pl"})
+
+        # Copy DataFrames into the sandbox so a timed-out thread cannot corrupt
+        # the live ctx.vars DataFrames via in-place mutations (inplace=True, etc.).
+        import pandas as _pd
+        df_copy = df.copy() if isinstance(df, _pd.DataFrame) else df
         namespace: dict = {
             "__builtins__": sandbox_builtins,
-            "df": df,
+            "df": df_copy,
             **_ALLOWED_IMPORT_MAP,
         }
         # Also expose the input DataFrame under its own name so code can use
         # natural variable names when joining/merging with extra_vars.
         if input.input_var and input.input_var not in namespace:
-            namespace[input.input_var] = df
+            namespace[input.input_var] = df_copy
 
         # Inject extra variables into the namespace under their registered names.
         for var_name in input.extra_vars:
             if var_name == input.input_var:
                 continue
+            if var_name in _PROTECTED_KEYS:
+                return ToolResult(
+                    tool_use_id="",
+                    content=f"extra_vars: '{var_name}' is a protected namespace key and cannot be overridden.",
+                    is_error=True,
+                )
             try:
-                namespace[var_name] = ctx.vars.get(var_name)
+                extra_val = ctx.vars.get(var_name)
+                # Copy DataFrames to isolate sandbox from live registry.
+                namespace[var_name] = extra_val.copy() if isinstance(extra_val, _pd.DataFrame) else extra_val
             except KeyError as exc:
                 return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
@@ -232,6 +247,8 @@ class DfTransformTool:
             timeout = float(timeout_setting)
         except (TypeError, ValueError):
             timeout = _DEFAULT_TIMEOUT_SECONDS
+        # Clamp to a minimum to avoid immediately-expiring or misconfigured timeouts.
+        timeout = max(timeout, 0.1)
 
         # NOTE on thread leaks: asyncio.wait_for cancels the awaiting coroutine
         # but cannot interrupt CPython bytecode running in a thread. An abusive

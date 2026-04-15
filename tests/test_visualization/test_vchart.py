@@ -52,11 +52,12 @@ def test_pie_chart_translation(pie_chart_json):
     assert "value" in values[0]
 
 
-def test_unsupported_type_falls_back_to_bar():
+def test_unsupported_type_raises_value_error():
+    """Unsupported trace types raise ValueError instead of silently producing
+    a wrong bar chart. Callers should catch this and fall back to a link card."""
     plotly_json = json.dumps({"data": [{"type": "mesh3d", "x": [1], "y": [2], "z": [3]}], "layout": {}})
-    spec = plotly_to_vchart(plotly_json)
-    assert "series" in spec
-    assert spec["series"][0]["type"] == "bar"
+    with pytest.raises(ValueError, match="mesh3d"):
+        plotly_to_vchart(plotly_json)
 
 
 def test_empty_traces_returns_stub():

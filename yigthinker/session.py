@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import copy
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -72,12 +74,18 @@ class MessageIdMap:
 
 
 class VarRegistry:
-    """Session-scoped in-memory store for DataFrames and chart artifacts."""
+    """Session-scoped in-memory store for DataFrames and chart artifacts.
+
+    Thread-safe: df_transform runs exec() in a ThreadPoolExecutor thread. A
+    threading.Lock guards _vars and _current_bytes so concurrent access from
+    the thread pool and the asyncio event loop does not corrupt state.
+    """
 
     def __init__(self, max_bytes: int = 2 * 1024 ** 3) -> None:
         self._vars: dict[str, VarEntry] = {}
         self._max_bytes = max_bytes
         self._current_bytes: int = 0
+        self._lock = threading.Lock()
 
     @staticmethod
     def _size_of(value: Any) -> int:
@@ -86,60 +94,69 @@ class VarRegistry:
                 return int(value.memory_usage(deep=True).sum())
             except Exception:
                 return 0
-        return 0
+        # Estimate size for non-DataFrame types (strings, dicts, etc.)
+        try:
+            import sys
+            return sys.getsizeof(value)
+        except Exception:
+            return 0
 
     def set(self, name: str, value: Any, var_type: str = "dataframe") -> None:
-        new_size = self._size_of(value)
-        old_size = 0
-        if name in self._vars:
-            old_size = self._size_of(self._vars[name].value)
+        with self._lock:
+            new_size = self._size_of(value)
+            old_size = 0
+            if name in self._vars:
+                old_size = self._size_of(self._vars[name].value)
 
-        projected = self._current_bytes - old_size + new_size
-        if projected > self._max_bytes:
-            raise MemoryError(
-                f"VarRegistry would exceed {self._max_bytes / (1024 ** 3):.1f}GB limit "
-                f"(current: {self._current_bytes / (1024 ** 2):.0f}MB, "
-                f"new: {new_size / (1024 ** 2):.0f}MB). "
-                f"Remove unused variables first."
-            )
+            projected = self._current_bytes - old_size + new_size
+            if projected > self._max_bytes:
+                raise MemoryError(
+                    f"VarRegistry would exceed {self._max_bytes / (1024 ** 3):.1f}GB limit "
+                    f"(current: {self._current_bytes / (1024 ** 2):.0f}MB, "
+                    f"new: {new_size / (1024 ** 2):.0f}MB). "
+                    f"Remove unused variables first."
+                )
 
-        self._vars[name] = VarEntry(name=name, value=value, var_type=var_type)
-        self._current_bytes = projected
+            self._vars[name] = VarEntry(name=name, value=value, var_type=var_type)
+            self._current_bytes = projected
 
     def get(self, name: str) -> Any:
-        if name not in self._vars:
-            available = list(self._vars)
-            raise KeyError(f"Variable '{name}' not found. Available: {available}")
-        return self._vars[name].value
+        with self._lock:
+            if name not in self._vars:
+                available = list(self._vars)
+                raise KeyError(f"Variable '{name}' not found. Available: {available}")
+            return self._vars[name].value
 
     def list(self) -> list[VarInfo]:
-        infos: list[VarInfo] = []
-        for name, entry in self._vars.items():
-            if isinstance(entry.value, pd.DataFrame):
-                infos.append(
-                    VarInfo(
-                        name=name,
-                        shape=entry.value.shape,
-                        dtypes={
-                            col: str(dtype)
-                            for col, dtype in entry.value.dtypes.items()
-                        },
-                        var_type="dataframe",
+        with self._lock:
+            infos: list[VarInfo] = []
+            for name, entry in self._vars.items():
+                if isinstance(entry.value, pd.DataFrame):
+                    infos.append(
+                        VarInfo(
+                            name=name,
+                            shape=entry.value.shape,
+                            dtypes={
+                                col: str(dtype)
+                                for col, dtype in entry.value.dtypes.items()
+                            },
+                            var_type="dataframe",
+                        )
                     )
-                )
-            else:
-                infos.append(
-                    VarInfo(
-                        name=name,
-                        shape=(0, 0),
-                        dtypes={},
-                        var_type=entry.var_type,
+                else:
+                    infos.append(
+                        VarInfo(
+                            name=name,
+                            shape=(0, 0),
+                            dtypes={},
+                            var_type=entry.var_type,
+                        )
                     )
-                )
-        return infos
+            return infos
 
     def __contains__(self, name: str) -> bool:
-        return name in self._vars
+        with self._lock:
+            return name in self._vars
 
 
 @dataclass
@@ -162,7 +179,11 @@ class SessionContext:
     _on_tool_event: Callable[[str, dict], None] | None = field(default=None, repr=False)
     _pending_injections: list[str] | None = field(default=None, repr=False)
     _checkpoints: dict[str, CheckpointData] = field(default_factory=dict, repr=False)
-    _steering_queue: asyncio.Queue = field(default_factory=asyncio.Queue, repr=False)
+    # collections.deque is used instead of asyncio.Queue: channel adapters (Teams, Feishu)
+    # call steer() from non-asyncio threads. asyncio.Queue.put_nowait() is not thread-safe
+    # across threads. deque.append/popleft are GIL-protected in CPython and safe for the
+    # single-producer (adapter thread) / single-consumer (event loop) pattern here.
+    _steering_queue: collections.deque = field(default_factory=collections.deque, repr=False)
     _is_running: bool = field(default=False, repr=False)
 
     async def emit_progress(self, message: str) -> None:
@@ -231,16 +252,22 @@ class SessionContext:
         self.last_active = time.monotonic()
 
     def steer(self, message: str) -> None:
-        """Enqueue a steering message from an external source (e.g. IM follow-up)."""
-        self._steering_queue.put_nowait(message)
+        """Enqueue a steering message from an external source (e.g. IM follow-up).
+
+        Thread-safe: deque.append is GIL-protected and can be called from any thread.
+        """
+        self._steering_queue.append(message)
 
     def drain_steerings(self) -> list[str]:
-        """Drain all pending steering messages. Returns empty list if none."""
+        """Drain all pending steering messages. Returns empty list if none.
+
+        Called only from the asyncio event loop (inside AgentLoop.run).
+        """
         messages: list[str] = []
-        while not self._steering_queue.empty():
+        while self._steering_queue:
             try:
-                messages.append(self._steering_queue.get_nowait())
-            except asyncio.QueueEmpty:
+                messages.append(self._steering_queue.popleft())
+            except IndexError:
                 break
         return messages
 
