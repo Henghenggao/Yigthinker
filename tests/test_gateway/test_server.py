@@ -399,3 +399,52 @@ async def test_handle_message_steers_when_already_running(server):
 
     drained = session.ctx.drain_steerings()
     assert drained == ["steer me"], "input must be enqueued on the steering queue"
+
+
+async def test_handle_message_prepends_quoted_context_to_steering(server):
+    """Task 15: quoted_messages kwarg prepends [Referenced: ...] lines to the
+    text enqueued on the steering queue.
+    """
+    from yigthinker.session import QuotedMessage
+
+    class NoopAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            return "never-called"
+
+    server._agent_loop = NoopAgentLoop()
+    session = server.registry.get_or_create("tui:steer-ref", {}, "tui")
+    session.ctx._is_running = True
+
+    quotes = [
+        QuotedMessage(original_id="m1", original_text="what were Q3 sales?"),
+        QuotedMessage(original_id="m2", original_text="a" * 300),  # truncated to 200
+    ]
+    result = await server.handle_message(
+        "tui:steer-ref", "compare to Q4", channel="tui", quoted_messages=quotes
+    )
+
+    assert result is None
+    drained = session.ctx.drain_steerings()
+    assert len(drained) == 1
+    text = drained[0]
+    assert '[Referenced: "what were Q3 sales?"]' in text
+    assert f'[Referenced: "{"a" * 200}"]' in text
+    assert '[Referenced: "' + "a" * 201 + '"]' not in text  # truncation at 200
+    assert text.endswith("compare to Q4")
+
+
+async def test_handle_message_no_quotes_passes_plain_text(server):
+    """Task 15: steering without quoted_messages enqueues plain user_input."""
+    class NoopAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            return "never-called"
+
+    server._agent_loop = NoopAgentLoop()
+    session = server.registry.get_or_create("tui:steer-plain", {}, "tui")
+    session.ctx._is_running = True
+
+    result = await server.handle_message(
+        "tui:steer-plain", "just steer", channel="tui"
+    )
+    assert result is None
+    assert session.ctx.drain_steerings() == ["just steer"]

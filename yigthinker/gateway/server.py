@@ -210,6 +210,7 @@ class GatewayServer:
         user_input: str,
         channel: str = "cli",
         on_tool_event: Callable[[str, dict], None] | None = None,
+        quoted_messages: list | None = None,
     ) -> str | None:
         """Route a user message to the agent loop within a managed session.
 
@@ -228,9 +229,19 @@ class GatewayServer:
         # to the steering queue. The lock is only used for the atomic
         # check-and-set of ctx._is_running.
         #
+        # When steering, prepend any quoted context so the running agent sees
+        # the reference alongside the follow-up input.
+        def _build_steer_text() -> str:
+            if not quoted_messages:
+                return user_input
+            refs = "\n".join(
+                f'[Referenced: "{q.original_text[:200]}"]' for q in quoted_messages
+            )
+            return f"{refs}\n{user_input}"
+
         # Fast-path: observed _is_running=True without acquiring the lock.
         if session.ctx._is_running:
-            session.ctx.steer(user_input)
+            session.ctx.steer(_build_steer_text())
             return None  # Signal to adapter: steering acknowledged, no response needed
 
         # Atomic check-and-set under lock to close the race where two callers
@@ -239,7 +250,7 @@ class GatewayServer:
         # the next acquirer re-reads it under lock, hits True, and steers.
         async with session.lock:
             if session.ctx._is_running:
-                session.ctx.steer(user_input)
+                session.ctx.steer(_build_steer_text())
                 return None
             session.ctx._is_running = True
             session.touch()
