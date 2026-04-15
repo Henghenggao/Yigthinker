@@ -10,6 +10,34 @@ from yigthinker.session import SessionContext
 
 ChartType = Literal["bar", "line", "scatter", "pie", "histogram", "area", "heatmap"]
 
+
+def _build_heatmap(data_frame, x, y, **kwargs):
+    """Build a heatmap using go.Heatmap from a long-form DataFrame.
+
+    Pivots the DataFrame (index=y, columns=x) and aggregates numeric columns
+    by mean. Discards color_discrete_sequence since it's not applicable to
+    continuous heatmap colorscales.
+    """
+    kwargs.pop("color_discrete_sequence", None)  # not applicable to heatmaps
+    kwargs.pop("color", None)  # color column is not used for heatmap z
+    pivot = data_frame.pivot_table(index=y, columns=x, aggfunc="mean", observed=True)
+    # pivot_table with no explicit values produces a MultiIndex [value_col, x_col].
+    # Collapse to the first numeric value column so heatmap columns are x-axis categories.
+    if hasattr(pivot.columns, "nlevels") and pivot.columns.nlevels > 1:
+        first_value = pivot.columns.get_level_values(0)[0]
+        pivot = pivot[first_value]
+    fig = go.Figure(data=go.Heatmap(
+        z=pivot.values.tolist(),
+        x=[str(c) for c in pivot.columns],
+        y=[str(i) for i in pivot.index],
+        colorscale="Blues",
+    ))
+    title = kwargs.get("title", "")
+    if title:
+        fig.update_layout(title=title)
+    return fig
+
+
 _CHART_BUILDERS: dict[str, type] = {
     "bar": px.bar,
     "line": px.line,
@@ -17,6 +45,7 @@ _CHART_BUILDERS: dict[str, type] = {
     "pie": px.pie,
     "histogram": px.histogram,
     "area": px.area,
+    "heatmap": _build_heatmap,
 }
 
 
@@ -34,7 +63,7 @@ class ChartCreateTool:
     name = "chart_create"
     description = (
         "Generate a Plotly chart from a registered DataFrame. "
-        "Supported types: bar, line, scatter, pie, histogram, area. "
+        "Supported types: bar, line, scatter, pie, histogram, area, heatmap. "
         "Applies theme from settings. Stores chart JSON as chart_name in var registry."
     )
     input_schema = ChartCreateInput
