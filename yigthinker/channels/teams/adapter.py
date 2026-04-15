@@ -504,6 +504,71 @@ class TeamsAdapter:
 
         return file_lines, error_lines
 
+    async def extract_quoted_messages(self, event: dict[str, Any]) -> list[Any]:
+        """Extract the quoted/replied-to message via Bot Framework reply-to-id.
+
+        When a Teams user replies to a prior message, the activity carries a
+        ``replyToId`` field. We fetch the original activity from:
+        ``{serviceUrl}v3/conversations/{conversationId}/activities/{replyToId}``
+        using an MSAL-acquired bearer token.
+
+        Best-effort: any failure (missing IDs, non-200, network error) returns
+        an empty list rather than raising.
+        """
+        from yigthinker.session import QuotedMessage
+
+        reply_to_id = event.get("replyToId")
+        if not reply_to_id:
+            return []
+
+        conversation_id = event.get("conversation", {}).get("id", "")
+        if not conversation_id:
+            return []
+
+        service_url = (
+            event.get("serviceUrl")
+            or self._service_url_override
+            or ""
+        )
+        if not service_url:
+            return []
+        if not service_url.endswith("/"):
+            service_url += "/"
+
+        try:
+            token = self._acquire_token()
+            if not token:
+                return []
+            url = (
+                f"{service_url}v3/conversations/"
+                f"{conversation_id}/activities/{reply_to_id}"
+            )
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=5.0,
+                )
+            if resp.status_code != 200:
+                return []
+            original = resp.json()
+            original_text = original.get("text", "") or ""
+            from_id = original.get("from", {}).get("id", "") or ""
+            # Bot Framework sends activities with from.id typically in the form
+            # "28:<client_id>". Match either exact or contains client_id.
+            is_bot = bool(
+                self._client_id
+                and (from_id == self._client_id or self._client_id in from_id)
+            )
+            original_role = "assistant" if is_bot else "user"
+            return [QuotedMessage(
+                original_id=str(reply_to_id),
+                original_text=original_text,
+                original_role=original_role,
+            )]
+        except Exception:
+            return []
+
     def _acquire_token(self) -> str | None:
         """Acquire an app-only token via MSAL for Bot Framework API calls."""
         if self._msal_app is None:
