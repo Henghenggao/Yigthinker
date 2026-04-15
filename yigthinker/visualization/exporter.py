@@ -1,9 +1,11 @@
-"""Chart export: Plotly JSON -> PNG, HTML."""
+"""Chart export: Plotly JSON -> PNG, HTML, VChart spec."""
 from __future__ import annotations
 
 import json
 
 import plotly.graph_objects as go
+
+from yigthinker.visualization.vchart import plotly_to_vchart
 
 
 def _parse_fig_json(fig_json: str) -> dict:
@@ -31,6 +33,14 @@ class ChartExporter:
         """
         fig = go.Figure(_parse_fig_json(fig_json))
         return fig.to_image(format="png", width=width, height=height)
+
+    def to_vchart(self, fig_json: str) -> dict:
+        """Translate Plotly JSON to VChart spec for Feishu native rendering.
+
+        Returns a dict conforming to the VChart `common` spec shape, consumed
+        by Feishu interactive cards via the `render_vchart_native` renderer.
+        """
+        return plotly_to_vchart(fig_json)
 
     def to_html(self, fig_json: str, cdn: bool = True) -> str:
         """Render Plotly JSON to interactive HTML string.
