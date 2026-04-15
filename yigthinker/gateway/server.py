@@ -222,78 +222,90 @@ class GatewayServer:
         session_key = self._registry.get_active_key(session_key)
         session = await self._registry.get_or_restore(session_key, self._settings, channel)
 
-        # Live steering: if the agent is already running for this session, the
-        # session lock is held by that running task. Check _is_running BEFORE
-        # acquiring the lock -- otherwise we would block waiting for the run
-        # to finish, defeating the purpose of steering.
+        # Live steering: if the agent is already running for this session, we
+        # must NOT hold the session lock while the agent runs — otherwise
+        # follow-up messages would block on the lock instead of being routed
+        # to the steering queue. The lock is only used for the atomic
+        # check-and-set of ctx._is_running.
+        #
+        # Fast-path: observed _is_running=True without acquiring the lock.
         if session.ctx._is_running:
             session.ctx.steer(user_input)
             return None  # Signal to adapter: steering acknowledged, no response needed
 
+        # Atomic check-and-set under lock to close the race where two callers
+        # both see _is_running=False on the fast-path and then contend for
+        # the lock. Whoever acquires the lock first flips _is_running=True;
+        # the next acquirer re-reads it under lock, hits True, and steers.
         async with session.lock:
+            if session.ctx._is_running:
+                session.ctx.steer(user_input)
+                return None
             session.ctx._is_running = True
             session.touch()
             session.ctx._session_registry = self._registry  # type: ignore[attr-defined]
 
-            def _on_tool_event(event_type: str, data: dict) -> None:
-                """Broadcast tool events to attached WS clients (fire-and-forget)."""
-                if event_type == "tool_call":
-                    msg = to_json_dict(ToolCallMsg(
-                        tool_name=data["tool_name"],
-                        tool_input=data.get("tool_input", {}),
-                        tool_id=data.get("tool_id", ""),
-                    ))
-                elif event_type == "tool_result":
-                    msg = to_json_dict(ToolResultMsg(
-                        tool_id=data.get("tool_id", ""),
-                        content=data.get("content", ""),
-                        is_error=data.get("is_error", False),
-                    ))
-                elif event_type == "subagent_event":
-                    msg = to_json_dict(SubagentEventMsg(
-                        subagent_id=data.get("subagent_id", ""),
-                        subagent_name=data.get("subagent_name", ""),
-                        event=data.get("event", ""),
-                        detail=data.get("detail", ""),
-                    ))
-                elif event_type == "tool_progress":
-                    msg = to_json_dict(ToolProgressMsg(
-                        tool=data.get("tool", ""),
-                        message=data.get("message", ""),
-                    ))
-                else:
-                    return
-                # Fire-and-forget broadcast to all WS clients attached to this session
-                for client in self._ws_clients:
-                    if client.session_key == session_key:
-                        try:
-                            asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
-                        except Exception:
-                            pass
-                # Passthrough to external on_tool_event callback (e.g. Teams progress)
-                if on_tool_event is not None:
-                    on_tool_event(event_type, data)
+        # Release the lock before running the agent so that concurrent
+        # follow-up messages can steer via the fast-path above.
+        def _on_tool_event(event_type: str, data: dict) -> None:
+            """Broadcast tool events to attached WS clients (fire-and-forget)."""
+            if event_type == "tool_call":
+                msg = to_json_dict(ToolCallMsg(
+                    tool_name=data["tool_name"],
+                    tool_input=data.get("tool_input", {}),
+                    tool_id=data.get("tool_id", ""),
+                ))
+            elif event_type == "tool_result":
+                msg = to_json_dict(ToolResultMsg(
+                    tool_id=data.get("tool_id", ""),
+                    content=data.get("content", ""),
+                    is_error=data.get("is_error", False),
+                ))
+            elif event_type == "subagent_event":
+                msg = to_json_dict(SubagentEventMsg(
+                    subagent_id=data.get("subagent_id", ""),
+                    subagent_name=data.get("subagent_name", ""),
+                    event=data.get("event", ""),
+                    detail=data.get("detail", ""),
+                ))
+            elif event_type == "tool_progress":
+                msg = to_json_dict(ToolProgressMsg(
+                    tool=data.get("tool", ""),
+                    message=data.get("message", ""),
+                ))
+            else:
+                return
+            # Fire-and-forget broadcast to all WS clients attached to this session
+            for client in self._ws_clients:
+                if client.session_key == session_key:
+                    try:
+                        asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
+                    except Exception:
+                        pass
+            # Passthrough to external on_tool_event callback (e.g. Teams progress)
+            if on_tool_event is not None:
+                on_tool_event(event_type, data)
 
-            def _on_token(text: str) -> None:
-                """Broadcast token stream to all WS clients attached to this session (fire-and-forget per D-04)."""
-                msg = to_json_dict(TokenStreamMsg(text=text))
-                for client in self._ws_clients:
-                    if client.session_key == session_key:
-                        try:
-                            asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
-                        except Exception:
-                            pass
+        def _on_token(text: str) -> None:
+            """Broadcast token stream to all WS clients attached to this session (fire-and-forget per D-04)."""
+            msg = to_json_dict(TokenStreamMsg(text=text))
+            for client in self._ws_clients:
+                if client.session_key == session_key:
+                    try:
+                        asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
+                    except Exception:
+                        pass
 
-            try:
-                result = await self._agent_loop.run(
-                    user_input, session.ctx,
-                    on_tool_event=_on_tool_event,
-                    on_token=_on_token,
-                )
-            finally:
-                session.ctx._is_running = False
-            await self._broadcast_vars_update(session)
-            return result
+        try:
+            result = await self._agent_loop.run(
+                user_input, session.ctx,
+                on_tool_event=_on_tool_event,
+                on_token=_on_token,
+            )
+        finally:
+            session.ctx._is_running = False
+        await self._broadcast_vars_update(session)
+        return result
 
     # ── HTTP/WS Routes ───────────────────────────────────────────────────────
 

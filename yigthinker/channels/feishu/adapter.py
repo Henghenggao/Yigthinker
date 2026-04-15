@@ -161,6 +161,12 @@ class FeishuAdapter:
             # Step 2: Run agent
             result = await self._gateway.handle_message(key, text, channel="feishu")
 
+            # Steering acknowledged — the message was routed to the live
+            # steering queue of a running agent. No response card to render;
+            # the running agent will surface the result via its own card.
+            if result is None:
+                return
+
             # Step 3: Update the card with the result
             result_card = self._renderer.render_text(result)
             if thinking_msg_id:

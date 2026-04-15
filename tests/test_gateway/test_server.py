@@ -289,6 +289,89 @@ async def test_streaming_broadcast_sends_token_msgs(server):
 
 
 @pytest.mark.asyncio
+async def test_handle_message_race_atomic_check_and_set(server):
+    """Task 10 (Live Steering) — regression: two callers that both observe
+    _is_running=False on the pre-lock fast-path MUST NOT both run the agent.
+
+    The bug: if check-and-set of _is_running is not atomic under the session
+    lock, two concurrent callers both fall through to the lock, task1 flips
+    _is_running=True and runs the agent, task1 finishes and resets
+    _is_running=False, task2 acquires the lock and ALSO runs the agent as
+    a full turn instead of being treated as steering.
+
+    The fix: re-check _is_running under the lock. The second acquirer
+    observes True and steers.
+
+    To make the race deterministic we replace session.lock with a lock
+    that blocks both acquirers at a known point, then releases them in
+    order so both observe _is_running=False at the pre-lock fast-path
+    and then contend for the lock.
+    """
+    import asyncio
+
+    call_order: list[str] = []
+
+    class SlowAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            call_order.append(f"start:{user_input}")
+            await asyncio.sleep(0.05)
+            call_order.append(f"end:{user_input}")
+            return f"echo:{user_input}"
+
+    server._agent_loop = SlowAgentLoop()
+
+    # Pre-create the session so we can install a gated lock. A gated lock
+    # lets us force both callers to reach the lock-acquire point while
+    # _is_running is still False, then releases them in order. This exposes
+    # the race without relying on asyncio scheduling luck.
+    session = server.registry.get_or_create("test:race", {}, "test")
+
+    class _GatedLock:
+        def __init__(self) -> None:
+            self._inner = asyncio.Lock()
+            self._gate = asyncio.Event()
+            self._arrivals = 0
+            self._required = 2
+
+        async def __aenter__(self):
+            # Wait until both contenders have arrived at the lock. This
+            # guarantees both saw _is_running=False on the pre-lock
+            # fast-path before either proceeds past acquire.
+            self._arrivals += 1
+            if self._arrivals >= self._required:
+                self._gate.set()
+            await self._gate.wait()
+            await self._inner.acquire()
+            return self
+
+        async def __aexit__(self, *exc):
+            self._inner.release()
+
+    session.lock = _GatedLock()  # type: ignore[assignment]
+
+    task1 = asyncio.create_task(server.handle_message("test:race", "msg1", channel="test"))
+    task2 = asyncio.create_task(server.handle_message("test:race", "msg2", channel="test"))
+    results = await asyncio.gather(task1, task2)
+
+    # Exactly one agent run; the other must have been steered (None).
+    agent_runs = [e for e in call_order if e.startswith("start:")]
+    assert len(agent_runs) == 1, (
+        f"Expected exactly 1 agent run after race; got {len(agent_runs)}: {call_order}"
+    )
+    assert results.count(None) == 1, (
+        f"Expected exactly one steering (None) result; got results={results}"
+    )
+    # The non-None result corresponds to the winning agent run.
+    winner = next(r for r in results if r is not None)
+    assert winner in {"echo:msg1", "echo:msg2"}
+
+    # The losing message was enqueued for steering.
+    drained = session.ctx.drain_steerings()
+    assert len(drained) == 1
+    assert drained[0] in {"msg1", "msg2"}
+
+
+@pytest.mark.asyncio
 async def test_handle_message_steers_when_already_running(server):
     """Task 10 (Live Steering): when _is_running is True on arrival,
     handle_message enqueues the input onto the steering queue and returns
