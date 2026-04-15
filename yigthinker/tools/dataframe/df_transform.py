@@ -1,9 +1,15 @@
 from __future__ import annotations
 import ast
+import asyncio
 import builtins
+from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
+
+# Default wall-clock timeout (seconds) for a single df_transform exec().
+# Override per-session via settings["df_transform"]["timeout"].
+_DEFAULT_TIMEOUT_SECONDS = 30.0
 
 _SAFE_BUILTINS = {
     name: getattr(builtins, name)
@@ -200,12 +206,46 @@ class DfTransformTool:
             **_ALLOWED_IMPORT_MAP,
         }
 
+        # Resolve timeout from settings with a 30s default. Users can tune via
+        # settings["df_transform"]["timeout"] (seconds, float).
+        timeout_setting = ctx.settings.get("df_transform", {}).get(
+            "timeout", _DEFAULT_TIMEOUT_SECONDS
+        )
         try:
-            exec(input.code, namespace)  # noqa: S102
-        except ImportError as exc:
-            return ToolResult(tool_use_id="", content=str(exc), is_error=True)
-        except Exception as exc:
-            return ToolResult(tool_use_id="", content=f"Code error: {exc}", is_error=True)
+            timeout = float(timeout_setting)
+        except (TypeError, ValueError):
+            timeout = _DEFAULT_TIMEOUT_SECONDS
+
+        # NOTE on thread leaks: asyncio.wait_for cancels the awaiting coroutine
+        # but cannot interrupt CPython bytecode running in a thread. An abusive
+        # `while True: pass` will keep spinning in its executor thread even
+        # after this function returns an error. We use a per-call
+        # ThreadPoolExecutor(max_workers=1) so each timeout leaks at most one
+        # thread; the default loop executor is not poisoned. The only complete
+        # fix would be subprocess isolation.
+        loop = asyncio.get_running_loop()
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="df_transform")
+        try:
+            future = loop.run_in_executor(executor, exec, input.code, namespace)  # noqa: S102
+            try:
+                await asyncio.wait_for(future, timeout=timeout)
+            except asyncio.TimeoutError:
+                return ToolResult(
+                    tool_use_id="",
+                    content=f"Code timed out after {timeout:g} seconds.",
+                    is_error=True,
+                )
+            except ImportError as exc:
+                return ToolResult(tool_use_id="", content=str(exc), is_error=True)
+            except Exception as exc:
+                return ToolResult(
+                    tool_use_id="", content=f"Code error: {exc}", is_error=True
+                )
+        finally:
+            # wait=False: do not block on any still-running (abusive) thread.
+            # The thread will die when its code returns; the executor object
+            # itself is eligible for GC once it finishes.
+            executor.shutdown(wait=False)
 
         if "result" not in namespace:
             return ToolResult(
