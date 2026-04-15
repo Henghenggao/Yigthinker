@@ -11,7 +11,7 @@ def test_steering_queue_exists_on_session():
 def test_steer_adds_to_queue():
     ctx = SessionContext()
     ctx.steer("change direction")
-    assert not ctx._steering_queue.empty()
+    assert len(ctx._steering_queue) > 0
 
 
 def test_drain_steerings_returns_messages():
@@ -22,7 +22,7 @@ def test_drain_steerings_returns_messages():
     assert len(drained) == 2
     assert drained[0] == "msg1"
     assert drained[1] == "msg2"
-    assert ctx._steering_queue.empty()
+    assert len(ctx._steering_queue) == 0
 
 
 def test_drain_steerings_empty_returns_empty_list():

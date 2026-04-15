@@ -38,14 +38,20 @@ def test_var_registry_replace_same_name_frees_old_bytes():
     assert "x" in reg
 
 
-def test_var_registry_non_dataframe_values_have_zero_tracked_size():
-    """Chart JSON strings and other non-DataFrame values don't consume the
-    tracked byte budget (they're cheap to hold).
+def test_var_registry_non_dataframe_values_counted_in_budget():
+    """Chart JSON strings and other non-DataFrame values are counted in the
+    tracked byte budget via sys.getsizeof(), preventing chart artifacts from
+    accumulating without bound.
     """
-    reg = VarRegistry(max_bytes=1000)  # absurdly small limit
-    # Long string — not a DataFrame, so not counted
+    # A 1MB string is well within a 10MB limit — should succeed.
+    reg = VarRegistry(max_bytes=10_000_000)
     reg.set("chart", "x" * 100_000, var_type="chart")
     assert "chart" in reg
+
+    # A 100KB string against an absurdly small 1-byte limit must be rejected.
+    tiny_reg = VarRegistry(max_bytes=1)
+    with pytest.raises(MemoryError, match="limit"):
+        tiny_reg.set("chart", "x" * 100_000, var_type="chart")
 
 
 def test_var_registry_default_limit_is_2gb():

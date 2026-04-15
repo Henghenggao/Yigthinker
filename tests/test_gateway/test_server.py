@@ -433,6 +433,33 @@ async def test_handle_message_prepends_quoted_context_to_steering(server):
     assert text.endswith("compare to Q4")
 
 
+@pytest.mark.asyncio
+async def test_handle_message_prepends_quoted_context_to_normal_run(server):
+    """Quoted references also reach the model on the initial (non-steering) turn."""
+    from yigthinker.session import QuotedMessage
+
+    seen: dict[str, str] = {}
+
+    class RecordingAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            seen["user_input"] = user_input
+            return "ok"
+
+    server._agent_loop = RecordingAgentLoop()
+
+    quotes = [QuotedMessage(original_id="m1", original_text="focus on Q3 variance")]
+    result = await server.handle_message(
+        "tui:quote-normal",
+        "compare to Q4",
+        channel="tui",
+        quoted_messages=quotes,
+    )
+
+    assert result == "ok"
+    assert seen["user_input"].startswith('[Referenced: "focus on Q3 variance"]\n')
+    assert seen["user_input"].endswith("compare to Q4")
+
+
 async def test_handle_message_no_quotes_passes_plain_text(server):
     """Task 15: steering without quoted_messages enqueues plain user_input."""
     class NoopAgentLoop:

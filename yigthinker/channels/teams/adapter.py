@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import tempfile
+import uuid
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,10 @@ import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from yigthinker.channels.artifacts import (
+    choose_best_artifact,
+    structured_artifact_from_tool_result,
+)
 from yigthinker.channels.teams.cards import TeamsCardRenderer
 from yigthinker.channels.teams.hmac import verify_teams_hmac_signature
 from yigthinker.gateway.session_key import SessionKey
@@ -165,10 +170,13 @@ class TeamsAdapter:
         text: str | None,
         vars_summary: list[dict[str, Any]] | None = None,
         error: str | None = None,
+        artifact: dict[str, Any] | None = None,
     ) -> None:
         """Send response to Teams via Bot Framework REST API with Adaptive Card."""
         if error:
             card = self._renderer.render_error(error)
+        elif artifact is not None:
+            card = self._build_card_for_artifact(text or "", artifact)
         elif text:
             card = self._renderer.render_text(text)
         else:
@@ -264,6 +272,79 @@ class TeamsAdapter:
             self._max_retries, last_error,
         )
 
+    def _gateway_base_url(self) -> str:
+        gw_cfg = getattr(self._gateway, "_settings", {}).get("gateway", {})
+        public_base_url = gw_cfg.get("public_base_url", "")
+        if public_base_url:
+            return public_base_url.rstrip("/")
+
+        host = gw_cfg.get("host", "127.0.0.1")
+        if host in {"", "0.0.0.0", "::"}:
+            host = "127.0.0.1"
+        port = gw_cfg.get("port", 8766)
+        scheme = gw_cfg.get("scheme", "http")
+        return f"{scheme}://{host}:{port}"
+
+    def _append_text_to_card(self, card: dict[str, Any], text: str) -> dict[str, Any]:
+        if text.strip():
+            card.setdefault("body", []).append(
+                {"type": "TextBlock", "text": text, "wrap": True}
+            )
+        return card
+
+    def _build_chart_card(self, artifact: dict[str, Any]) -> dict[str, Any]:
+        from yigthinker.gateway.server import CHART_CACHE_DIR
+        from yigthinker.visualization.exporter import ChartExporter
+
+        chart_id = uuid.uuid4().hex
+        CHART_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        (CHART_CACHE_DIR / f"{chart_id}.json").write_text(
+            artifact["chart_json"], encoding="utf-8"
+        )
+
+        base_url = self._gateway_base_url()
+        png_url = f"{base_url}/api/charts/{chart_id}.png"
+        interactive_url = f"{base_url}/api/charts/{chart_id}"
+
+        try:
+            png_bytes = ChartExporter().to_png(artifact["chart_json"])
+            (CHART_CACHE_DIR / f"{chart_id}.png").write_bytes(png_bytes)
+        except Exception:
+            logger.debug("Teams PNG export unavailable; falling back to chart link", exc_info=True)
+            return self._renderer.render_chart_link(
+                artifact["chart_name"],
+                interactive_url,
+                description="Interactive chart preview",
+            )
+
+        return self._renderer.render_chart_image(
+            artifact["chart_name"],
+            png_url,
+            interactive_url=interactive_url,
+        )
+
+    def _build_card_for_artifact(
+        self,
+        text: str,
+        artifact: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            if artifact.get("kind") == "chart":
+                return self._append_text_to_card(self._build_chart_card(artifact), text)
+            if artifact.get("kind") == "table":
+                return self._append_text_to_card(
+                    self._renderer.render_native_table(
+                        artifact["title"],
+                        artifact["columns"],
+                        artifact["rows"],
+                        artifact["total_rows"],
+                    ),
+                    text,
+                )
+        except Exception:
+            logger.exception("Failed to build Teams structured response card; falling back to text")
+        return self._renderer.render_text(text)
+
     async def _send_progress_card(self, event: dict[str, Any], tool_name: str, summary: str) -> None:
         """Fire-and-forget: post a compact progress card to the conversation."""
         try:
@@ -332,11 +413,15 @@ class TeamsAdapter:
 
             # --- Phase 2: agent processing with progress callbacks ---
             _tool_names: dict[str, str] = {}
+            artifacts: list[dict[str, Any]] = []
 
             def _on_teams_tool_event(event_type: str, data: dict) -> None:
                 if event_type == "tool_call":
                     _tool_names[data.get("tool_id", "")] = data.get("tool_name", "tool")
                 elif event_type == "tool_result" and not data.get("is_error"):
+                    artifact = structured_artifact_from_tool_result(data.get("content_obj"))
+                    if artifact is not None:
+                        artifacts.append(artifact)
                     tool_id = data.get("tool_id", "")
                     tool_name = _tool_names.get(tool_id, "tool")
                     content = data.get("content", "")
@@ -358,7 +443,11 @@ class TeamsAdapter:
                 on_tool_event=_on_teams_tool_event,
                 quoted_messages=quoted or None,
             )
-            await self.send_response(event, result)
+            await self.send_response(
+                event,
+                result,
+                artifact=choose_best_artifact(artifacts),
+            )
         except Exception:
             logger.exception("Error processing Teams message")
             try:
