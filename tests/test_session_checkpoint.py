@@ -79,3 +79,19 @@ def test_branch_is_independent():
     branched.vars.set("df_new", pd.DataFrame({"b": [2]}))
 
     assert "df_new" not in ctx.vars
+
+
+def test_checkpoint_is_not_corrupted_by_mutation():
+    """After checkpointing, mutating the original DataFrame must not affect the checkpoint."""
+    ctx = SessionContext()
+    df = pd.DataFrame({"x": [1, 2, 3]})
+    ctx.vars.set("data", df)
+    ctx.checkpoint("before_mutation")
+
+    # Mutate the original DataFrame in-place
+    df.iloc[0, 0] = 999
+
+    # Restore from checkpoint
+    restored = ctx.branch_from("before_mutation")
+    restored_df = restored.vars.get("data")
+    assert restored_df.iloc[0, 0] == 1, "Checkpoint was corrupted by in-place mutation"
