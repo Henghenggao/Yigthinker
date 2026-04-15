@@ -74,11 +74,37 @@ class MessageIdMap:
 class VarRegistry:
     """Session-scoped in-memory store for DataFrames and chart artifacts."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_bytes: int = 2 * 1024 ** 3) -> None:
         self._vars: dict[str, VarEntry] = {}
+        self._max_bytes = max_bytes
+        self._current_bytes: int = 0
+
+    @staticmethod
+    def _size_of(value: Any) -> int:
+        if isinstance(value, pd.DataFrame):
+            try:
+                return int(value.memory_usage(deep=True).sum())
+            except Exception:
+                return 0
+        return 0
 
     def set(self, name: str, value: Any, var_type: str = "dataframe") -> None:
+        new_size = self._size_of(value)
+        old_size = 0
+        if name in self._vars:
+            old_size = self._size_of(self._vars[name].value)
+
+        projected = self._current_bytes - old_size + new_size
+        if projected > self._max_bytes:
+            raise MemoryError(
+                f"VarRegistry would exceed {self._max_bytes / (1024 ** 3):.1f}GB limit "
+                f"(current: {self._current_bytes / (1024 ** 2):.0f}MB, "
+                f"new: {new_size / (1024 ** 2):.0f}MB). "
+                f"Remove unused variables first."
+            )
+
         self._vars[name] = VarEntry(name=name, value=value, var_type=var_type)
+        self._current_bytes = projected
 
     def get(self, name: str) -> Any:
         if name not in self._vars:
