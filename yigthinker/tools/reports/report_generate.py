@@ -109,7 +109,7 @@ class ReportGenerateTool:
 
     def _write_pdf(self, df: pd.DataFrame, path: Path, title: str) -> None:
         from reportlab.lib.pagesizes import A4, landscape
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+        from reportlab.platypus import SimpleDocTemplate, LongTable, TableStyle, Paragraph
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.lib import colors
 
@@ -118,7 +118,10 @@ class ReportGenerateTool:
         elements = [Paragraph(title, styles["Title"])]
 
         data = [list(df.columns)] + df.values.tolist()
-        table = Table(data)
+        # LongTable with repeatRows=1 paginates large tables correctly and
+        # repeats the header row on each page, unlike plain Table which can
+        # overflow the frame or omit the header on continuation pages.
+        table = LongTable(data, repeatRows=1)
         table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E40AF")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
