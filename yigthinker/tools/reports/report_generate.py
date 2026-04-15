@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
 
-ReportFormat = Literal["excel", "pdf", "csv"]
+ReportFormat = Literal["excel", "pdf", "csv", "docx"]
 
 
 def _safe_output_path(output_path: str, ctx_settings: dict) -> tuple[Path, str | None]:
@@ -38,9 +38,10 @@ class ReportGenerateInput(BaseModel):
 class ReportGenerateTool:
     name = "report_generate"
     description = (
-        "Generate a report (Excel/PDF/CSV) from a registered DataFrame. "
+        "Generate a report (Excel/PDF/CSV/DOCX) from a registered DataFrame. "
         "Excel output uses openpyxl with formatted headers. "
-        "PDF output uses reportlab for tabular layout."
+        "PDF output uses reportlab for tabular layout. "
+        "DOCX output uses python-docx with a styled Light Grid Accent 1 table."
     )
     input_schema = ReportGenerateInput
 
@@ -62,6 +63,8 @@ class ReportGenerateTool:
                 df.to_csv(path, index=False)
             elif input.format == "pdf":
                 self._write_pdf(df, path, input.title)
+            elif input.format == "docx":
+                self._write_docx(df, path, input.title)
 
             return ToolResult(
                 tool_use_id="",
@@ -131,3 +134,32 @@ class ReportGenerateTool:
         ]))
         elements.append(table)
         doc.build(elements)
+
+    def _write_docx(self, df: pd.DataFrame, path: Path, title: str) -> None:
+        from docx import Document
+        from docx.enum.table import WD_TABLE_ALIGNMENT
+
+        doc = Document()
+        doc.add_heading(title, level=1)
+
+        table = doc.add_table(
+            rows=len(df) + 1,
+            cols=len(df.columns),
+            style="Light Grid Accent 1",
+        )
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+        # Header row
+        for col_idx, col_name in enumerate(df.columns):
+            cell = table.rows[0].cells[col_idx]
+            cell.text = str(col_name)
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.bold = True
+
+        # Data rows
+        for row_idx, row in enumerate(df.itertuples(index=False), 1):
+            for col_idx, value in enumerate(row):
+                table.rows[row_idx].cells[col_idx].text = str(value)
+
+        doc.save(str(path))
