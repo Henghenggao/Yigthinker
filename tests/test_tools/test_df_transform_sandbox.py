@@ -6,7 +6,11 @@ from yigthinker.session import SessionContext
 
 @pytest.fixture
 def ctx():
-    c = SessionContext()
+    # Task 12 wired a per-call executor + asyncio.wait_for around exec(). These
+    # sandbox tests only run short snippets, so use a tight 2s timeout: that
+    # way an accidental regression (infinite loop introduced by someone) fails
+    # fast instead of waiting for the 30s default.
+    c = SessionContext(settings={"df_transform": {"timeout": 2.0}})
     c.vars.set("df1", pd.DataFrame({"a": [1, 2, 3]}))
     return c
 
