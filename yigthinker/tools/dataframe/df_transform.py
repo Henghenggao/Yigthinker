@@ -1,9 +1,15 @@
 from __future__ import annotations
 import ast
+import asyncio
 import builtins
+from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
+
+# Default wall-clock timeout (seconds) for a single df_transform exec().
+# Override per-session via settings["df_transform"]["timeout"].
+_DEFAULT_TIMEOUT_SECONDS = 30.0
 
 _SAFE_BUILTINS = {
     name: getattr(builtins, name)
@@ -15,6 +21,24 @@ _SAFE_BUILTINS = {
         "slice", "sorted", "str", "sum", "tuple", "zip",
     )
 }
+
+
+def _safe_getattr(obj: object, name: str, *default: object) -> object:
+    """getattr replacement that blocks access to private/dunder attributes.
+
+    Blocks any attribute name starting with '_' (both single underscore
+    and dunder). User transform code has no legitimate need for private
+    attributes; single-underscore names like `_metadata` and `_constructor`
+    are pandas internals, not public API.
+    """
+    if isinstance(name, str) and name.startswith("_"):
+        raise AttributeError(
+            f"Access to private attribute '{name}' is blocked in df_transform sandbox."
+        )
+    return getattr(obj, name, *default)
+
+
+_SAFE_BUILTINS["getattr"] = _safe_getattr
 
 _ALLOWED_IMPORT_MAP = {
     "pandas": __import__("pandas"),
@@ -152,6 +176,7 @@ class DfTransformInput(BaseModel):
     code: str
     input_var: str = "df1"
     output_var: str = "df_result"
+    extra_vars: list[str] = []
 
 
 class DfTransformTool:
@@ -160,6 +185,9 @@ class DfTransformTool:
         "Execute Pandas/Polars code against a registered DataFrame. "
         "Code runs in a sandboxed namespace — no file I/O, no network, "
         "no imports beyond pandas/numpy/polars. "
+        "The input DataFrame is bound to both 'df' and its input_var name. "
+        "Use extra_vars=[...] to inject additional registered DataFrames under "
+        "their own names for multi-DataFrame merges/joins. "
         "Assign the result to 'result'; it will be stored as output_var."
     )
     input_schema = DfTransformInput
@@ -176,18 +204,82 @@ class DfTransformTool:
             return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
         sandbox_builtins = {**_SAFE_BUILTINS, "__import__": _safe_import}
-        namespace = {
+        # Protected namespace keys that extra_vars must not overwrite.
+        _PROTECTED_KEYS = frozenset({"df", "__builtins__", "pd", "np", "pandas", "numpy", "polars", "pl"})
+
+        # Copy DataFrames into the sandbox so a timed-out thread cannot corrupt
+        # the live ctx.vars DataFrames via in-place mutations (inplace=True, etc.).
+        import pandas as _pd
+        df_copy = df.copy() if isinstance(df, _pd.DataFrame) else df
+        namespace: dict = {
             "__builtins__": sandbox_builtins,
-            "df": df,
+            "df": df_copy,
             **_ALLOWED_IMPORT_MAP,
         }
+        # Also expose the input DataFrame under its own name so code can use
+        # natural variable names when joining/merging with extra_vars.
+        if input.input_var and input.input_var not in namespace:
+            namespace[input.input_var] = df_copy
 
+        # Inject extra variables into the namespace under their registered names.
+        for var_name in input.extra_vars:
+            if var_name == input.input_var:
+                continue
+            if var_name in _PROTECTED_KEYS:
+                return ToolResult(
+                    tool_use_id="",
+                    content=f"extra_vars: '{var_name}' is a protected namespace key and cannot be overridden.",
+                    is_error=True,
+                )
+            try:
+                extra_val = ctx.vars.get(var_name)
+                # Copy DataFrames to isolate sandbox from live registry.
+                namespace[var_name] = extra_val.copy() if isinstance(extra_val, _pd.DataFrame) else extra_val
+            except KeyError as exc:
+                return ToolResult(tool_use_id="", content=str(exc), is_error=True)
+
+        # Resolve timeout from settings with a 30s default. Users can tune via
+        # settings["df_transform"]["timeout"] (seconds, float).
+        timeout_setting = ctx.settings.get("df_transform", {}).get(
+            "timeout", _DEFAULT_TIMEOUT_SECONDS
+        )
         try:
-            exec(input.code, namespace)  # noqa: S102
-        except ImportError as exc:
-            return ToolResult(tool_use_id="", content=str(exc), is_error=True)
-        except Exception as exc:
-            return ToolResult(tool_use_id="", content=f"Code error: {exc}", is_error=True)
+            timeout = float(timeout_setting)
+        except (TypeError, ValueError):
+            timeout = _DEFAULT_TIMEOUT_SECONDS
+        # Clamp to a minimum to avoid immediately-expiring or misconfigured timeouts.
+        timeout = max(timeout, 0.1)
+
+        # NOTE on thread leaks: asyncio.wait_for cancels the awaiting coroutine
+        # but cannot interrupt CPython bytecode running in a thread. An abusive
+        # `while True: pass` will keep spinning in its executor thread even
+        # after this function returns an error. We use a per-call
+        # ThreadPoolExecutor(max_workers=1) so each timeout leaks at most one
+        # thread; the default loop executor is not poisoned. The only complete
+        # fix would be subprocess isolation.
+        loop = asyncio.get_running_loop()
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="df_transform")
+        try:
+            future = loop.run_in_executor(executor, exec, input.code, namespace)  # noqa: S102
+            try:
+                await asyncio.wait_for(future, timeout=timeout)
+            except asyncio.TimeoutError:
+                return ToolResult(
+                    tool_use_id="",
+                    content=f"Code timed out after {timeout:g} seconds.",
+                    is_error=True,
+                )
+            except ImportError as exc:
+                return ToolResult(tool_use_id="", content=str(exc), is_error=True)
+            except Exception as exc:
+                return ToolResult(
+                    tool_use_id="", content=f"Code error: {exc}", is_error=True
+                )
+        finally:
+            # wait=False: do not block on any still-running (abusive) thread.
+            # The thread will die when its code returns; the executor object
+            # itself is eligible for GC once it finishes.
+            executor.shutdown(wait=False)
 
         if "result" not in namespace:
             return ToolResult(

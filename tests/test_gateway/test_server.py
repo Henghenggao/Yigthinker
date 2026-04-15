@@ -142,8 +142,12 @@ async def test_handle_message_restores_hibernated_session(server):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_messages_serialized(server):
-    """GW-04: Per-session lock serializes concurrent messages."""
+async def test_concurrent_messages_steer_when_running(server):
+    """GW-04 / Task 10 (Live Steering): With live steering, concurrent messages
+    to a running session are routed to the steering queue rather than serialized
+    behind the session lock. The first caller runs the agent; the second is
+    enqueued and returns None immediately.
+    """
     import asyncio
 
     call_order: list[str] = []
@@ -159,17 +163,22 @@ async def test_concurrent_messages_serialized(server):
 
     # Fire two concurrent messages to the SAME session key
     task1 = asyncio.create_task(server.handle_message("test:serial", "msg1", channel="test"))
+    # Small delay so task1 has a chance to flip _is_running = True first
+    await asyncio.sleep(0.005)
     task2 = asyncio.create_task(server.handle_message("test:serial", "msg2", channel="test"))
     results = await asyncio.gather(task1, task2)
 
-    assert set(results) == {"echo:msg1", "echo:msg2"}
+    # One call runs to completion, the other is steered (returns None)
+    assert set(results) == {"echo:msg1", None}
 
-    # If serialized, we should see start:X end:X start:Y end:Y (not interleaved)
-    # The first two entries should be start then end of the same message
-    assert call_order[0].startswith("start:")
-    assert call_order[1].startswith("end:")
-    first_msg = call_order[0].split(":")[1]
-    assert call_order[1] == f"end:{first_msg}"
+    # Only one agent invocation occurred
+    assert len([e for e in call_order if e.startswith("start:")]) == 1
+    assert len([e for e in call_order if e.startswith("end:")]) == 1
+
+    # The steered message was enqueued for consumption by the agent
+    session = server.registry.get("test:serial")
+    assert session is not None
+    assert session.ctx.drain_steerings() == ["msg2"]
 
 
 def test_websocket_e2e_full_flow(server):
@@ -277,3 +286,192 @@ async def test_streaming_broadcast_sends_token_msgs(server):
     assert len(token_msgs) == 2
     assert token_msgs[0]["text"] == "Hello"
     assert token_msgs[1]["text"] == " world"
+
+
+@pytest.mark.asyncio
+async def test_handle_message_race_atomic_check_and_set(server):
+    """Task 10 (Live Steering) — regression: two callers that both observe
+    _is_running=False on the pre-lock fast-path MUST NOT both run the agent.
+
+    The bug: if check-and-set of _is_running is not atomic under the session
+    lock, two concurrent callers both fall through to the lock, task1 flips
+    _is_running=True and runs the agent, task1 finishes and resets
+    _is_running=False, task2 acquires the lock and ALSO runs the agent as
+    a full turn instead of being treated as steering.
+
+    The fix: re-check _is_running under the lock. The second acquirer
+    observes True and steers.
+
+    To make the race deterministic we replace session.lock with a lock
+    that blocks both acquirers at a known point, then releases them in
+    order so both observe _is_running=False at the pre-lock fast-path
+    and then contend for the lock.
+    """
+    import asyncio
+
+    call_order: list[str] = []
+
+    class SlowAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            call_order.append(f"start:{user_input}")
+            await asyncio.sleep(0.05)
+            call_order.append(f"end:{user_input}")
+            return f"echo:{user_input}"
+
+    server._agent_loop = SlowAgentLoop()
+
+    # Pre-create the session so we can install a gated lock. A gated lock
+    # lets us force both callers to reach the lock-acquire point while
+    # _is_running is still False, then releases them in order. This exposes
+    # the race without relying on asyncio scheduling luck.
+    session = server.registry.get_or_create("test:race", {}, "test")
+
+    class _GatedLock:
+        def __init__(self) -> None:
+            self._inner = asyncio.Lock()
+            self._gate = asyncio.Event()
+            self._arrivals = 0
+            self._required = 2
+
+        async def __aenter__(self):
+            # Wait until both contenders have arrived at the lock. This
+            # guarantees both saw _is_running=False on the pre-lock
+            # fast-path before either proceeds past acquire.
+            self._arrivals += 1
+            if self._arrivals >= self._required:
+                self._gate.set()
+            await self._gate.wait()
+            await self._inner.acquire()
+            return self
+
+        async def __aexit__(self, *exc):
+            self._inner.release()
+
+    session.lock = _GatedLock()  # type: ignore[assignment]
+
+    task1 = asyncio.create_task(server.handle_message("test:race", "msg1", channel="test"))
+    task2 = asyncio.create_task(server.handle_message("test:race", "msg2", channel="test"))
+    results = await asyncio.gather(task1, task2)
+
+    # Exactly one agent run; the other must have been steered (None).
+    agent_runs = [e for e in call_order if e.startswith("start:")]
+    assert len(agent_runs) == 1, (
+        f"Expected exactly 1 agent run after race; got {len(agent_runs)}: {call_order}"
+    )
+    assert results.count(None) == 1, (
+        f"Expected exactly one steering (None) result; got results={results}"
+    )
+    # The non-None result corresponds to the winning agent run.
+    winner = next(r for r in results if r is not None)
+    assert winner in {"echo:msg1", "echo:msg2"}
+
+    # The losing message was enqueued for steering.
+    drained = session.ctx.drain_steerings()
+    assert len(drained) == 1
+    assert drained[0] in {"msg1", "msg2"}
+
+
+@pytest.mark.asyncio
+async def test_handle_message_steers_when_already_running(server):
+    """Task 10 (Live Steering): when _is_running is True on arrival,
+    handle_message enqueues the input onto the steering queue and returns
+    None WITHOUT invoking _agent_loop.run().
+    """
+    call_count = {"n": 0}
+
+    class RecordingAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            call_count["n"] += 1
+            return f"ran:{user_input}"
+
+    server._agent_loop = RecordingAgentLoop()
+
+    # Pre-create the session and mark it as running
+    session = server.registry.get_or_create("tui:steer-test", {}, "tui")
+    session.ctx._is_running = True
+
+    result = await server.handle_message(
+        "tui:steer-test", "steer me", channel="tui"
+    )
+
+    assert result is None, "steering path must return None"
+    assert call_count["n"] == 0, "agent_loop.run must not be invoked during steering"
+
+    drained = session.ctx.drain_steerings()
+    assert drained == ["steer me"], "input must be enqueued on the steering queue"
+
+
+async def test_handle_message_prepends_quoted_context_to_steering(server):
+    """Task 15: quoted_messages kwarg prepends [Referenced: ...] lines to the
+    text enqueued on the steering queue.
+    """
+    from yigthinker.session import QuotedMessage
+
+    class NoopAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            return "never-called"
+
+    server._agent_loop = NoopAgentLoop()
+    session = server.registry.get_or_create("tui:steer-ref", {}, "tui")
+    session.ctx._is_running = True
+
+    quotes = [
+        QuotedMessage(original_id="m1", original_text="what were Q3 sales?"),
+        QuotedMessage(original_id="m2", original_text="a" * 300),  # truncated to 200
+    ]
+    result = await server.handle_message(
+        "tui:steer-ref", "compare to Q4", channel="tui", quoted_messages=quotes
+    )
+
+    assert result is None
+    drained = session.ctx.drain_steerings()
+    assert len(drained) == 1
+    text = drained[0]
+    assert '[Referenced: "what were Q3 sales?"]' in text
+    assert f'[Referenced: "{"a" * 200}"]' in text
+    assert '[Referenced: "' + "a" * 201 + '"]' not in text  # truncation at 200
+    assert text.endswith("compare to Q4")
+
+
+@pytest.mark.asyncio
+async def test_handle_message_prepends_quoted_context_to_normal_run(server):
+    """Quoted references also reach the model on the initial (non-steering) turn."""
+    from yigthinker.session import QuotedMessage
+
+    seen: dict[str, str] = {}
+
+    class RecordingAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            seen["user_input"] = user_input
+            return "ok"
+
+    server._agent_loop = RecordingAgentLoop()
+
+    quotes = [QuotedMessage(original_id="m1", original_text="focus on Q3 variance")]
+    result = await server.handle_message(
+        "tui:quote-normal",
+        "compare to Q4",
+        channel="tui",
+        quoted_messages=quotes,
+    )
+
+    assert result == "ok"
+    assert seen["user_input"].startswith('[Referenced: "focus on Q3 variance"]\n')
+    assert seen["user_input"].endswith("compare to Q4")
+
+
+async def test_handle_message_no_quotes_passes_plain_text(server):
+    """Task 15: steering without quoted_messages enqueues plain user_input."""
+    class NoopAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            return "never-called"
+
+    server._agent_loop = NoopAgentLoop()
+    session = server.registry.get_or_create("tui:steer-plain", {}, "tui")
+    session.ctx._is_running = True
+
+    result = await server.handle_message(
+        "tui:steer-plain", "just steer", channel="tui"
+    )
+    assert result is None
+    assert session.ctx.drain_steerings() == ["just steer"]

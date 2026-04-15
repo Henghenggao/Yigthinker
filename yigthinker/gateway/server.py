@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from yigthinker.gateway.auth import GatewayAuth
+from yigthinker.visualization.exporter import ChartExporter
 from yigthinker.gateway.protocol import (
     AuthResultMsg,
     ErrorMsg,
@@ -37,6 +38,38 @@ from yigthinker.gateway.protocol import (
 from yigthinker.gateway.session_registry import ManagedSession, SessionRegistry
 
 logger = logging.getLogger(__name__)
+
+CHART_CACHE_DIR = Path.home() / ".yigthinker" / "chart_cache"
+
+
+def _prepend_quoted_context(user_input: str, quoted_messages: list | None) -> str:
+    """Inline quoted references so the agent sees them on the next turn."""
+    if not quoted_messages:
+        return user_input
+    refs = "\n".join(
+        f'[Referenced: "{q.original_text[:200]}"]' for q in quoted_messages
+    )
+    return f"{refs}\n{user_input}"
+
+
+def _resolve_chart_path(chart_id: str, suffix: str) -> Path | None:
+    """Resolve chart_id to a safe path within CHART_CACHE_DIR, or None if unsafe.
+
+    Uses path resolution + containment check (via Path.relative_to) to reject
+    traversal, absolute paths, NUL bytes, and symlinks that escape the cache.
+    Legitimate ids that happen to contain ``..`` (e.g. ``chart..v2``) resolve
+    within the cache dir and are accepted.
+    """
+    cache_root = CHART_CACHE_DIR.resolve()
+    try:
+        candidate = (CHART_CACHE_DIR / f"{chart_id}{suffix}").resolve()
+    except (OSError, ValueError):
+        return None
+    try:
+        candidate.relative_to(cache_root)
+    except ValueError:
+        return None
+    return candidate
 
 
 async def _safe_send(coro):
@@ -187,75 +220,109 @@ class GatewayServer:
         user_input: str,
         channel: str = "cli",
         on_tool_event: Callable[[str, dict], None] | None = None,
-    ) -> str:
+        quoted_messages: list | None = None,
+    ) -> str | None:
         """Route a user message to the agent loop within a managed session.
 
-        Acquires the per-session lock to prevent concurrent access.
+        Acquires the per-session lock to prevent concurrent access. If the
+        session is already running an agent loop, the message is enqueued on
+        the live steering queue and None is returned (signaling the adapter
+        that the input was acknowledged without a synchronous response).
         """
         # P1-2: resolve active session key (supports /new and /switch commands)
         session_key = self._registry.get_active_key(session_key)
         session = await self._registry.get_or_restore(session_key, self._settings, channel)
 
+        # Live steering: if the agent is already running for this session, we
+        # must NOT hold the session lock while the agent runs — otherwise
+        # follow-up messages would block on the lock instead of being routed
+        # to the steering queue. The lock is only used for the atomic
+        # check-and-set of ctx._is_running.
+        #
+        # When steering, prepend any quoted context so the running agent sees
+        # the reference alongside the follow-up input.
+        def _build_steer_text() -> str:
+            return _prepend_quoted_context(user_input, quoted_messages)
+
+        # Fast-path: observed _is_running=True without acquiring the lock.
+        if session.ctx._is_running:
+            session.ctx.steer(_build_steer_text())
+            return None  # Signal to adapter: steering acknowledged, no response needed
+
+        # Atomic check-and-set under lock to close the race where two callers
+        # both see _is_running=False on the fast-path and then contend for
+        # the lock. Whoever acquires the lock first flips _is_running=True;
+        # the next acquirer re-reads it under lock, hits True, and steers.
         async with session.lock:
+            if session.ctx._is_running:
+                session.ctx.steer(_build_steer_text())
+                return None
+            session.ctx._is_running = True
             session.touch()
             session.ctx._session_registry = self._registry  # type: ignore[attr-defined]
 
-            def _on_tool_event(event_type: str, data: dict) -> None:
-                """Broadcast tool events to attached WS clients (fire-and-forget)."""
-                if event_type == "tool_call":
-                    msg = to_json_dict(ToolCallMsg(
-                        tool_name=data["tool_name"],
-                        tool_input=data.get("tool_input", {}),
-                        tool_id=data.get("tool_id", ""),
-                    ))
-                elif event_type == "tool_result":
-                    msg = to_json_dict(ToolResultMsg(
-                        tool_id=data.get("tool_id", ""),
-                        content=data.get("content", ""),
-                        is_error=data.get("is_error", False),
-                    ))
-                elif event_type == "subagent_event":
-                    msg = to_json_dict(SubagentEventMsg(
-                        subagent_id=data.get("subagent_id", ""),
-                        subagent_name=data.get("subagent_name", ""),
-                        event=data.get("event", ""),
-                        detail=data.get("detail", ""),
-                    ))
-                elif event_type == "tool_progress":
-                    msg = to_json_dict(ToolProgressMsg(
-                        tool=data.get("tool", ""),
-                        message=data.get("message", ""),
-                    ))
-                else:
-                    return
-                # Fire-and-forget broadcast to all WS clients attached to this session
-                for client in self._ws_clients:
-                    if client.session_key == session_key:
-                        try:
-                            asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
-                        except Exception:
-                            pass
-                # Passthrough to external on_tool_event callback (e.g. Teams progress)
-                if on_tool_event is not None:
-                    on_tool_event(event_type, data)
+        # Release the lock before running the agent so that concurrent
+        # follow-up messages can steer via the fast-path above.
+        def _on_tool_event(event_type: str, data: dict) -> None:
+            """Broadcast tool events to attached WS clients (fire-and-forget)."""
+            if event_type == "tool_call":
+                msg = to_json_dict(ToolCallMsg(
+                    tool_name=data["tool_name"],
+                    tool_input=data.get("tool_input", {}),
+                    tool_id=data.get("tool_id", ""),
+                ))
+            elif event_type == "tool_result":
+                msg = to_json_dict(ToolResultMsg(
+                    tool_id=data.get("tool_id", ""),
+                    content=data.get("content", ""),
+                    is_error=data.get("is_error", False),
+                ))
+            elif event_type == "subagent_event":
+                msg = to_json_dict(SubagentEventMsg(
+                    subagent_id=data.get("subagent_id", ""),
+                    subagent_name=data.get("subagent_name", ""),
+                    event=data.get("event", ""),
+                    detail=data.get("detail", ""),
+                ))
+            elif event_type == "tool_progress":
+                msg = to_json_dict(ToolProgressMsg(
+                    tool=data.get("tool", ""),
+                    message=data.get("message", ""),
+                ))
+            else:
+                return
+            # Fire-and-forget broadcast to all WS clients attached to this session
+            for client in self._ws_clients:
+                if client.session_key == session_key:
+                    try:
+                        asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
+                    except Exception:
+                        pass
+            # Passthrough to external on_tool_event callback (e.g. Teams progress)
+            if on_tool_event is not None:
+                on_tool_event(event_type, data)
 
-            def _on_token(text: str) -> None:
-                """Broadcast token stream to all WS clients attached to this session (fire-and-forget per D-04)."""
-                msg = to_json_dict(TokenStreamMsg(text=text))
-                for client in self._ws_clients:
-                    if client.session_key == session_key:
-                        try:
-                            asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
-                        except Exception:
-                            pass
+        def _on_token(text: str) -> None:
+            """Broadcast token stream to all WS clients attached to this session (fire-and-forget per D-04)."""
+            msg = to_json_dict(TokenStreamMsg(text=text))
+            for client in self._ws_clients:
+                if client.session_key == session_key:
+                    try:
+                        asyncio.ensure_future(_safe_send(client.ws.send_json(msg)))
+                    except Exception:
+                        pass
 
+        try:
+            effective_input = _prepend_quoted_context(user_input, quoted_messages)
             result = await self._agent_loop.run(
-                user_input, session.ctx,
+                effective_input, session.ctx,
                 on_tool_event=_on_tool_event,
                 on_token=_on_token,
             )
-            await self._broadcast_vars_update(session)
-            return result
+        finally:
+            session.ctx._is_running = False
+        await self._broadcast_vars_update(session)
+        return result
 
     # ── HTTP/WS Routes ───────────────────────────────────────────────────────
 
@@ -349,6 +416,35 @@ class GatewayServer:
                 )
             return await self._rpa_controller.handle_report(body)
 
+        # ── Chart image serving (for IM platform card embedding) ─────────────
+
+        # Chart endpoints are unauthenticated: chart_ids are unguessable UUIDs
+        # acting as capability tokens, so IM platforms (Teams/Feishu) can fetch
+        # images from cards without needing to send bearer tokens.
+        @app.get("/api/charts/{chart_id}.png")
+        async def serve_chart_image(chart_id: str):
+            """Serve rendered chart PNGs for IM platform embedding."""
+            path = _resolve_chart_path(chart_id, ".png")
+            if path is None:
+                return JSONResponse({"error": "invalid chart id"}, status_code=400)
+            if not path.exists():
+                return JSONResponse({"error": "chart not found"}, status_code=404)
+            return FileResponse(path, media_type="image/png")
+
+        @app.get("/api/charts/{chart_id}")
+        async def serve_chart_html(chart_id: str):
+            """Serve interactive Plotly HTML for browser viewing."""
+            path = _resolve_chart_path(chart_id, ".json")
+            if path is None:
+                return JSONResponse({"error": "invalid chart id"}, status_code=400)
+            if not path.exists():
+                return JSONResponse({"error": "chart not found"}, status_code=404)
+            try:
+                html = ChartExporter().to_html(path.read_text())
+            except ValueError:
+                return JSONResponse({"error": "corrupt chart data"}, status_code=500)
+            return HTMLResponse(html)
+
         @app.websocket("/ws")
         async def websocket_endpoint(ws: WebSocket):
             # Validate Origin header to block cross-origin browser-based connections.
@@ -430,8 +526,13 @@ class GatewayServer:
                     result = await self.handle_message(
                         client.session_key, msg.text, channel="tui"
                     )
+                    # Task 10 (steering): handle_message returns None when the
+                    # message was routed to the steering queue (agent already
+                    # running). ResponseDoneMsg.full_text is typed str, so
+                    # coerce None -> "" to avoid a null landing in the JSON
+                    # payload; the TUI will have already streamed tokens live.
                     await client.ws.send_json(to_json_dict(
-                        ResponseDoneMsg(full_text=result, request_id=msg.request_id)
+                        ResponseDoneMsg(full_text=result or "", request_id=msg.request_id)
                     ))
                 except Exception as exc:
                     await client.ws.send_json(to_json_dict(
@@ -450,8 +551,13 @@ class GatewayServer:
                     result = await self.handle_message(
                         client.session_key, text, channel="tui"
                     )
+                    # Task 10 (steering): handle_message returns None when the
+                    # message was routed to the steering queue (agent already
+                    # running). ResponseDoneMsg.full_text is typed str, so
+                    # coerce None -> "" to avoid a null landing in the JSON
+                    # payload; the TUI will have already streamed tokens live.
                     await client.ws.send_json(to_json_dict(
-                        ResponseDoneMsg(full_text=result, request_id=msg.request_id)
+                        ResponseDoneMsg(full_text=result or "", request_id=msg.request_id)
                     ))
                 except Exception as exc:
                     await client.ws.send_json(to_json_dict(

@@ -160,7 +160,9 @@ class SessionRegistry:
         """Evict sessions idle beyond ``idle_timeout``. Returns eviction count."""
         to_evict = [
             key for key, s in self._sessions.items()
-            if s.idle_seconds() > self._idle_timeout and not s.lock.locked()
+            if s.idle_seconds() > self._idle_timeout
+            and not s.lock.locked()
+            and not s.ctx._is_running  # guard: lock released before agent run completes
         ]
         evicted = 0
         for key in to_evict:
@@ -239,7 +241,7 @@ class SessionRegistry:
         """Remove the least-recently-used unlocked session."""
         candidates = [
             (key, s) for key, s in self._sessions.items()
-            if not s.lock.locked()
+            if not s.lock.locked() and not s.ctx._is_running
         ]
         if not candidates:
             logger.warning("All %d sessions are locked; cannot evict", len(self._sessions))

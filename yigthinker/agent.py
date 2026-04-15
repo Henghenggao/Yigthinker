@@ -173,7 +173,12 @@ class AgentLoop:
                     # P1-5: inject hook system messages from previous tool execution
                     pending_injections = getattr(ctx, "_pending_injections", None)
                     if pending_injections:
-                        injection_text = "\n".join(pending_injections)
+                        # Task 20: sanitize hook content to strip prompt-injection
+                        # patterns (e.g. "ignore all prior instructions") before
+                        # they land in the system prompt.
+                        from yigthinker.context_manager import _sanitize_memory_content
+                        sanitized = [_sanitize_memory_content(inj) for inj in pending_injections]
+                        injection_text = "\n".join(sanitized)
                         # Cap at 8192 chars (~2048 tokens)
                         if len(injection_text) > 8192:
                             injection_text = injection_text[:8192] + "\n[hook injections truncated]"
@@ -182,6 +187,21 @@ class AgentLoop:
                         else:
                             system_prompt = f"[Hook Context]\n{injection_text}"
                         ctx._pending_injections = None
+
+                    steerings = ctx.drain_steerings()
+                    if steerings:
+                        # Task 20 extension: sanitize steering messages before injecting
+                        # into the system prompt — same guard applied to hook injections.
+                        # Steerings originate from WebSocket user_input and Teams/Feishu
+                        # Bot Framework payloads; both are external trust boundaries.
+                        from yigthinker.context_manager import _sanitize_memory_content
+                        sanitized_steerings = [_sanitize_memory_content(s) for s in steerings]
+                        numbered = "\n".join(f"{i+1}. {s}" for i, s in enumerate(sanitized_steerings))
+                        steering_block = f"[User Follow-up (sent while you were working)]\n{numbered}"
+                        if system_prompt:
+                            system_prompt += f"\n\n{steering_block}"
+                        else:
+                            system_prompt = steering_block
 
                     if self._compact is not None:
                         token_est = self._estimate_tokens(messages)
@@ -560,6 +580,7 @@ class AgentLoop:
             on_tool_event("tool_result", {
                 "tool_id": tool_use_id,
                 "content": serialized_content,
+                "content_obj": result.content,
                 "is_error": result.is_error,
             })
 

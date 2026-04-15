@@ -991,3 +991,145 @@ async def test_supported_extensions_match_df_load():
     from yigthinker.channels.teams.adapter import _SUPPORTED_EXTENSIONS
     from yigthinker.tools.dataframe.df_load import _LOADERS
     assert _SUPPORTED_EXTENSIONS == set(_LOADERS.keys())
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_skips_send_when_steering_returns_none(adapter):
+    """Steering acknowledged → ``_process_and_respond`` must not render a
+    card. ``send_response`` itself early-returns on text=None / error=None,
+    so verify no network POST is issued.
+    """
+    adapter._gateway = MagicMock()
+    adapter._gateway.handle_message = AsyncMock(return_value=None)
+    adapter._acquire_token = MagicMock(return_value="tok")
+
+    # _typing_loop runs forever until cancel; stub it to a no-op coroutine
+    async def _noop_typing(event):
+        while True:
+            await asyncio.sleep(3600)
+    adapter._typing_loop = _noop_typing  # type: ignore[assignment]
+
+    # Spy on the renderer — it MUST NOT be called to render None.
+    adapter._renderer = MagicMock()
+    adapter._renderer.render_text = MagicMock(
+        side_effect=AssertionError("render_text MUST NOT be called on None"),
+    )
+    adapter._renderer.render_error = MagicMock(
+        side_effect=AssertionError("render_error MUST NOT be called for steering"),
+    )
+
+    event = {
+        "from": {"aadObjectId": "user-1"},
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "conv-123"},
+    }
+
+    posted_urls: list[str] = []
+
+    class _FakeClient:
+        def __init__(self, *_, **__): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return None
+        async def post(self, url, **kwargs):
+            posted_urls.append(url)
+            resp = MagicMock()
+            resp.status_code = 200
+            return resp
+
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+        await adapter._process_and_respond("teams:user-1", "steer me", event, None)
+
+    adapter._gateway.handle_message.assert_awaited_once()
+    adapter._renderer.render_text.assert_not_called()
+    adapter._renderer.render_error.assert_not_called()
+    # No POSTs to conversation activities URL (send_response short-circuits).
+    activity_posts = [u for u in posted_urls if "/activities" in u]
+    assert activity_posts == [], f"Expected no result POST; got {activity_posts}"
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_passes_quoted_messages_to_gateway(adapter):
+    """Task 15 regression: when the user replies to a prior Teams message,
+    the adapter must call extract_quoted_messages and forward the result
+    to handle_message via quoted_messages=.
+    """
+    from yigthinker.session import QuotedMessage
+
+    adapter._gateway = MagicMock()
+    adapter._gateway.handle_message = AsyncMock(return_value="ok")
+    adapter._acquire_token = MagicMock(return_value="tok")
+
+    # Stub extract_quoted_messages to return a canned quote.
+    canned = [QuotedMessage(
+        original_id="msg-1", original_text="what were Q3 sales?", original_role="user"
+    )]
+    adapter.extract_quoted_messages = AsyncMock(return_value=canned)  # type: ignore[method-assign]
+
+    async def _noop_typing(event):
+        while True:
+            await asyncio.sleep(3600)
+    adapter._typing_loop = _noop_typing  # type: ignore[assignment]
+
+    adapter._renderer = MagicMock()
+    adapter._renderer.render_text = MagicMock(return_value={"type": "AdaptiveCard"})
+
+    class _FakeClient:
+        def __init__(self, *_, **__): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return None
+        async def post(self, url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            return resp
+
+    event = {
+        "from": {"aadObjectId": "user-2"},
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "conv-456"},
+        "replyToId": "msg-1",
+    }
+
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+        await adapter._process_and_respond("teams:user-2", "compare to Q4", event, None)
+
+    adapter.extract_quoted_messages.assert_awaited_once()
+    kwargs = adapter._gateway.handle_message.await_args.kwargs
+    assert kwargs.get("quoted_messages") == canned
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_passes_none_when_no_quotes(adapter):
+    """Empty quote list is collapsed to None before calling handle_message."""
+    adapter._gateway = MagicMock()
+    adapter._gateway.handle_message = AsyncMock(return_value="ok")
+    adapter._acquire_token = MagicMock(return_value="tok")
+    adapter.extract_quoted_messages = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+    async def _noop_typing(event):
+        while True:
+            await asyncio.sleep(3600)
+    adapter._typing_loop = _noop_typing  # type: ignore[assignment]
+
+    adapter._renderer = MagicMock()
+    adapter._renderer.render_text = MagicMock(return_value={"type": "AdaptiveCard"})
+
+    class _FakeClient:
+        def __init__(self, *_, **__): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return None
+        async def post(self, url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            return resp
+
+    event = {
+        "from": {"aadObjectId": "user-3"},
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "conv-789"},
+    }
+
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+        await adapter._process_and_respond("teams:user-3", "hello", event, None)
+
+    kwargs = adapter._gateway.handle_message.await_args.kwargs
+    assert kwargs.get("quoted_messages") is None
