@@ -520,8 +520,13 @@ class GatewayServer:
                     result = await self.handle_message(
                         client.session_key, msg.text, channel="tui"
                     )
+                    # Task 10 (steering): handle_message returns None when the
+                    # message was routed to the steering queue (agent already
+                    # running). ResponseDoneMsg.full_text is typed str, so
+                    # coerce None -> "" to avoid a null landing in the JSON
+                    # payload; the TUI will have already streamed tokens live.
                     await client.ws.send_json(to_json_dict(
-                        ResponseDoneMsg(full_text=result, request_id=msg.request_id)
+                        ResponseDoneMsg(full_text=result or "", request_id=msg.request_id)
                     ))
                 except Exception as exc:
                     await client.ws.send_json(to_json_dict(
@@ -540,8 +545,13 @@ class GatewayServer:
                     result = await self.handle_message(
                         client.session_key, text, channel="tui"
                     )
+                    # Task 10 (steering): handle_message returns None when the
+                    # message was routed to the steering queue (agent already
+                    # running). ResponseDoneMsg.full_text is typed str, so
+                    # coerce None -> "" to avoid a null landing in the JSON
+                    # payload; the TUI will have already streamed tokens live.
                     await client.ws.send_json(to_json_dict(
-                        ResponseDoneMsg(full_text=result, request_id=msg.request_id)
+                        ResponseDoneMsg(full_text=result or "", request_id=msg.request_id)
                     ))
                 except Exception as exc:
                     await client.ws.send_json(to_json_dict(
