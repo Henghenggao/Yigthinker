@@ -10,11 +10,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from yigthinker.channels.artifacts import (
+    choose_best_artifact,
+    structured_artifact_from_tool_result,
+)
 from yigthinker.channels.feishu.cards import FeishuCardRenderer
 from yigthinker.channels.feishu.dedup import EventDeduplicator
 from yigthinker.gateway.session_key import SessionKey
@@ -23,6 +28,22 @@ if TYPE_CHECKING:
     from yigthinker.gateway.server import GatewayServer
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_message_text_from_content(content: str) -> str:
+    """Best-effort extraction of human-readable text from Feishu message body."""
+    if not content:
+        return ""
+    try:
+        parsed = json.loads(content)
+    except Exception:
+        return content
+
+    if isinstance(parsed, dict):
+        text = parsed.get("text")
+        if isinstance(text, str):
+            return text
+    return content
 
 
 class FeishuAdapter:
@@ -67,10 +88,14 @@ class FeishuAdapter:
         async def feishu_webhook(request: Request):
             body = await request.json()
 
-            if self._verify_token:
-                incoming_token = body.get("token") or body.get("header", {}).get("token", "")
-                if not incoming_token or incoming_token != self._verify_token:
-                    return JSONResponse({"code": 99991663, "msg": "verification token mismatch"}, status_code=401)
+            if not self._verify_token:
+                # Fail-closed: reject all requests if verification_token is not
+                # configured, matching Teams adapter behavior. Operators must set
+                # verification_token to enable the webhook.
+                return JSONResponse({"code": 99991663, "msg": "verification token not configured"}, status_code=401)
+            incoming_token = body.get("token") or body.get("header", {}).get("token", "")
+            if not incoming_token or incoming_token != self._verify_token:
+                return JSONResponse({"code": 99991663, "msg": "verification token mismatch"}, status_code=401)
 
             # Handle Feishu URL verification challenge
             if body.get("type") == "url_verification":
@@ -111,6 +136,7 @@ class FeishuAdapter:
         event: dict[str, Any],
         text: str,
         vars_summary: list[dict[str, Any]] | None = None,
+        artifact: dict[str, Any] | None = None,
     ) -> None:
         """Send a card response back to the Feishu chat."""
         if not self._client:
@@ -121,8 +147,81 @@ class FeishuAdapter:
         if not sender_id:
             return
 
-        card = self._renderer.render_text(text)
+        card = self._build_card_for_artifact(text, artifact)
         await self._send_card(sender_id, card)
+
+    def _gateway_base_url(self) -> str:
+        gw_cfg = getattr(self._gateway, "_settings", {}).get("gateway", {})
+        public_base_url = gw_cfg.get("public_base_url", "")
+        if public_base_url:
+            return public_base_url.rstrip("/")
+
+        host = gw_cfg.get("host", "127.0.0.1")
+        if host in {"", "0.0.0.0", "::"}:
+            host = "127.0.0.1"
+        port = gw_cfg.get("port", 8766)
+        scheme = gw_cfg.get("scheme", "http")
+        return f"{scheme}://{host}:{port}"
+
+    def _append_text_to_card(self, card: dict[str, Any], text: str) -> dict[str, Any]:
+        if text.strip():
+            card.setdefault("elements", []).append({"tag": "markdown", "content": text})
+        return card
+
+    def _build_card_for_artifact(
+        self,
+        text: str,
+        artifact: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        chart_id = ""
+        if artifact is None:
+            return self._renderer.render_text(text)
+
+        try:
+            if artifact.get("kind") == "chart":
+                from yigthinker.gateway.server import CHART_CACHE_DIR
+                from yigthinker.visualization.exporter import ChartExporter
+
+                chart_id = artifact["chart_name"].replace(" ", "-") or "chart"
+                # Use uuid4 (not id()) so chart IDs are unguessable and don't
+                # collide across sessions or after GC reuses memory addresses.
+                chart_id = f"{chart_id}-{uuid.uuid4().hex}"
+                CHART_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                # Contain the write path to CHART_CACHE_DIR (path traversal guard).
+                target = (CHART_CACHE_DIR / f"{chart_id}.json").resolve()
+                if not str(target).startswith(str(CHART_CACHE_DIR.resolve())):
+                    raise ValueError(f"chart_id '{chart_id}' resolves outside cache dir")
+                target.write_text(artifact["chart_json"], encoding="utf-8")
+
+                spec = ChartExporter().to_vchart(artifact["chart_json"])
+                return self._append_text_to_card(
+                    self._renderer.render_vchart_native(artifact["chart_name"], spec),
+                    text,
+                )
+        except Exception:
+            logger.debug("Feishu VChart export unavailable; falling back to chart link", exc_info=True)
+            html_url = f"{self._gateway_base_url()}/api/charts/{chart_id}"
+            return self._append_text_to_card(
+                self._renderer.render_chart_link(
+                    artifact["chart_name"],
+                    html_url,
+                    description="Interactive chart preview",
+                ),
+                text,
+            )
+
+        if artifact.get("kind") == "table":
+            return self._append_text_to_card(
+                self._renderer.render_native_table(
+                    artifact["title"],
+                    artifact["columns"],
+                    artifact["rows"],
+                    artifact["total_rows"],
+                ),
+                text,
+            )
+
+        return self._renderer.render_text(text)
 
     async def _process_event(self, body: dict[str, Any]) -> None:
         """Background processing of a Feishu message event."""
@@ -152,17 +251,46 @@ class FeishuAdapter:
 
             key = self.session_key(body)
             sender_id = event.get("sender", {}).get("sender_id", {}).get("open_id", "")
+            artifacts: list[dict[str, Any]] = []
 
             # Step 1: Send "thinking..." card
             thinking_msg_id = await self._send_card(
                 sender_id, self._renderer.render_thinking()
             )
 
+            def _on_feishu_tool_event(event_type: str, data: dict) -> None:
+                if event_type != "tool_result" or data.get("is_error"):
+                    return
+                artifact = structured_artifact_from_tool_result(data.get("content_obj"))
+                if artifact is not None:
+                    artifacts.append(artifact)
+
+            try:
+                quoted = await self.extract_quoted_messages(body)
+            except Exception:
+                logger.exception("Feishu quote extraction failed; continuing without")
+                quoted = []
+
             # Step 2: Run agent
-            result = await self._gateway.handle_message(key, text, channel="feishu")
+            result = await self._gateway.handle_message(
+                key,
+                text,
+                channel="feishu",
+                on_tool_event=_on_feishu_tool_event,
+                quoted_messages=quoted or None,
+            )
+
+            # Steering acknowledged — the message was routed to the live
+            # steering queue of a running agent. No response card to render;
+            # the running agent will surface the result via its own card.
+            if result is None:
+                return
 
             # Step 3: Update the card with the result
-            result_card = self._renderer.render_text(result)
+            result_card = self._build_card_for_artifact(
+                result,
+                choose_best_artifact(artifacts),
+            )
             if thinking_msg_id:
                 await self._update_card(thinking_msg_id, result_card)
             else:
@@ -170,6 +298,58 @@ class FeishuAdapter:
 
         except Exception:
             logger.exception("Error processing Feishu event")
+
+    async def extract_quoted_messages(self, event: dict[str, Any]) -> list[Any]:
+        """Fetch the replied-to / parent message when Feishu supplies linkage IDs."""
+        from yigthinker.session import QuotedMessage
+
+        if not self._client:
+            return []
+
+        message = (event.get("event") or {}).get("message", {})
+        current_id = message.get("message_id", "")
+        quoted_id = (
+            message.get("parent_id")
+            or message.get("upper_message_id")
+            or ""
+        )
+        root_id = message.get("root_id", "")
+        if not quoted_id and root_id and root_id != current_id:
+            quoted_id = root_id
+        if not quoted_id:
+            return []
+
+        try:
+            from lark_oapi.api.im.v1 import GetMessageRequest
+
+            request = GetMessageRequest.builder().message_id(quoted_id).build()
+            response = await asyncio.to_thread(self._client.im.v1.message.get, request)
+            if not response.success():
+                return []
+
+            items = getattr(getattr(response, "data", None), "items", None) or []
+            if not items:
+                return []
+
+            original = items[0]
+            body = getattr(original, "body", None)
+            content = getattr(body, "content", "") if body is not None else ""
+            original_text = _extract_message_text_from_content(content)
+            sender = getattr(original, "sender", None)
+            sender_type = (getattr(sender, "sender_type", "") or "").lower()
+            sender_id = getattr(sender, "id", "") or ""
+            is_bot = sender_type in {"app", "bot"} or bool(
+                self._app_id and sender_id == self._app_id
+            )
+            original_role = "assistant" if is_bot else "user"
+
+            return [QuotedMessage(
+                original_id=str(quoted_id),
+                original_text=original_text,
+                original_role=original_role,
+            )]
+        except Exception:
+            return []
 
     async def _send_card(self, receive_id: str, card: dict[str, Any]) -> str | None:
         """Send an interactive card via Feishu API. Returns message_id."""

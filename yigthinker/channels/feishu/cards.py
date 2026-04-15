@@ -78,6 +78,66 @@ class FeishuCardRenderer:
             "elements": elements,
         }
 
+    def render_chart_image(
+        self,
+        chart_name: str,
+        image_key: str,
+        interactive_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Feishu card with uploaded chart image."""
+        elements: list[dict[str, Any]] = [
+            {"tag": "img", "img_key": image_key, "alt": {"tag": "plain_text", "content": chart_name}},
+        ]
+        if interactive_url:
+            elements.append({
+                "tag": "action",
+                "actions": [{
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "Open Interactive"},
+                    "type": "primary",
+                    "url": interactive_url,
+                }],
+            })
+        return {
+            "config": {"wide_screen_mode": True},
+            "header": {"title": {"tag": "plain_text", "content": chart_name}, "template": "blue"},
+            "elements": elements,
+        }
+
+    def render_vchart_native(self, chart_name: str, vchart_spec: dict[str, Any]) -> dict[str, Any]:
+        """Feishu-exclusive: native interactive chart via VChart in card."""
+        return {
+            "config": {"wide_screen_mode": True},
+            "header": {"title": {"tag": "plain_text", "content": chart_name}, "template": "blue"},
+            "elements": [
+                {"tag": "chart", "chart_spec": {"type": "vchart", "data": vchart_spec}, "height": "380px"},
+            ],
+        }
+
+    def render_native_table(
+        self,
+        title: str,
+        columns: list[str],
+        rows: list[list[str]],
+        total_rows: int,
+    ) -> dict[str, Any]:
+        """Feishu card with native table element."""
+        table_columns = [{"name": col, "display_name": col} for col in columns]
+        table_rows = [dict(zip(columns, row)) for row in rows]
+        elements: list[dict[str, Any]] = [
+            {"tag": "table", "page_size": min(len(rows), 10), "columns": table_columns, "rows": table_rows},
+        ]
+        if total_rows > len(rows):
+            elements.append({
+                "tag": "note",
+                "elements": [{"tag": "plain_text", "content": f"Showing {len(rows)} of {total_rows} rows"}],
+            })
+        return {
+            "config": {"wide_screen_mode": True},
+            "header": {"title": {"tag": "plain_text", "content": title}, "template": "blue"},
+            "elements": elements,
+        }
+
     def render_error(self, message: str) -> dict[str, Any]:
         return {
             "config": {"wide_screen_mode": True},

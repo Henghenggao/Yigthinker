@@ -79,3 +79,21 @@ def test_branch_is_independent():
     branched.vars.set("df_new", pd.DataFrame({"b": [2]}))
 
     assert "df_new" not in ctx.vars
+
+
+def test_checkpoint_is_not_corrupted_by_mutation():
+    """Checkpoint must survive in-place mutation, including numpy-level writes that bypass pandas CoW."""
+    import numpy as np
+
+    ctx = SessionContext()
+    df = pd.DataFrame({"x": np.array([1, 2, 3], dtype=np.int64)})
+    ctx.vars.set("data", df)
+    ctx.checkpoint("before_mutation")
+
+    # Numpy-level mutation bypasses pandas Copy-on-Write — this is the exact case
+    # deep=False does NOT protect against. Before the fix, this would corrupt the snapshot.
+    ctx.vars.get("data")._mgr.arrays[0][0] = 999
+
+    restored = ctx.branch_from("before_mutation")
+    restored_df = restored.vars.get("data")
+    assert restored_df.iloc[0, 0] == 1, "Checkpoint was corrupted by numpy-level in-place mutation"

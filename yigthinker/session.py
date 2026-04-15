@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import collections
 import copy
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -48,49 +51,112 @@ class CheckpointData:
     created_at: float
 
 
-class VarRegistry:
-    """Session-scoped in-memory store for DataFrames and chart artifacts."""
+@dataclass
+class QuotedMessage:
+    """A message referenced/quoted by the user for context emphasis."""
+    original_id: str
+    original_text: str
+    original_role: str = ""  # "user" | "assistant" | "tool_result"
+    history_index: int | None = None
+
+
+class MessageIdMap:
+    """Maps platform message IDs to agent message history indices."""
 
     def __init__(self) -> None:
+        self._platform_to_history: dict[str, int] = {}
+
+    def record(self, platform_msg_id: str, history_index: int) -> None:
+        self._platform_to_history[platform_msg_id] = history_index
+
+    def get_history_index(self, platform_msg_id: str) -> int | None:
+        return self._platform_to_history.get(platform_msg_id)
+
+
+class VarRegistry:
+    """Session-scoped in-memory store for DataFrames and chart artifacts.
+
+    Thread-safe: df_transform runs exec() in a ThreadPoolExecutor thread. A
+    threading.Lock guards _vars and _current_bytes so concurrent access from
+    the thread pool and the asyncio event loop does not corrupt state.
+    """
+
+    def __init__(self, max_bytes: int = 2 * 1024 ** 3) -> None:
         self._vars: dict[str, VarEntry] = {}
+        self._max_bytes = max_bytes
+        self._current_bytes: int = 0
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _size_of(value: Any) -> int:
+        if isinstance(value, pd.DataFrame):
+            try:
+                return int(value.memory_usage(deep=True).sum())
+            except Exception:
+                return 0
+        # Estimate size for non-DataFrame types (strings, dicts, etc.)
+        try:
+            import sys
+            return sys.getsizeof(value)
+        except Exception:
+            return 0
 
     def set(self, name: str, value: Any, var_type: str = "dataframe") -> None:
-        self._vars[name] = VarEntry(name=name, value=value, var_type=var_type)
+        with self._lock:
+            new_size = self._size_of(value)
+            old_size = 0
+            if name in self._vars:
+                old_size = self._size_of(self._vars[name].value)
+
+            projected = self._current_bytes - old_size + new_size
+            if projected > self._max_bytes:
+                raise MemoryError(
+                    f"VarRegistry would exceed {self._max_bytes / (1024 ** 3):.1f}GB limit "
+                    f"(current: {self._current_bytes / (1024 ** 2):.0f}MB, "
+                    f"new: {new_size / (1024 ** 2):.0f}MB). "
+                    f"Remove unused variables first."
+                )
+
+            self._vars[name] = VarEntry(name=name, value=value, var_type=var_type)
+            self._current_bytes = projected
 
     def get(self, name: str) -> Any:
-        if name not in self._vars:
-            available = list(self._vars)
-            raise KeyError(f"Variable '{name}' not found. Available: {available}")
-        return self._vars[name].value
+        with self._lock:
+            if name not in self._vars:
+                available = list(self._vars)
+                raise KeyError(f"Variable '{name}' not found. Available: {available}")
+            return self._vars[name].value
 
     def list(self) -> list[VarInfo]:
-        infos: list[VarInfo] = []
-        for name, entry in self._vars.items():
-            if isinstance(entry.value, pd.DataFrame):
-                infos.append(
-                    VarInfo(
-                        name=name,
-                        shape=entry.value.shape,
-                        dtypes={
-                            col: str(dtype)
-                            for col, dtype in entry.value.dtypes.items()
-                        },
-                        var_type="dataframe",
+        with self._lock:
+            infos: list[VarInfo] = []
+            for name, entry in self._vars.items():
+                if isinstance(entry.value, pd.DataFrame):
+                    infos.append(
+                        VarInfo(
+                            name=name,
+                            shape=entry.value.shape,
+                            dtypes={
+                                col: str(dtype)
+                                for col, dtype in entry.value.dtypes.items()
+                            },
+                            var_type="dataframe",
+                        )
                     )
-                )
-            else:
-                infos.append(
-                    VarInfo(
-                        name=name,
-                        shape=(0, 0),
-                        dtypes={},
-                        var_type=entry.var_type,
+                else:
+                    infos.append(
+                        VarInfo(
+                            name=name,
+                            shape=(0, 0),
+                            dtypes={},
+                            var_type=entry.var_type,
+                        )
                     )
-                )
-        return infos
+            return infos
 
     def __contains__(self, name: str) -> bool:
-        return name in self._vars
+        with self._lock:
+            return name in self._vars
 
 
 @dataclass
@@ -107,11 +173,18 @@ class SessionContext:
     stats: StatsAccumulator = field(default_factory=StatsAccumulator)
     messages: list[Message] = field(default_factory=list)
     undo_stack: list[UndoEntry] = field(default_factory=list)
+    message_id_map: MessageIdMap = field(default_factory=MessageIdMap, repr=False)
     subagent_manager: SubagentManager | None = None
     _progress_callback: Callable[[str], None] | None = field(default=None, repr=False)
     _on_tool_event: Callable[[str, dict], None] | None = field(default=None, repr=False)
     _pending_injections: list[str] | None = field(default=None, repr=False)
     _checkpoints: dict[str, CheckpointData] = field(default_factory=dict, repr=False)
+    # collections.deque is used instead of asyncio.Queue: channel adapters (Teams, Feishu)
+    # call steer() from non-asyncio threads. asyncio.Queue.put_nowait() is not thread-safe
+    # across threads. deque.append/popleft are GIL-protected in CPython and safe for the
+    # single-producer (adapter thread) / single-consumer (event loop) pattern here.
+    _steering_queue: collections.deque = field(default_factory=collections.deque, repr=False)
+    _is_running: bool = field(default=False, repr=False)
 
     async def emit_progress(self, message: str) -> None:
         """Emit a progress message to the UI layer. No-op if no callback set."""
@@ -119,14 +192,18 @@ class SessionContext:
             self._progress_callback(message)
 
     def checkpoint(self, label: str) -> None:
-        """Save current state as a named checkpoint."""
-        # Shallow copy for performance — NumPy block data is shared. Avoid in-place
-        # DataFrame mutations after checkpointing if restoration fidelity is required.
+        """Save current state as a named checkpoint.
+
+        Deep-copies all DataFrames so that in-place mutations after
+        checkpointing do not corrupt stored state. This is O(n) in DataFrame
+        memory — avoid checkpointing sessions with very large DataFrames
+        (VarRegistry memory limit enforced separately).
+        """
         vars_snapshot: dict[str, Any] = {}
         for info in self.vars.list():
             value = self.vars.get(info.name)
             if isinstance(value, pd.DataFrame):
-                vars_snapshot[info.name] = (value.copy(deep=False), info.var_type)
+                vars_snapshot[info.name] = (value.copy(deep=True), info.var_type)
             else:
                 vars_snapshot[info.name] = (copy.copy(value), info.var_type)
 
@@ -142,17 +219,19 @@ class SessionContext:
             del self._checkpoints[oldest_key]
 
     def branch_from(self, label: str) -> "SessionContext":
-        """Create a new SessionContext from a named checkpoint."""
+        """Create a new SessionContext from a named checkpoint.
+
+        Deep-copies DataFrames from the snapshot so the branched context is
+        fully independent of both the checkpoint store and the parent context.
+        """
         if label not in self._checkpoints:
             raise KeyError(f"Checkpoint '{label}' not found. Available: {list(self._checkpoints)}")
         cp = self._checkpoints[label]
         new_ctx = SessionContext(settings=dict(self.settings))
         new_ctx.messages = copy.deepcopy(cp.messages)
-        # Shallow copy from snapshot — inherits the same shared-memory trade-off as
-        # checkpoint(). Branched session is independent for index/column operations.
         for name, (value, var_type) in cp.vars_snapshot.items():
             if isinstance(value, pd.DataFrame):
-                new_ctx.vars.set(name, value.copy(deep=False), var_type=var_type)
+                new_ctx.vars.set(name, value.copy(deep=True), var_type=var_type)
             else:
                 new_ctx.vars.set(name, copy.copy(value), var_type=var_type)
         return new_ctx
@@ -171,6 +250,26 @@ class SessionContext:
 
     def mark_active(self) -> None:
         self.last_active = time.monotonic()
+
+    def steer(self, message: str) -> None:
+        """Enqueue a steering message from an external source (e.g. IM follow-up).
+
+        Thread-safe: deque.append is GIL-protected and can be called from any thread.
+        """
+        self._steering_queue.append(message)
+
+    def drain_steerings(self) -> list[str]:
+        """Drain all pending steering messages. Returns empty list if none.
+
+        Called only from the asyncio event loop (inside AgentLoop.run).
+        """
+        messages: list[str] = []
+        while self._steering_queue:
+            try:
+                messages.append(self._steering_queue.popleft())
+            except IndexError:
+                break
+        return messages
 
     def set_channel_origin(self, origin: str) -> None:
         self.channel_origin = origin
