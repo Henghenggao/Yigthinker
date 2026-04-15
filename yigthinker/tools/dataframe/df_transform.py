@@ -16,6 +16,18 @@ _SAFE_BUILTINS = {
     )
 }
 
+
+def _safe_getattr(obj: object, name: str, *default: object) -> object:
+    """getattr replacement that blocks access to private/dunder attributes."""
+    if isinstance(name, str) and name.startswith("_"):
+        raise AttributeError(
+            f"Access to private attribute '{name}' is blocked in df_transform sandbox."
+        )
+    return getattr(obj, name, *default)
+
+
+_SAFE_BUILTINS["getattr"] = _safe_getattr
+
 _ALLOWED_IMPORT_MAP = {
     "pandas": __import__("pandas"),
     "pd": __import__("pandas"),
