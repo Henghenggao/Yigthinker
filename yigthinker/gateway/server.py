@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from yigthinker.gateway.auth import GatewayAuth
 from yigthinker.gateway.protocol import (
@@ -37,6 +37,8 @@ from yigthinker.gateway.protocol import (
 from yigthinker.gateway.session_registry import ManagedSession, SessionRegistry
 
 logger = logging.getLogger(__name__)
+
+CHART_CACHE_DIR = Path.home() / ".yigthinker" / "chart_cache"
 
 
 async def _safe_send(coro):
@@ -348,6 +350,31 @@ class GatewayServer:
                     {"error": "invalid JSON body"}, status_code=400,
                 )
             return await self._rpa_controller.handle_report(body)
+
+        # ── Chart image serving (for IM platform card embedding) ─────────────
+
+        @app.get("/api/charts/{chart_id}.png")
+        async def serve_chart_image(chart_id: str):
+            """Serve rendered chart PNGs for IM platform embedding."""
+            # Path traversal guard
+            if "/" in chart_id or "\\" in chart_id or ".." in chart_id:
+                return JSONResponse({"error": "invalid chart id"}, status_code=400)
+            path = CHART_CACHE_DIR / f"{chart_id}.png"
+            if not path.exists():
+                return JSONResponse({"error": "chart not found"}, status_code=404)
+            return FileResponse(path, media_type="image/png")
+
+        @app.get("/api/charts/{chart_id}")
+        async def serve_chart_html(chart_id: str):
+            """Serve interactive Plotly HTML for browser viewing."""
+            if "/" in chart_id or "\\" in chart_id or ".." in chart_id:
+                return JSONResponse({"error": "invalid chart id"}, status_code=400)
+            json_path = CHART_CACHE_DIR / f"{chart_id}.json"
+            if not json_path.exists():
+                return JSONResponse({"error": "chart not found"}, status_code=404)
+            from yigthinker.visualization.exporter import ChartExporter
+            html = ChartExporter().to_html(json_path.read_text())
+            return HTMLResponse(html)
 
         @app.websocket("/ws")
         async def websocket_endpoint(ws: WebSocket):
