@@ -73,7 +73,7 @@ class TeamsCardRenderer:
         """Adaptive Card with inline chart PNG and optional interactive link."""
         body: list[dict[str, Any]] = [
             {"type": "TextBlock", "text": chart_name, "weight": "Bolder", "size": "Medium"},
-            {"type": "Image", "url": png_url, "size": "Stretch"},
+            {"type": "Image", "url": png_url, "size": "Stretch", "altText": chart_name},
         ]
         actions: list[dict[str, Any]] = []
         if interactive_url:
@@ -94,7 +94,7 @@ class TeamsCardRenderer:
         self,
         title: str,
         columns: list[str],
-        rows: list[list[str]],
+        rows: list[list[Any]],
         total_rows: int,
     ) -> dict[str, Any]:
         """Adaptive Card with native Table element (v1.5+)."""
