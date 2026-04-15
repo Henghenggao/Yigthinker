@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
 
-ChartType = Literal["bar", "line", "scatter", "pie", "histogram", "area", "heatmap"]
+ChartType = Literal["bar", "line", "scatter", "pie", "histogram", "area", "heatmap", "waterfall"]
 
 
 def _build_heatmap(data_frame, x, y, **kwargs):
@@ -38,6 +38,26 @@ def _build_heatmap(data_frame, x, y, **kwargs):
     return fig
 
 
+def _build_waterfall(data_frame, x, y, **kwargs):
+    """Build a waterfall chart from a DataFrame with x (categories) and y (values).
+
+    Useful for P&L / bridge visualizations: positive and negative deltas
+    accumulate from left to right with connector lines showing totals.
+    Discards color_discrete_sequence (not applicable to go.Waterfall).
+    """
+    kwargs.pop("color_discrete_sequence", None)
+    kwargs.pop("color", None)
+    fig = go.Figure(go.Waterfall(
+        x=data_frame[x].tolist(),
+        y=data_frame[y].tolist(),
+        connector={"line": {"color": "rgb(63, 63, 63)"}},
+    ))
+    title = kwargs.get("title", "")
+    if title:
+        fig.update_layout(title=title)
+    return fig
+
+
 _CHART_BUILDERS: dict[str, type] = {
     "bar": px.bar,
     "line": px.line,
@@ -46,6 +66,7 @@ _CHART_BUILDERS: dict[str, type] = {
     "histogram": px.histogram,
     "area": px.area,
     "heatmap": _build_heatmap,
+    "waterfall": _build_waterfall,
 }
 
 
