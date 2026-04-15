@@ -107,6 +107,10 @@ async def build_app(
 
     hook_registry = HookRegistry()
 
+    # Leak detection — always enabled
+    from yigthinker.hooks.leak_detection import leak_detection_hook
+    hook_registry.register("PostToolUse", "*", leak_detection_hook)
+
     # --- Plugin system: hooks + MCP ---
     from yigthinker.plugins.loader import PluginLoader
 
