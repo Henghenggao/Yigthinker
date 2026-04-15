@@ -173,7 +173,12 @@ class AgentLoop:
                     # P1-5: inject hook system messages from previous tool execution
                     pending_injections = getattr(ctx, "_pending_injections", None)
                     if pending_injections:
-                        injection_text = "\n".join(pending_injections)
+                        # Task 20: sanitize hook content to strip prompt-injection
+                        # patterns (e.g. "ignore all prior instructions") before
+                        # they land in the system prompt.
+                        from yigthinker.context_manager import _sanitize_memory_content
+                        sanitized = [_sanitize_memory_content(inj) for inj in pending_injections]
+                        injection_text = "\n".join(sanitized)
                         # Cap at 8192 chars (~2048 tokens)
                         if len(injection_text) > 8192:
                             injection_text = injection_text[:8192] + "\n[hook injections truncated]"
