@@ -18,6 +18,7 @@ dependencies = [
 test = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-timeout>=2.3.0",
     "respx>=0.22.0,<1",
 ]
 
@@ -27,3 +28,5 @@ yigthinker-mcp-powerautomate = "yigthinker_mcp_powerautomate.__main__:main"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+timeout = 60
+timeout_method = "thread"
