@@ -64,6 +64,81 @@ class TeamsCardRenderer:
             "actions": [{"type": "Action.OpenUrl", "title": "Open chart", "url": url}],
         }
 
+    def render_chart_image(
+        self,
+        chart_name: str,
+        png_url: str,
+        interactive_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Adaptive Card with inline chart PNG and optional interactive link."""
+        body: list[dict[str, Any]] = [
+            {"type": "TextBlock", "text": chart_name, "weight": "Bolder", "size": "Medium"},
+            {"type": "Image", "url": png_url, "size": "Stretch"},
+        ]
+        actions: list[dict[str, Any]] = []
+        if interactive_url:
+            actions.append(
+                {"type": "Action.OpenUrl", "title": "Open Interactive", "url": interactive_url}
+            )
+        card: dict[str, Any] = {
+            "type": "AdaptiveCard",
+            "version": "1.5",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "body": body,
+        }
+        if actions:
+            card["actions"] = actions
+        return card
+
+    def render_native_table(
+        self,
+        title: str,
+        columns: list[str],
+        rows: list[list[str]],
+        total_rows: int,
+    ) -> dict[str, Any]:
+        """Adaptive Card with native Table element (v1.5+)."""
+        table_columns = [{"width": 1} for _ in columns]
+        header_cells = [
+            {"type": "TableCell", "items": [{"type": "TextBlock", "text": c, "weight": "Bolder"}]}
+            for c in columns
+        ]
+        table_rows: list[dict[str, Any]] = [
+            {"type": "TableRow", "cells": header_cells, "style": "accent"}
+        ]
+        for row in rows:
+            table_rows.append(
+                {
+                    "type": "TableRow",
+                    "cells": [
+                        {
+                            "type": "TableCell",
+                            "items": [{"type": "TextBlock", "text": str(v), "wrap": True}],
+                        }
+                        for v in row
+                    ],
+                }
+            )
+        body: list[dict[str, Any]] = [
+            {"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium"},
+            {"type": "Table", "columns": table_columns, "rows": table_rows},
+        ]
+        if total_rows > len(rows):
+            body.append(
+                {
+                    "type": "TextBlock",
+                    "text": f"Showing {len(rows)} of {total_rows} rows",
+                    "size": "Small",
+                    "isSubtle": True,
+                }
+            )
+        return {
+            "type": "AdaptiveCard",
+            "version": "1.5",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "body": body,
+        }
+
     def render_file_received(self, filenames: list[str]) -> dict[str, Any]:
         """Render a card acknowledging received file attachments."""
         count = len(filenames)
