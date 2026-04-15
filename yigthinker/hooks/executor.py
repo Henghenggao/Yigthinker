@@ -1,5 +1,5 @@
 from __future__ import annotations
-from yigthinker.types import HookAction, HookAggregateResult, HookEvent, HookResult
+from yigthinker.types import HookAction, HookAggregateResult, HookEvent
 from yigthinker.hooks.registry import HookRegistry
 
 

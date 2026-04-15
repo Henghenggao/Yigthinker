@@ -1,7 +1,6 @@
 """Tests for WorkflowDeployTool -- Plan 09-01 (local mode) + 09-02 stubs."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest

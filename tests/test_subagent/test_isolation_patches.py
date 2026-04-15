@@ -8,7 +8,6 @@ Covers:
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 from yigthinker.session import VarRegistry
 from yigthinker.subagent.dataframes import copy_dataframes_to_child

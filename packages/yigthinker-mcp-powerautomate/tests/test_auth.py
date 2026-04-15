@@ -21,7 +21,6 @@ import pytest
 
 from yigthinker_mcp_powerautomate.auth import (
     DEFAULT_SCOPE,
-    SAFETY_MARGIN_S,
     PowerAutomateAuth,
 )
 

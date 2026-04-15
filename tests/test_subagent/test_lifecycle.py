@@ -1,10 +1,8 @@
 # tests/test_subagent/test_lifecycle.py
 # Lifecycle tests: foreground (SPAWN-10), background (SPAWN-11), concurrency (SPAWN-12),
 # SubagentStop hook (SPAWN-16, D-14), BLOCK ignored (D-13), failure (D-09), notification (D-08).
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from yigthinker.hooks.executor import HookExecutor
 from yigthinker.hooks.registry import HookRegistry
@@ -13,7 +11,7 @@ from yigthinker.session import SessionContext
 from yigthinker.subagent.manager import SubagentManager
 from yigthinker.tools.registry import ToolRegistry
 from yigthinker.tools.spawn_agent import SpawnAgentInput, SpawnAgentTool
-from yigthinker.types import HookAction, HookEvent, HookResult, LLMResponse, ToolResult
+from yigthinker.types import HookEvent, HookResult
 
 
 def _make_spawn_tool() -> tuple[SpawnAgentTool, ToolRegistry, HookExecutor, PermissionSystem, AsyncMock]:
@@ -27,7 +25,7 @@ def _make_spawn_tool() -> tuple[SpawnAgentTool, ToolRegistry, HookExecutor, Perm
     tool.set_parent_components(
         tools=tools,
         hooks=hooks,
-        permissions=permissions if False else perms,  # just perms
+        permissions=perms,
         provider=provider,
     )
     return tool, tools, hooks, perms, provider

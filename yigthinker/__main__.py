@@ -155,7 +155,6 @@ def quickstart(
     port: int = typer.Option(8766, help="Port for the gateway"),
 ) -> None:
     """First-time setup: configure API key, create sample data, launch gateway."""
-    import os
 
     from rich.panel import Panel
 
@@ -185,7 +184,7 @@ def quickstart(
         console.print(f"\n[bold]Step 1/3[/] — LLM provider [green]already configured[/] (model: [bold]{model}[/])")
 
     # Step 2: Create sample database and wire it as a connection
-    console.print(f"\n[bold]Step 2/3[/] — Creating sample finance database")
+    console.print("\n[bold]Step 2/3[/] — Creating sample finance database")
     from yigthinker.sample_db import ensure_sample_db
     sample_path = ensure_sample_db()
     # Register sample DB as a named connection so sql_query can reach it
@@ -197,7 +196,7 @@ def quickstart(
     console.print("  [dim]Connection registered as [bold]sample[/] — use /connect sample[/]")
 
     # Step 3: Launch gateway
-    console.print(f"\n[bold]Step 3/3[/] — Starting gateway\n")
+    console.print("\n[bold]Step 3/3[/] — Starting gateway\n")
 
     from yigthinker.gateway.auth import GatewayAuth
     auth = GatewayAuth()

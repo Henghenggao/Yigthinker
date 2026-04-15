@@ -1,6 +1,5 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from yigthinker.types import Message, LLMResponse, ThinkingConfig
+from yigthinker.types import Message, ThinkingConfig
 from yigthinker.providers.claude import ClaudeProvider
 
 

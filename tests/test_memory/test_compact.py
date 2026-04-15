@@ -1,4 +1,3 @@
-import pytest
 from yigthinker.memory.compact import SmartCompact, CompactConfig
 from yigthinker.types import Message
 

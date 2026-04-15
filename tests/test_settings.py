@@ -1,7 +1,5 @@
 # tests/test_settings.py
 import json
-from pathlib import Path
-import pytest
 from yigthinker.settings import DEFAULT_SETTINGS, _deep_merge, has_api_key, load_settings
 
 def test_deep_merge_simple():

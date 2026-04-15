@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
+from yigthinker.session import SessionContext
 
 
 async def test_mcp_client_list_resources():
@@ -35,10 +36,6 @@ async def test_mcp_client_read_resource():
 
     content = await client.read_resource("file:///data/schema.sql")
     assert "CREATE TABLE" in content
-
-
-from yigthinker.session import SessionContext
-
 
 async def test_list_resources_tool():
     from yigthinker.mcp.resource_tools import MCPListResourcesTool, MCPListResourcesInput

@@ -1,5 +1,4 @@
 import pandas as pd
-import pytest
 from yigthinker.tools.visualization.chart_create import ChartCreateTool, ChartCreateInput
 from yigthinker.session import SessionContext
 

@@ -1,5 +1,3 @@
-import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 from yigthinker.memory.session_memory import MemoryManager, MEMORY_TEMPLATE
@@ -85,7 +83,7 @@ async def test_extract_memories_calls_llm(tmp_path):
         text="# Key Findings\nRevenue grew 15% YoY",
     )
     messages = [Message(role="user", content="Show me revenue trends")]
-    result = await mgr.extract_memories(messages, provider)
+    await mgr.extract_memories(messages, provider)
     provider.chat.assert_called_once()
     path = mgr.ensure_memory_file()
     content = path.read_text(encoding="utf-8")

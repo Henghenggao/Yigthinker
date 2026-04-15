@@ -7,7 +7,6 @@
 #   DfLoadInput, wired into the loader kwargs for CSV/Excel only (not JSON/Parquet).
 
 import json
-import pandas as pd
 import pytest
 from yigthinker.tools.dataframe.df_load import DfLoadTool
 from yigthinker.session import SessionContext

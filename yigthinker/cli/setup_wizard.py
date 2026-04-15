@@ -130,7 +130,7 @@ def run_setup() -> None:
     env_var = _PROVIDER_KEY_ENV.get(provider)
 
     if env_var:
-        console.print(f"[bold]Step 3 of 3 — Enter your API key[/]\n")
+        console.print("[bold]Step 3 of 3 — Enter your API key[/]\n")
         existing = os.environ.get(env_var, "")
         if existing:
             console.print(f"[dim]Found {env_var} in environment ({existing[:8]}...).[/]")

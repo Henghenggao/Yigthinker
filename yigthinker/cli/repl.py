@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.markdown import Markdown

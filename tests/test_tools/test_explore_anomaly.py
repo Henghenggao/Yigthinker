@@ -1,6 +1,4 @@
 import pandas as pd
-import numpy as np
-import pytest
 from yigthinker.tools.exploration.explore_anomaly import ExploreAnomalyTool
 from yigthinker.session import SessionContext
 

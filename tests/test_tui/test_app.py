@@ -1,7 +1,6 @@
 """Integration tests for YigthinkerTUI using Textual Pilot."""
 from __future__ import annotations
 
-import asyncio
 
 import pytest
 from unittest.mock import AsyncMock, patch

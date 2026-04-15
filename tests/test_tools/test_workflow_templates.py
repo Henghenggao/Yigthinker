@@ -6,6 +6,11 @@ checkpoint utilities rendering.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+import xml.etree.ElementTree as ET
+import zipfile
+
 import pytest
 
 from yigthinker.tools.workflow.template_engine import (
@@ -397,11 +402,6 @@ def test_local_scheduler_templates() -> None:
 # ---------------------------------------------------------------------------
 # Phase 9 Plan 02: PA + UiPath guided bundle templates (DEP-02)
 # ---------------------------------------------------------------------------
-
-import json
-import xml.etree.ElementTree as ET
-import zipfile
-from pathlib import Path
 
 
 class TestPABundleTemplates:

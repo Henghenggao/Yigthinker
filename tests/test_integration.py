@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock
 from pydantic import BaseModel
-from yigthinker.types import Message, LLMResponse, ToolResult, ToolUse
+from yigthinker.types import LLMResponse, ToolResult, ToolUse
 from yigthinker.session import SessionContext
 from yigthinker.permissions import PermissionSystem
 from yigthinker.tools.registry import ToolRegistry

@@ -3,7 +3,6 @@
 # Finding 2: GChat webhook missing signature verification (gchat/adapter.py:46)
 # Finding 3: Memory content prompt injection (context_manager.py:51)
 
-import pytest
 from yigthinker.context_manager import ContextManager, _sanitize_memory_content
 from yigthinker.session import SessionContext
 from yigthinker.gateway.session_registry import SessionRegistry

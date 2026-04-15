@@ -2,7 +2,6 @@
 # Transcript persistence tests (SPAWN-17, D-15).
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 from yigthinker.subagent.transcript import create_subagent_transcript_writer
 
@@ -10,9 +9,6 @@ from yigthinker.subagent.transcript import create_subagent_transcript_writer
 def test_transcript_path():
     """create_subagent_transcript_writer produces correct path under subagents dir."""
     writer = create_subagent_transcript_writer("session-abc", "subagent-123")
-    expected_suffix = (
-        Path(".yigthinker") / "sessions" / "subagents" / "session-abc" / "subagent-123.jsonl"
-    )
     # The path should end with the expected components
     actual = Path(writer._path)
     assert actual.name == "subagent-123.jsonl"

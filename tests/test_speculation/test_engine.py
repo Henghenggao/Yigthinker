@@ -1,6 +1,4 @@
 from __future__ import annotations
-import pytest
-from unittest.mock import AsyncMock
 from yigthinker.speculation.engine import SpeculationEngine, SpeculationConfig, CandidateResult
 
 

@@ -357,7 +357,6 @@ class FeishuAdapter:
             return None
 
         try:
-            import lark_oapi as lark
             from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
             request = CreateMessageRequest.builder() \
@@ -385,7 +384,6 @@ class FeishuAdapter:
             return
 
         try:
-            import lark_oapi as lark
             from lark_oapi.api.im.v1 import PatchMessageRequest, PatchMessageRequestBody
 
             request = PatchMessageRequest.builder() \

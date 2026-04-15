@@ -34,7 +34,7 @@ async def test_forecast_includes_confidence_intervals(ctx_with_timeseries):
     input_obj = tool.input_schema(
         var_name="monthly", date_col="date", value_col="revenue", periods=3
     )
-    result = await tool.execute(input_obj, ctx_with_timeseries)
+    await tool.execute(input_obj, ctx_with_timeseries)
     forecast_df = ctx_with_timeseries.vars.get("forecast")
     assert "lower_ci" in forecast_df.columns
     assert "upper_ci" in forecast_df.columns

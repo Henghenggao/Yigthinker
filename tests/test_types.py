@@ -1,5 +1,5 @@
 from yigthinker.types import (
-    ToolResult, ToolUse, HookAction, HookResult, HookEvent, Message, LLMResponse, ThinkingConfig
+    ToolResult, HookAction, HookResult, HookEvent, LLMResponse, ThinkingConfig
 )
 
 def test_tool_result_defaults():

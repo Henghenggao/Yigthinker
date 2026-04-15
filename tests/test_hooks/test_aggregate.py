@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pytest
-from yigthinker.types import HookAction, HookResult
+from yigthinker.hooks.executor import HookExecutor
+from yigthinker.hooks.registry import HookRegistry
+from yigthinker.types import HookAction, HookEvent, HookResult
 
 
 def test_inject_system_creates_correct_action():
@@ -19,12 +20,6 @@ def test_replace_creates_correct_action():
     result = HookResult.replace({"masked": True})
     assert result.action == HookAction.REPLACE_RESULT
     assert result.replacement == {"masked": True}
-
-
-from yigthinker.types import HookAggregateResult, HookEvent
-from yigthinker.hooks.registry import HookRegistry
-from yigthinker.hooks.executor import HookExecutor
-
 
 def make_event(tool_name: str = "sql_query") -> HookEvent:
     return HookEvent(event_type="PreToolUse", session_id="s1", transcript_path="", tool_name=tool_name)

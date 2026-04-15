@@ -1,7 +1,6 @@
 import json
 import pytest
 import plotly.express as px
-import plotly.graph_objects as go
 import pandas as pd
 
 from yigthinker.visualization.vchart import plotly_to_vchart

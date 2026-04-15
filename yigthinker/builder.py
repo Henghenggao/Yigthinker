@@ -3,12 +3,17 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from yigthinker.agent import AgentLoop
 from yigthinker.tools.sql.connection import ConnectionPool
 
 _SENTINEL = object()
+
+if TYPE_CHECKING:
+    from yigthinker.memory.patterns import PatternStore
+    from yigthinker.memory.session_memory import MemoryManager
+    from yigthinker.providers.base import LLMProvider
 
 
 @dataclass
@@ -17,8 +22,8 @@ class AppContext:
 
     agent_loop: AgentLoop
     pool: ConnectionPool
-    memory_manager: "MemoryManager | None" = None
-    pattern_store: "PatternStore | None" = None  # Phase 10 / 10-03
+    memory_manager: MemoryManager | None = None
+    pattern_store: PatternStore | None = None  # Phase 10 / 10-03
     # Phase 10 / 10-01: expose RPA state store + workflow registry so
     # GatewayServer.start() can assemble an RPAController after build_app
     # has already resolved the LLM provider.

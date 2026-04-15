@@ -1,4 +1,3 @@
-import json
 import pytest
 import plotly.express as px
 import pandas as pd

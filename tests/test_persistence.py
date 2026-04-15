@@ -1,9 +1,6 @@
 # tests/test_persistence.py
 import json
-from pathlib import Path
-import pytest
 from yigthinker.persistence import TranscriptWriter, TranscriptReader
-from yigthinker.types import Message
 
 
 def test_writer_creates_file_and_appends(tmp_path):

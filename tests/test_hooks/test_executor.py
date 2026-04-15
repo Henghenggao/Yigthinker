@@ -1,4 +1,3 @@
-import pytest
 from yigthinker.hooks.registry import HookRegistry
 from yigthinker.hooks.executor import HookExecutor
 from yigthinker.types import HookEvent, HookResult, HookAction

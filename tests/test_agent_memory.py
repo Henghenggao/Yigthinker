@@ -1,8 +1,7 @@
 # tests/test_agent_memory.py
 """Tests for AgentLoop memory integration: lifecycle events, extraction, and compaction."""
 import asyncio
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from yigthinker.types import (
     Message, LLMResponse, ToolResult, ToolUse, HookEvent, HookResult,
@@ -243,8 +242,6 @@ async def test_extraction_uses_message_snapshot():
     )
 
     captured_snapshots: list[list] = []
-
-    original_run_extraction = None
 
     async def capturing_extraction(messages_snapshot):
         captured_snapshots.append(messages_snapshot)

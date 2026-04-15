@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -277,7 +276,7 @@ async def test_sandbox_blocks_dunder_escape(tmp_path):
         permissions=perms,
     )
     ctx = SessionContext()
-    result = await agent.run("transform the data", ctx)
+    await agent.run("transform the data", ctx)
 
     # The transform result in messages should contain rejection, not success
     # Check that the tool result for the malicious call was an error

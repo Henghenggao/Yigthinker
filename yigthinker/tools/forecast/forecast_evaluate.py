@@ -1,6 +1,5 @@
 from __future__ import annotations
 import numpy as np
-import pandas as pd
 from pydantic import BaseModel
 from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext

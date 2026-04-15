@@ -1,5 +1,4 @@
 import pandas as pd
-import pytest
 from yigthinker.tools.visualization.chart_recommend import ChartRecommendTool
 from yigthinker.session import SessionContext
 

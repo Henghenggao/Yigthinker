@@ -10,11 +10,8 @@ import sys
 from rich.console import Console
 from rich.panel import Panel
 from yigthinker.install_hints import (
-    DEFAULT_INSTALL_SOURCE,
-    INSTALL_SOURCE_ENV,
     build_install_requirement,
     build_uv_tool_install_hint,
-    get_install_source,
 )
 
 console = Console()

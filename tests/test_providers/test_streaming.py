@@ -2,10 +2,9 @@
 # Tests for streaming (stream()) on all 4 LLM providers.
 import json
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from yigthinker.types import Message, StreamEvent, ToolUse
+from yigthinker.types import Message
 
 
 # ---------------------------------------------------------------------------

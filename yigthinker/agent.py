@@ -10,7 +10,7 @@ from yigthinker.permissions import PermissionSystem
 from yigthinker.providers.base import LLMProvider
 from yigthinker.session import SessionContext
 from yigthinker.tools.registry import ToolRegistry
-from yigthinker.types import HookAction, HookEvent, LLMResponse, Message, StreamEvent, ToolResult, ToolUse
+from yigthinker.types import HookAction, HookEvent, LLMResponse, Message, ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from yigthinker.memory.compact import SmartCompact

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import time
-from pathlib import Path
 
 from yigthinker.session import SessionContext
+from yigthinker.tools._file_undo import snapshot_before_write, undo_file
 
 
 def test_session_has_undo_stack():
@@ -15,12 +14,6 @@ def test_session_has_undo_stack():
 # ---------------------------------------------------------------------------
 # snapshot_before_write / undo_file tests
 # ---------------------------------------------------------------------------
-
-import shutil
-import tempfile
-from pathlib import Path as _Path
-
-from yigthinker.tools._file_undo import snapshot_before_write, undo_file
 
 
 def test_snapshot_existing_file(tmp_path):

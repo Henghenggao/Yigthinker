@@ -1,8 +1,6 @@
 # tests/test_tools/test_agent_status.py
 # Tests for AgentStatusTool (SPAWN-13)
-import time
 
-import pytest
 
 from yigthinker.session import SessionContext
 from yigthinker.subagent.manager import SubagentManager
@@ -54,7 +52,7 @@ async def test_lists_multiple():
     mgr = SubagentManager()
     ctx.subagent_manager = mgr
 
-    info1 = mgr.register("east-analyst")
+    mgr.register("east-analyst")
     info2 = mgr.register("west-analyst")
     mgr.complete(info2.subagent_id, "done")
 

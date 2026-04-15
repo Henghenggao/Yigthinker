@@ -1,6 +1,5 @@
 from __future__ import annotations
 import re
-from typing import Any
 import pandas as pd
 import sqlalchemy as sa
 from pydantic import BaseModel

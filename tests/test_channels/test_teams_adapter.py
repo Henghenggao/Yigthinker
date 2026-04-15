@@ -9,6 +9,7 @@ import hmac as hmac_mod
 import json
 import sys
 from types import ModuleType
+from typing import Any
 
 import httpx
 import pytest
@@ -566,9 +567,6 @@ def _mock_httpx_download(content: bytes = b"fake excel bytes", status_code: int 
     return mock_client
 
 
-from typing import Any
-
-
 @pytest.mark.asyncio
 async def test_webhook_with_single_xlsx_attachment(adapter):
     """Webhook with a single .xlsx attachment downloads file and augments text
@@ -601,7 +599,7 @@ async def test_webhook_with_single_xlsx_attachment(adapter):
     with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client), \
          patch("asyncio.create_task", side_effect=capture_create_task):
-        response = await handler(mock_request)
+        await handler(mock_request)
 
     # _process_and_respond was called once inside the coroutine
     # Since we close the coroutine, we need to verify text differently.
@@ -753,7 +751,7 @@ async def test_webhook_attachment_without_content_url(adapter):
         return MagicMock()
 
     with patch("asyncio.create_task", side_effect=capture_create_task):
-        response = await handler(mock_request)
+        await handler(mock_request)
 
     # Task still created (text-only path), just no attachment augmentation
     assert len(created_coros) == 1
@@ -834,7 +832,7 @@ async def test_webhook_filters_non_file_attachments(adapter):
         return MagicMock()
 
     with patch("asyncio.create_task", side_effect=capture_create_task):
-        response = await handler(mock_request)
+        await handler(mock_request)
 
     # Background task was created
     assert len(created_coros) == 1

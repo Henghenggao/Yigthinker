@@ -4,7 +4,6 @@ import pytest
 
 from yigthinker.session import SessionContext
 from yigthinker.tools.spawn_agent import SpawnAgentInput, SpawnAgentTool
-from yigthinker.types import ToolResult
 
 
 @pytest.fixture

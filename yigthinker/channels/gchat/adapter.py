@@ -8,7 +8,6 @@ Requires: ``pip install google-api-python-client google-auth``
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import TYPE_CHECKING, Any
 

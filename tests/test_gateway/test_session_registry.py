@@ -1,10 +1,9 @@
 """Tests for session registry lifecycle."""
-import asyncio
 
 import pandas as pd
 import pytest
 
-from yigthinker.gateway.session_registry import ManagedSession, SessionRegistry
+from yigthinker.gateway.session_registry import SessionRegistry
 from yigthinker.types import Message
 
 
@@ -49,14 +48,14 @@ def test_list_sessions():
 
 def test_lru_eviction():
     registry = SessionRegistry(max_sessions=2)
-    s1 = registry.get_or_create("test:a", {}, "test")
+    registry.get_or_create("test:a", {}, "test")
     s2 = registry.get_or_create("test:b", {}, "test")
 
     # Touch s2 to make s1 the LRU
     s2.touch()
 
     # Creating a third should evict s1
-    s3 = registry.get_or_create("test:c", {}, "test")
+    registry.get_or_create("test:c", {}, "test")
     assert registry.active_count == 2
     assert registry.get("test:a") is None
     assert registry.get("test:b") is not None

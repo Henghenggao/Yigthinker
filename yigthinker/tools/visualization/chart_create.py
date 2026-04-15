@@ -1,7 +1,5 @@
 from __future__ import annotations
-import json
 from typing import Literal
-import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from pydantic import BaseModel

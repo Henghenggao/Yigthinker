@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -10,7 +9,7 @@ async def test_query_returns_string():
     mock_app = MagicMock()
     mock_app.agent_loop = mock_loop
 
-    with patch("yigthinker.sdk.build_app", return_value=mock_app) as mock_build, \
+    with patch("yigthinker.sdk.build_app", return_value=mock_app), \
          patch("yigthinker.sdk.load_settings", return_value={}), \
          patch("yigthinker.sdk.SessionContext") as mock_ctx_cls:
         mock_ctx_cls.return_value = MagicMock(session_id="auto")

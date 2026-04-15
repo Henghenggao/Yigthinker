@@ -1,5 +1,4 @@
 import pytest
-import pandas as pd
 from sqlalchemy.ext.asyncio import create_async_engine
 import sqlalchemy as sa
 from yigthinker.tools.sql.connection import ConnectionPool

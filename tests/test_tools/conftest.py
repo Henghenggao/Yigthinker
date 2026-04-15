@@ -1,7 +1,6 @@
 # tests/test_tools/conftest.py
 import pytest
-import pandas as pd
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
+from sqlalchemy.ext.asyncio import create_async_engine
 import sqlalchemy as sa
 
 @pytest.fixture

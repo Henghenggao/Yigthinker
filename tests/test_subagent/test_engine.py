@@ -3,7 +3,6 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from pydantic import BaseModel
 
 from yigthinker.hooks.executor import HookExecutor

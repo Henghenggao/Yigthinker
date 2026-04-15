@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -138,11 +139,6 @@ def test_load_mcp_configs_returns_merged_server_configs(tmp_path):
 
     assert "plugin-server" in configs
     assert configs["plugin-server"]["url"] == "http://plugin/mcp"
-
-
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 
 async def test_builder_registers_plugin_hooks(tmp_path, monkeypatch):
     """Plugin hooks loaded from discovered plugins are registered into HookRegistry."""

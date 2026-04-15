@@ -3,7 +3,6 @@
 import asyncio
 from unittest.mock import MagicMock
 
-import pytest
 
 from yigthinker.session import SessionContext
 from yigthinker.subagent.manager import SubagentManager

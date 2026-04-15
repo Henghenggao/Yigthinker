@@ -1,9 +1,7 @@
 # tests/test_subagent/test_tool_access.py
 # Tests for tool access control in child ToolRegistry (SPAWN-07, -08, -09, D-05)
-import asyncio
 from unittest.mock import AsyncMock
 
-import pytest
 from pydantic import BaseModel
 
 from yigthinker.hooks.executor import HookExecutor

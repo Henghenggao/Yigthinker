@@ -13,10 +13,7 @@ would produce, but execute each tool through the real Yigthinker pipeline
 from __future__ import annotations
 
 import asyncio
-import json
-import sys
 from pathlib import Path
-from typing import Any
 
 # -- Yigthinker imports ----------------------------------------------
 from yigthinker.session import SessionContext
@@ -269,7 +266,7 @@ VarRegistry state:
     rd = pnl_df.loc['R&D', 'FY24 Total']
     oi = pnl_df.loc['Order Intake FA', 'FY24 Total']
 
-    print(f"\nKey Metrics (FY24):")
+    print("\nKey Metrics (FY24):")
     print(f"  Order Intake:   {oi:>15,}")
     print(f"  Net Sales:      {ns:>15,}")
     print(f"  Cost of Sales:  {cos:>15,}")

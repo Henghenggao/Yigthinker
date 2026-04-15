@@ -2,7 +2,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 import anthropic
 from yigthinker.types import LLMResponse, Message, StreamEvent, ThinkingConfig, ToolUse
-from yigthinker.providers.base import LLMProvider
 
 
 class ClaudeProvider:

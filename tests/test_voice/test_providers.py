@@ -1,6 +1,6 @@
 from __future__ import annotations
 from unittest.mock import AsyncMock, patch
-from yigthinker.voice.providers import WhisperProvider, VoiceConfig, TranscriptEvent
+from yigthinker.voice.providers import WhisperProvider, VoiceConfig
 
 
 def test_voice_config_defaults():

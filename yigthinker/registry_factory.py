@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from yigthinker.tools.dataframe.df_load import DfLoadTool
 from yigthinker.tools.dataframe.df_merge import DfMergeTool
 from yigthinker.tools.dataframe.df_profile import DfProfileTool
@@ -26,6 +28,10 @@ from yigthinker.tools.finance.finance_analyze import FinanceAnalyzeTool
 from yigthinker.tools.finance.finance_validate import FinanceValidateTool
 from yigthinker.tools.finance.finance_budget import FinanceBudgetTool
 
+if TYPE_CHECKING:
+    from yigthinker.memory.patterns import PatternStore
+    from yigthinker.tools.workflow.registry import WorkflowRegistry
+
 
 def _register_forecast_tools(registry: ToolRegistry) -> None:
     """Register forecast tools only when their optional dependencies are installed."""
@@ -43,8 +49,8 @@ def _register_forecast_tools(registry: ToolRegistry) -> None:
 
 def _register_workflow_tools(
     registry: ToolRegistry,
-    workflow_registry: "WorkflowRegistry",
-    pattern_store: "PatternStore | None" = None,
+    workflow_registry: WorkflowRegistry,
+    pattern_store: PatternStore | None = None,
 ) -> None:
     """Register workflow tools only when Jinja2 is installed."""
     try:
@@ -67,8 +73,8 @@ def _register_workflow_tools(
 
 def build_tool_registry(
     pool: ConnectionPool,
-    workflow_registry: "WorkflowRegistry | None" = None,
-    pattern_store: "PatternStore | None" = None,
+    workflow_registry: WorkflowRegistry | None = None,
+    pattern_store: PatternStore | None = None,
 ) -> ToolRegistry:
     """Register all available Yigthinker tools."""
     registry = ToolRegistry()

@@ -1,5 +1,4 @@
 """Tests for gateway authentication."""
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from yigthinker.gateway.auth import GatewayAuth
@@ -42,7 +41,7 @@ def test_windows_uses_icacls(tmp_path):
          patch("yigthinker.gateway.auth.subprocess") as mock_subprocess:
         mock_sys.platform = "win32"
         mock_subprocess.run = MagicMock()
-        auth = GatewayAuth(token_path=token_path)
+        GatewayAuth(token_path=token_path)
     mock_subprocess.run.assert_called_once()
     args = mock_subprocess.run.call_args
     assert args[0][0][0] == "icacls"

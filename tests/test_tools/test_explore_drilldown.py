@@ -1,5 +1,4 @@
 import pandas as pd
-import pytest
 from yigthinker.tools.exploration.explore_drilldown import ExploreDrilldownTool
 from yigthinker.session import SessionContext
 

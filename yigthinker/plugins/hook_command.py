@@ -5,7 +5,7 @@ import json
 import shlex
 import sys
 
-from yigthinker.types import HookAction, HookEvent, HookResult
+from yigthinker.types import HookEvent, HookResult
 
 
 class CommandHook:

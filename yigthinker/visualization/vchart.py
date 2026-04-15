@@ -157,7 +157,7 @@ def _translate_pie(traces: list[dict], layout: dict) -> dict[str, Any]:
     labels = _coerce_array(trace.get("labels"))
     values = _coerce_array(trace.get("values"))
 
-    data_values = [{"category": str(l), "value": v} for l, v in zip(labels, values)]
+    data_values = [{"category": str(label), "value": value} for label, value in zip(labels, values)]
 
     spec: dict[str, Any] = {
         "type": "common",
@@ -180,7 +180,7 @@ def _translate_funnel(traces: list[dict], layout: dict) -> dict[str, Any]:
     labels = _coerce_array(trace.get("labels") or trace.get("y"))
     values = _coerce_array(trace.get("values") or trace.get("x"))
 
-    data_values = [{"category": str(l), "value": v} for l, v in zip(labels, values)]
+    data_values = [{"category": str(label), "value": value} for label, value in zip(labels, values)]
 
     spec: dict[str, Any] = {
         "type": "common",

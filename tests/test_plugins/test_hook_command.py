@@ -1,5 +1,4 @@
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from yigthinker.plugins.hook_command import CommandHook
 from yigthinker.types import HookEvent, HookAction
