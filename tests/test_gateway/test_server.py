@@ -142,8 +142,12 @@ async def test_handle_message_restores_hibernated_session(server):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_messages_serialized(server):
-    """GW-04: Per-session lock serializes concurrent messages."""
+async def test_concurrent_messages_steer_when_running(server):
+    """GW-04 / Task 10 (Live Steering): With live steering, concurrent messages
+    to a running session are routed to the steering queue rather than serialized
+    behind the session lock. The first caller runs the agent; the second is
+    enqueued and returns None immediately.
+    """
     import asyncio
 
     call_order: list[str] = []
@@ -159,17 +163,22 @@ async def test_concurrent_messages_serialized(server):
 
     # Fire two concurrent messages to the SAME session key
     task1 = asyncio.create_task(server.handle_message("test:serial", "msg1", channel="test"))
+    # Small delay so task1 has a chance to flip _is_running = True first
+    await asyncio.sleep(0.005)
     task2 = asyncio.create_task(server.handle_message("test:serial", "msg2", channel="test"))
     results = await asyncio.gather(task1, task2)
 
-    assert set(results) == {"echo:msg1", "echo:msg2"}
+    # One call runs to completion, the other is steered (returns None)
+    assert set(results) == {"echo:msg1", None}
 
-    # If serialized, we should see start:X end:X start:Y end:Y (not interleaved)
-    # The first two entries should be start then end of the same message
-    assert call_order[0].startswith("start:")
-    assert call_order[1].startswith("end:")
-    first_msg = call_order[0].split(":")[1]
-    assert call_order[1] == f"end:{first_msg}"
+    # Only one agent invocation occurred
+    assert len([e for e in call_order if e.startswith("start:")]) == 1
+    assert len([e for e in call_order if e.startswith("end:")]) == 1
+
+    # The steered message was enqueued for consumption by the agent
+    session = server.registry.get("test:serial")
+    assert session is not None
+    assert session.ctx.drain_steerings() == ["msg2"]
 
 
 def test_websocket_e2e_full_flow(server):
@@ -277,3 +286,33 @@ async def test_streaming_broadcast_sends_token_msgs(server):
     assert len(token_msgs) == 2
     assert token_msgs[0]["text"] == "Hello"
     assert token_msgs[1]["text"] == " world"
+
+
+@pytest.mark.asyncio
+async def test_handle_message_steers_when_already_running(server):
+    """Task 10 (Live Steering): when _is_running is True on arrival,
+    handle_message enqueues the input onto the steering queue and returns
+    None WITHOUT invoking _agent_loop.run().
+    """
+    call_count = {"n": 0}
+
+    class RecordingAgentLoop:
+        async def run(self, user_input: str, ctx, **kwargs) -> str:
+            call_count["n"] += 1
+            return f"ran:{user_input}"
+
+    server._agent_loop = RecordingAgentLoop()
+
+    # Pre-create the session and mark it as running
+    session = server.registry.get_or_create("tui:steer-test", {}, "tui")
+    session.ctx._is_running = True
+
+    result = await server.handle_message(
+        "tui:steer-test", "steer me", channel="tui"
+    )
+
+    assert result is None, "steering path must return None"
+    assert call_count["n"] == 0, "agent_loop.run must not be invoked during steering"
+
+    drained = session.ctx.drain_steerings()
+    assert drained == ["steer me"], "input must be enqueued on the steering queue"

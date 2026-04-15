@@ -183,6 +183,15 @@ class AgentLoop:
                             system_prompt = f"[Hook Context]\n{injection_text}"
                         ctx._pending_injections = None
 
+                    steerings = ctx.drain_steerings()
+                    if steerings:
+                        numbered = "\n".join(f"{i+1}. {s}" for i, s in enumerate(steerings))
+                        steering_block = f"[User Follow-up (sent while you were working)]\n{numbered}"
+                        if system_prompt:
+                            system_prompt += f"\n\n{steering_block}"
+                        else:
+                            system_prompt = steering_block
+
                     if self._compact is not None:
                         token_est = self._estimate_tokens(messages)
                         if token_est > ctx.context_manager.history_budget:

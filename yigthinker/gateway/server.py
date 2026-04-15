@@ -210,16 +210,28 @@ class GatewayServer:
         user_input: str,
         channel: str = "cli",
         on_tool_event: Callable[[str, dict], None] | None = None,
-    ) -> str:
+    ) -> str | None:
         """Route a user message to the agent loop within a managed session.
 
-        Acquires the per-session lock to prevent concurrent access.
+        Acquires the per-session lock to prevent concurrent access. If the
+        session is already running an agent loop, the message is enqueued on
+        the live steering queue and None is returned (signaling the adapter
+        that the input was acknowledged without a synchronous response).
         """
         # P1-2: resolve active session key (supports /new and /switch commands)
         session_key = self._registry.get_active_key(session_key)
         session = await self._registry.get_or_restore(session_key, self._settings, channel)
 
+        # Live steering: if the agent is already running for this session, the
+        # session lock is held by that running task. Check _is_running BEFORE
+        # acquiring the lock -- otherwise we would block waiting for the run
+        # to finish, defeating the purpose of steering.
+        if session.ctx._is_running:
+            session.ctx.steer(user_input)
+            return None  # Signal to adapter: steering acknowledged, no response needed
+
         async with session.lock:
+            session.ctx._is_running = True
             session.touch()
             session.ctx._session_registry = self._registry  # type: ignore[attr-defined]
 
@@ -272,11 +284,14 @@ class GatewayServer:
                         except Exception:
                             pass
 
-            result = await self._agent_loop.run(
-                user_input, session.ctx,
-                on_tool_event=_on_tool_event,
-                on_token=_on_token,
-            )
+            try:
+                result = await self._agent_loop.run(
+                    user_input, session.ctx,
+                    on_tool_event=_on_tool_event,
+                    on_token=_on_token,
+                )
+            finally:
+                session.ctx._is_running = False
             await self._broadcast_vars_update(session)
             return result
 

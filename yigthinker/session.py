@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import time
 import uuid
@@ -112,6 +113,8 @@ class SessionContext:
     _on_tool_event: Callable[[str, dict], None] | None = field(default=None, repr=False)
     _pending_injections: list[str] | None = field(default=None, repr=False)
     _checkpoints: dict[str, CheckpointData] = field(default_factory=dict, repr=False)
+    _steering_queue: asyncio.Queue = field(default_factory=asyncio.Queue, repr=False)
+    _is_running: bool = field(default=False, repr=False)
 
     async def emit_progress(self, message: str) -> None:
         """Emit a progress message to the UI layer. No-op if no callback set."""
@@ -177,6 +180,20 @@ class SessionContext:
 
     def mark_active(self) -> None:
         self.last_active = time.monotonic()
+
+    def steer(self, message: str) -> None:
+        """Enqueue a steering message from an external source (e.g. IM follow-up)."""
+        self._steering_queue.put_nowait(message)
+
+    def drain_steerings(self) -> list[str]:
+        """Drain all pending steering messages. Returns empty list if none."""
+        messages: list[str] = []
+        while not self._steering_queue.empty():
+            try:
+                messages.append(self._steering_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        return messages
 
     def set_channel_origin(self, origin: str) -> None:
         self.channel_origin = origin
