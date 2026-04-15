@@ -125,6 +125,11 @@ class GChatAdapter:
                             self._gateway.handle_message(key, text, channel="gchat"),
                             timeout=25.0,  # Google Chat webhook timeout is ~30s
                         )
+                    # Steering acknowledged — the message was enqueued for a
+                    # running agent. Return an empty 200 instead of rendering
+                    # a card from None.
+                    if result is None:
+                        return JSONResponse({"text": ""})
                     return JSONResponse(self._renderer.render_text(result))
                 except asyncio.TimeoutError:
                     return JSONResponse(self._renderer.render_text(

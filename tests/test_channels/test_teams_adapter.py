@@ -991,3 +991,57 @@ async def test_supported_extensions_match_df_load():
     from yigthinker.channels.teams.adapter import _SUPPORTED_EXTENSIONS
     from yigthinker.tools.dataframe.df_load import _LOADERS
     assert _SUPPORTED_EXTENSIONS == set(_LOADERS.keys())
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_skips_send_when_steering_returns_none(adapter):
+    """Steering acknowledged → ``_process_and_respond`` must not render a
+    card. ``send_response`` itself early-returns on text=None / error=None,
+    so verify no network POST is issued.
+    """
+    adapter._gateway = MagicMock()
+    adapter._gateway.handle_message = AsyncMock(return_value=None)
+    adapter._acquire_token = MagicMock(return_value="tok")
+
+    # _typing_loop runs forever until cancel; stub it to a no-op coroutine
+    async def _noop_typing(event):
+        while True:
+            await asyncio.sleep(3600)
+    adapter._typing_loop = _noop_typing  # type: ignore[assignment]
+
+    # Spy on the renderer — it MUST NOT be called to render None.
+    adapter._renderer = MagicMock()
+    adapter._renderer.render_text = MagicMock(
+        side_effect=AssertionError("render_text MUST NOT be called on None"),
+    )
+    adapter._renderer.render_error = MagicMock(
+        side_effect=AssertionError("render_error MUST NOT be called for steering"),
+    )
+
+    event = {
+        "from": {"aadObjectId": "user-1"},
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "conv-123"},
+    }
+
+    posted_urls: list[str] = []
+
+    class _FakeClient:
+        def __init__(self, *_, **__): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return None
+        async def post(self, url, **kwargs):
+            posted_urls.append(url)
+            resp = MagicMock()
+            resp.status_code = 200
+            return resp
+
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+        await adapter._process_and_respond("teams:user-1", "steer me", event, None)
+
+    adapter._gateway.handle_message.assert_awaited_once()
+    adapter._renderer.render_text.assert_not_called()
+    adapter._renderer.render_error.assert_not_called()
+    # No POSTs to conversation activities URL (send_response short-circuits).
+    activity_posts = [u for u in posted_urls if "/activities" in u]
+    assert activity_posts == [], f"Expected no result POST; got {activity_posts}"
