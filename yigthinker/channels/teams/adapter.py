@@ -345,9 +345,18 @@ class TeamsAdapter:
                         self._send_progress_card(event, tool_name, summary)
                     )
 
+            # Task 14/15: extract replied-to message for context emphasis.
+            # Best-effort: a failed fetch returns []; we never block the send.
+            try:
+                quoted = await self.extract_quoted_messages(event)
+            except Exception:
+                logger.exception("Teams quote extraction failed; continuing without")
+                quoted = []
+
             result = await self._gateway.handle_message(
                 session_key, text, channel="teams",
                 on_tool_event=_on_teams_tool_event,
+                quoted_messages=quoted or None,
             )
             await self.send_response(event, result)
         except Exception:
