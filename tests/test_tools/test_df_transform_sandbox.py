@@ -18,9 +18,15 @@ def tool():
 
 @pytest.mark.asyncio
 async def test_getattr_blocks_dunder_access(tool, ctx):
-    """getattr must not allow access to dunder attributes."""
+    """getattr must not allow access to dunder attributes via indirect reference.
+
+    Uses a list-index expression so the AST checker cannot evaluate the name
+    at parse time — the attribute name '_metadata' is not in _BLOCKED_DUNDERS
+    so visit_Constant does not flag the literal; the call reaches _safe_getattr
+    at runtime where the leading underscore causes the block.
+    """
     inp = DfTransformInput(
-        code='result = getattr([], "__class__")',
+        code='names = ["_metadata"]\nresult = getattr([], names[0])',
         input_var="df1",
         output_var="out",
     )
@@ -39,6 +45,7 @@ async def test_getattr_blocks_concatenated_dunder(tool, ctx):
     )
     r = await tool.execute(inp, ctx)
     assert r.is_error
+    assert "private" in r.content.lower() or "blocked" in r.content.lower()
 
 
 @pytest.mark.asyncio

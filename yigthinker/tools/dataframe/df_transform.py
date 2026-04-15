@@ -18,7 +18,13 @@ _SAFE_BUILTINS = {
 
 
 def _safe_getattr(obj: object, name: str, *default: object) -> object:
-    """getattr replacement that blocks access to private/dunder attributes."""
+    """getattr replacement that blocks access to private/dunder attributes.
+
+    Blocks any attribute name starting with '_' (both single underscore
+    and dunder). User transform code has no legitimate need for private
+    attributes; single-underscore names like `_metadata` and `_constructor`
+    are pandas internals, not public API.
+    """
     if isinstance(name, str) and name.startswith("_"):
         raise AttributeError(
             f"Access to private attribute '{name}' is blocked in df_transform sandbox."
