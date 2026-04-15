@@ -45,3 +45,21 @@ def test_to_html_self_contained(exporter, sample_chart_json):
     # default for topojson tiles; that is fine and expected.)
     assert 'src="https://cdn.plot.ly' not in result
     assert len(result) > 100_000  # plotly.js embedded
+
+
+def test_to_png_raises_clear_error_on_malformed_json(exporter):
+    with pytest.raises(ValueError, match="fig_json is not valid JSON"):
+        exporter.to_png("not-a-json-string")
+
+
+def test_to_html_raises_clear_error_on_malformed_json(exporter):
+    with pytest.raises(ValueError, match="fig_json is not valid JSON"):
+        exporter.to_html("not-a-json-string")
+
+
+def test_to_png_handles_empty_figure(exporter):
+    """Empty Plotly figure should produce valid (blank) PNG bytes without error."""
+    import plotly.graph_objects as go
+    empty_json = go.Figure().to_json()
+    result = exporter.to_png(empty_json)
+    assert result[:8] == b"\x89PNG\r\n\x1a\n"
