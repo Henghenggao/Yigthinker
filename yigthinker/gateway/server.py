@@ -20,6 +20,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from yigthinker.gateway.auth import GatewayAuth
+from yigthinker.visualization.exporter import ChartExporter
 from yigthinker.gateway.protocol import (
     AuthResultMsg,
     ErrorMsg,
@@ -39,6 +40,26 @@ from yigthinker.gateway.session_registry import ManagedSession, SessionRegistry
 logger = logging.getLogger(__name__)
 
 CHART_CACHE_DIR = Path.home() / ".yigthinker" / "chart_cache"
+
+
+def _resolve_chart_path(chart_id: str, suffix: str) -> Path | None:
+    """Resolve chart_id to a safe path within CHART_CACHE_DIR, or None if unsafe.
+
+    Uses path resolution + containment check (via Path.relative_to) to reject
+    traversal, absolute paths, NUL bytes, and symlinks that escape the cache.
+    Legitimate ids that happen to contain ``..`` (e.g. ``chart..v2``) resolve
+    within the cache dir and are accepted.
+    """
+    cache_root = CHART_CACHE_DIR.resolve()
+    try:
+        candidate = (CHART_CACHE_DIR / f"{chart_id}{suffix}").resolve()
+    except (OSError, ValueError):
+        return None
+    try:
+        candidate.relative_to(cache_root)
+    except ValueError:
+        return None
+    return candidate
 
 
 async def _safe_send(coro):
@@ -353,13 +374,15 @@ class GatewayServer:
 
         # ── Chart image serving (for IM platform card embedding) ─────────────
 
+        # Chart endpoints are unauthenticated: chart_ids are unguessable UUIDs
+        # acting as capability tokens, so IM platforms (Teams/Feishu) can fetch
+        # images from cards without needing to send bearer tokens.
         @app.get("/api/charts/{chart_id}.png")
         async def serve_chart_image(chart_id: str):
             """Serve rendered chart PNGs for IM platform embedding."""
-            # Path traversal guard
-            if "/" in chart_id or "\\" in chart_id or ".." in chart_id:
+            path = _resolve_chart_path(chart_id, ".png")
+            if path is None:
                 return JSONResponse({"error": "invalid chart id"}, status_code=400)
-            path = CHART_CACHE_DIR / f"{chart_id}.png"
             if not path.exists():
                 return JSONResponse({"error": "chart not found"}, status_code=404)
             return FileResponse(path, media_type="image/png")
@@ -367,13 +390,15 @@ class GatewayServer:
         @app.get("/api/charts/{chart_id}")
         async def serve_chart_html(chart_id: str):
             """Serve interactive Plotly HTML for browser viewing."""
-            if "/" in chart_id or "\\" in chart_id or ".." in chart_id:
+            path = _resolve_chart_path(chart_id, ".json")
+            if path is None:
                 return JSONResponse({"error": "invalid chart id"}, status_code=400)
-            json_path = CHART_CACHE_DIR / f"{chart_id}.json"
-            if not json_path.exists():
+            if not path.exists():
                 return JSONResponse({"error": "chart not found"}, status_code=404)
-            from yigthinker.visualization.exporter import ChartExporter
-            html = ChartExporter().to_html(json_path.read_text())
+            try:
+                html = ChartExporter().to_html(path.read_text())
+            except ValueError:
+                return JSONResponse({"error": "corrupt chart data"}, status_code=500)
             return HTMLResponse(html)
 
         @app.websocket("/ws")
