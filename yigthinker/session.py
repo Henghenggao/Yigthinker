@@ -49,6 +49,28 @@ class CheckpointData:
     created_at: float
 
 
+@dataclass
+class QuotedMessage:
+    """A message referenced/quoted by the user for context emphasis."""
+    original_id: str
+    original_text: str
+    original_role: str = ""  # "user" | "assistant" | "tool_result"
+    history_index: int | None = None
+
+
+class MessageIdMap:
+    """Maps platform message IDs to agent message history indices."""
+
+    def __init__(self) -> None:
+        self._platform_to_history: dict[str, int] = {}
+
+    def record(self, platform_msg_id: str, history_index: int) -> None:
+        self._platform_to_history[platform_msg_id] = history_index
+
+    def get_history_index(self, platform_msg_id: str) -> int | None:
+        return self._platform_to_history.get(platform_msg_id)
+
+
 class VarRegistry:
     """Session-scoped in-memory store for DataFrames and chart artifacts."""
 
@@ -108,6 +130,7 @@ class SessionContext:
     stats: StatsAccumulator = field(default_factory=StatsAccumulator)
     messages: list[Message] = field(default_factory=list)
     undo_stack: list[UndoEntry] = field(default_factory=list)
+    message_id_map: MessageIdMap = field(default_factory=MessageIdMap, repr=False)
     subagent_manager: SubagentManager | None = None
     _progress_callback: Callable[[str], None] | None = field(default=None, repr=False)
     _on_tool_event: Callable[[str, dict], None] | None = field(default=None, repr=False)

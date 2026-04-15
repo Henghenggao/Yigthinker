@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from yigthinker.gateway.server import GatewayServer
+    from yigthinker.session import QuotedMessage
 
 
 @runtime_checkable
@@ -39,4 +40,12 @@ class ChannelAdapter(Protocol):
         vars_summary: list[dict[str, Any]] | None = None,
     ) -> None:
         """Send a formatted response back to the platform."""
+        ...
+
+    async def extract_quoted_messages(self, event: dict[str, Any]) -> list[QuotedMessage]:
+        """Extract referenced/quoted messages from a platform event.
+
+        Returns original message text for context emphasis.
+        Default: empty list (no quote support).
+        """
         ...
