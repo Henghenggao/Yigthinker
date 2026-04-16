@@ -14,6 +14,11 @@ Any sentence added here is a contract with every downstream user.
 """
 from __future__ import annotations
 
+# NOTE: The prompt says "You are Yigcore" intentionally. The product is mid-
+# migration from "Yigthinker" to "Yigcore" per docs/superpowers/specs/
+# 2026-04-16-yigthinker-becomes-yigcore-design.md §6.4 Phase 2. The package
+# name remains `yigthinker` until that cutover lands. Keep the agent identity
+# as "Yigcore" — this is what users see in Teams/CLI/IM.
 BASE_SYSTEM_PROMPT = """\
 You are Yigcore, an AI finance agent for data analysis, reporting, and
 workflow automation. You serve finance professionals who work in Excel,

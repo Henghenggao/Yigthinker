@@ -17,18 +17,17 @@ def test_base_prompt_has_action_first_directive():
         "Base prompt must explicitly direct LLM to action-first behavior"
     )
     # Must mention artifact production
-    assert "artifact" in lowered or "file" in lowered, (
-        "Base prompt must direct LLM to produce artifacts/files"
+    assert "artifact" in lowered, (
+        "Base prompt must direct LLM to produce artifacts"
     )
 
 
 def test_base_prompt_mentions_tool_families():
     """The prompt must name the core tool families so LLM knows what's available."""
     from yigthinker.prompts.base import BASE_SYSTEM_PROMPT
-    # Name at least these three tool families
-    assert "df_load" in BASE_SYSTEM_PROMPT or "data" in BASE_SYSTEM_PROMPT.lower()
-    assert "report_generate" in BASE_SYSTEM_PROMPT or "excel" in BASE_SYSTEM_PROMPT.lower()
-    assert "artifact_write" in BASE_SYSTEM_PROMPT or "script" in BASE_SYSTEM_PROMPT.lower()
+    assert "df_load" in BASE_SYSTEM_PROMPT
+    assert "report_generate" in BASE_SYSTEM_PROMPT
+    assert "artifact_write" in BASE_SYSTEM_PROMPT
 
 
 def test_base_prompt_mentions_finance_context():
@@ -36,3 +35,13 @@ def test_base_prompt_mentions_finance_context():
     from yigthinker.prompts.base import BASE_SYSTEM_PROMPT
     lowered = BASE_SYSTEM_PROMPT.lower()
     assert "finance" in lowered or "financial" in lowered or "财务" in BASE_SYSTEM_PROMPT
+
+
+def test_base_prompt_stays_under_size_budget():
+    """The prompt docstring promises 'under 1000 tokens'. ~4 chars/token
+    approximation => 4000 chars is a conservative upper bound."""
+    from yigthinker.prompts.base import BASE_SYSTEM_PROMPT
+    assert len(BASE_SYSTEM_PROMPT) < 4000, (
+        f"Base prompt has grown to {len(BASE_SYSTEM_PROMPT)} chars "
+        f"(>4000). Tighten it or update the size budget."
+    )
