@@ -221,6 +221,16 @@ class FeishuAdapter:
                 text,
             )
 
+        if artifact.get("kind") == "file":
+            return self._append_text_to_card(
+                self._renderer.render_file_saved(
+                    artifact["filename"],
+                    int(artifact.get("bytes") or 0),
+                    summary=artifact.get("summary"),
+                ),
+                text,
+            )
+
         return self._renderer.render_text(text)
 
     async def _process_event(self, body: dict[str, Any]) -> None:
