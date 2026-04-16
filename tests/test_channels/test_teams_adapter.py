@@ -1133,3 +1133,218 @@ async def test_process_and_respond_passes_none_when_no_quotes(adapter):
 
     kwargs = adapter._gateway.handle_message.await_args.kwargs
     assert kwargs.get("quoted_messages") is None
+
+
+# --- Quick 260416-fs1: ctx.attachments registration on Teams download ---
+
+
+def _make_ctx_for_attachment_tests():
+    """Build a minimal SessionContext suitable for adapter download tests."""
+    from yigthinker.session import SessionContext
+    return SessionContext(settings={})
+
+
+@pytest.mark.asyncio
+async def test_download_attachments_registers_path_in_ctx_attachments(
+    adapter, tmp_path
+):
+    """When ctx is provided and download succeeds, dest.resolve() is added to
+    ctx.attachments so df_load can later accept the temp path."""
+    adapter._acquire_token = MagicMock(return_value="test-download-token")
+    ctx = _make_ctx_for_attachment_tests()
+    download_dir = tmp_path / "teams_dl"
+    download_dir.mkdir()
+
+    mock_dl_client = _mock_httpx_download()
+    with patch(
+        "yigthinker.channels.teams.adapter.httpx.AsyncClient",
+        return_value=mock_dl_client,
+    ), patch(
+        "yigthinker.channels.teams.adapter.tempfile.mkdtemp",
+        return_value=str(download_dir),
+    ):
+        file_lines, error_lines = await adapter._download_attachments(
+            [{
+                "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "contentUrl": "https://teams.example.com/files/data.xlsx",
+                "name": "data.xlsx",
+            }],
+            ctx=ctx,
+        )
+
+    assert len(file_lines) == 1
+    assert len(error_lines) == 0
+    expected = (download_dir / "data.xlsx").resolve()
+    assert expected in ctx.attachments
+    assert len(ctx.attachments) == 1
+
+
+@pytest.mark.asyncio
+async def test_download_attachments_without_ctx_noop(adapter):
+    """Legacy call shape (no ctx kwarg) still works — guards the 8+ existing
+    direct-call tests from regression."""
+    adapter._acquire_token = MagicMock(return_value="test-download-token")
+
+    mock_dl_client = _mock_httpx_download()
+    with patch(
+        "yigthinker.channels.teams.adapter.httpx.AsyncClient",
+        return_value=mock_dl_client,
+    ):
+        file_lines, error_lines = await adapter._download_attachments([{
+            "contentUrl": "https://teams.example.com/files/data.xlsx",
+            "name": "data.xlsx",
+        }])
+
+    assert len(file_lines) == 1
+    assert "[Attached file: data.xlsx ->" in file_lines[0]
+
+
+@pytest.mark.asyncio
+async def test_download_attachments_unsupported_skipped_no_registration(
+    adapter,
+):
+    """Unsupported files filtered BEFORE write_bytes → nothing added to
+    ctx.attachments even when ctx is provided."""
+    adapter._acquire_token = MagicMock(return_value="test-download-token")
+    ctx = _make_ctx_for_attachment_tests()
+
+    mock_dl_client = _mock_httpx_download()
+    with patch(
+        "yigthinker.channels.teams.adapter.httpx.AsyncClient",
+        return_value=mock_dl_client,
+    ):
+        file_lines, error_lines = await adapter._download_attachments(
+            [{
+                "contentUrl": "https://teams.example.com/files/report.pdf",
+                "name": "report.pdf",
+            }],
+            ctx=ctx,
+        )
+
+    assert len(file_lines) == 0
+    assert len(error_lines) == 1
+    assert ctx.attachments == set()
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_threads_ctx_into_download(adapter, tmp_path):
+    """_process_and_respond must resolve the live session via
+    gateway.registry.get_active_key + registry.get, then pass session.ctx
+    through to _download_attachments."""
+    ctx = _make_ctx_for_attachment_tests()
+
+    managed = MagicMock()
+    managed.ctx = ctx
+
+    registry = MagicMock()
+    registry.get_active_key = MagicMock(return_value="teams:user-x-active")
+    registry.get = MagicMock(return_value=managed)
+
+    adapter._gateway = MagicMock()
+    adapter._gateway.registry = registry
+    adapter._gateway.handle_message = AsyncMock(return_value="ok")
+    adapter._acquire_token = MagicMock(return_value="tok")
+    adapter.extract_quoted_messages = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+    async def _noop_typing(event):
+        while True:
+            await asyncio.sleep(3600)
+    adapter._typing_loop = _noop_typing  # type: ignore[assignment]
+
+    adapter._renderer = MagicMock()
+    adapter._renderer.render_text = MagicMock(return_value={"type": "AdaptiveCard"})
+
+    spy = AsyncMock(return_value=(["[Attached file: data.xlsx -> /tmp/data.xlsx]"], []))
+    adapter._download_attachments = spy  # type: ignore[method-assign]
+
+    class _FakeClient:
+        def __init__(self, *_, **__): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return None
+        async def post(self, url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            return resp
+
+    event = {
+        "from": {"aadObjectId": "user-x"},
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "conv-files"},
+    }
+
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+        await adapter._process_and_respond(
+            "teams:user-x",
+            "load this",
+            event,
+            [{
+                "contentUrl": "https://teams.example.com/files/data.xlsx",
+                "name": "data.xlsx",
+            }],
+        )
+
+    # Registry lookup path used (mirrors server.py:233 pattern)
+    registry.get_active_key.assert_called_once_with("teams:user-x")
+    registry.get.assert_called_once_with("teams:user-x-active")
+
+    # _download_attachments received ctx= kwarg
+    spy.assert_awaited_once()
+    kwargs = spy.await_args.kwargs
+    assert kwargs.get("ctx") is ctx
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_handles_missing_session_gracefully(adapter):
+    """If registry.get returns None (hibernated, not yet restored), skip
+    registration — download still proceeds with ctx=None rather than crashing."""
+    registry = MagicMock()
+    registry.get_active_key = MagicMock(return_value="teams:ghost")
+    registry.get = MagicMock(return_value=None)
+
+    adapter._gateway = MagicMock()
+    adapter._gateway.registry = registry
+    adapter._gateway.handle_message = AsyncMock(return_value="ok")
+    adapter._acquire_token = MagicMock(return_value="tok")
+    adapter.extract_quoted_messages = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+    async def _noop_typing(event):
+        while True:
+            await asyncio.sleep(3600)
+    adapter._typing_loop = _noop_typing  # type: ignore[assignment]
+
+    adapter._renderer = MagicMock()
+    adapter._renderer.render_text = MagicMock(return_value={"type": "AdaptiveCard"})
+
+    spy = AsyncMock(return_value=([], []))
+    adapter._download_attachments = spy  # type: ignore[method-assign]
+
+    class _FakeClient:
+        def __init__(self, *_, **__): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return None
+        async def post(self, url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            return resp
+
+    event = {
+        "from": {"aadObjectId": "ghost"},
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "conv-ghost"},
+    }
+
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+        await adapter._process_and_respond(
+            "teams:ghost",
+            "load this",
+            event,
+            [{
+                "contentUrl": "https://teams.example.com/files/data.xlsx",
+                "name": "data.xlsx",
+            }],
+        )
+
+    # _download_attachments still called, just with ctx=None (best-effort registration)
+    spy.assert_awaited_once()
+    kwargs = spy.await_args.kwargs
+    assert kwargs.get("ctx") is None

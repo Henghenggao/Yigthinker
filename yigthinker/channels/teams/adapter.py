@@ -31,6 +31,7 @@ from yigthinker.gateway.session_key import SessionKey
 if TYPE_CHECKING:
     from yigthinker.gateway.server import GatewayServer
     from yigthinker.channels.command_parser import ChannelCommand
+    from yigthinker.session import SessionContext
 
 logger = logging.getLogger(__name__)
 
@@ -392,8 +393,25 @@ class TeamsAdapter:
         try:
             # --- Phase 1: download attachments (if any) ---
             if file_attachments:
+                # Resolve the live session so downloaded temp paths can be
+                # allowlisted via ctx.attachments. Mirror the server.py:233
+                # pattern (get_active_key → get) for session-rename safety.
+                # If the session is hibernated and not yet restored
+                # (registry.get returns None), skip registration and let the
+                # download proceed with ctx=None — user will need to retry
+                # the df_load once the session is warm.
+                ctx_for_registration: "SessionContext | None" = None
+                try:
+                    active_key = self._gateway.registry.get_active_key(session_key)
+                    managed = self._gateway.registry.get(active_key)
+                    if managed is not None:
+                        ctx_for_registration = managed.ctx
+                except Exception:
+                    logger.exception(
+                        "Failed to resolve session for attachment registration"
+                    )
                 file_lines, error_lines = await self._download_attachments(
-                    file_attachments
+                    file_attachments, ctx=ctx_for_registration
                 )
                 prefix_parts = file_lines + error_lines
                 if prefix_parts:
@@ -526,13 +544,20 @@ class TeamsAdapter:
             return
 
     async def _download_attachments(
-        self, attachments: list[dict[str, Any]]
+        self,
+        attachments: list[dict[str, Any]],
+        ctx: "SessionContext | None" = None,
     ) -> tuple[list[str], list[str]]:
         """Download file attachments to temp dir.
 
         Returns (file_lines, error_lines) where:
           file_lines = ["[Attached file: name.xlsx -> /path/to/name.xlsx]", ...]
           error_lines = ["[Skipped unsupported file: x.pdf (...)]", ...]
+
+        When ``ctx`` is provided, each successfully-downloaded destination path
+        (resolved, absolute) is added to ``ctx.attachments`` so that df_load /
+        report_generate accept it even though it sits outside workspace_dir.
+        ``ctx=None`` preserves legacy call shape for existing tests.
         """
         file_lines: list[str] = []
         error_lines: list[str] = []
@@ -590,6 +615,15 @@ class TeamsAdapter:
                 tmp_dir = tempfile.mkdtemp(prefix="yigthinker_teams_")
                 dest = Path(tmp_dir) / name
                 dest.write_bytes(resp.content)
+
+                if ctx is not None:
+                    try:
+                        ctx.attachments.add(dest.resolve())
+                    except Exception:
+                        logger.warning(
+                            "Failed to register Teams attachment in "
+                            "ctx.attachments: %s", name,
+                        )
 
                 file_lines.append(
                     f"[Attached file: {name} -> {dest}]"
