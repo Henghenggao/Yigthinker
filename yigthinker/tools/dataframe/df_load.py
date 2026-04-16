@@ -58,12 +58,13 @@ class DfLoadInput(BaseModel):
 class DfLoadTool:
     name = "df_load"
     description = (
-        "Load data from a file (CSV, Excel, Parquet, JSON) into a named DataFrame "
-        "in the variable registry. Reference it in later tool calls by var_name. "
-        "Set header=null for files without a header row. Use skiprows to skip "
-        "metadata rows at the top. Use usecols to select specific columns (e.g. 'A:L'). "
-        "For data files only. Do NOT use to load source code, configs, or free-form "
-        "text — return those inline or use `artifact_write` instead."
+        "Use this to load tabular data (CSV, Excel, Parquet, JSON) into a "
+        "named DataFrame in the variable registry. Reference it in later "
+        "tool calls by var_name. Set header=null for files without a header "
+        "row. Use skiprows to skip metadata rows at the top. Use usecols to "
+        "select specific columns (e.g. 'A:L'). "
+        "FOR TABULAR DATA FILES ONLY. Do NOT use this to load source code, "
+        "configs, or free-form text — use `artifact_write` for those."
     )
     input_schema = DfLoadInput
 
