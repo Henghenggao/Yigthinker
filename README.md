@@ -231,13 +231,19 @@ Configure in `.yigthinker/settings.json`:
 {
   "channels": {
     "feishu": { "enabled": true, "app_id": "...", "app_secret": "..." },
-    "teams": { "enabled": true, "app_id": "...", "app_secret": "...", "webhook_secret": "..." },
+    "teams": {
+      "enabled": true,
+      "tenant_id": "...",
+      "client_id": "...",
+      "client_secret": "...",
+      "webhook_secret": "..."
+    },
     "gchat": { "enabled": true, "service_account_file": "..." }
   }
 }
 ```
 
-Channel adapters handle platform-specific auth (Feishu token verification, Teams HMAC, Google service accounts) and route messages through the same `AgentLoop.run()` as CLI and TUI.
+Channel adapters handle platform-specific auth (Feishu token verification, Teams Bot Framework bearer auth or legacy HMAC, Google service accounts) and route messages through the same `AgentLoop.run()` as CLI and TUI. For standard Teams bot manifests, `tenant_id` / `client_id` / `client_secret` are required; `webhook_secret` is only for legacy Outgoing Webhook mode.
 
 ## Testing
 

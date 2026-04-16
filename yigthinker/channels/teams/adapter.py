@@ -1,9 +1,10 @@
 """Microsoft Teams channel adapter (Bot Framework REST API).
 
 Uses raw HTTP via ``httpx`` + ``msal`` for Azure AD token acquisition.
-Outgoing webhooks verified via HMAC-SHA256.
+Inbound requests support either Bot Framework bearer JWTs or legacy
+Outgoing Webhook HMAC signatures.
 
-Requires: ``pip install httpx msal``
+Requires: ``pip install httpx msal PyJWT[crypto]``
 """
 from __future__ import annotations
 
@@ -24,8 +25,8 @@ from yigthinker.channels.artifacts import (
     choose_best_artifact,
     structured_artifact_from_tool_result,
 )
+from yigthinker.channels.teams.auth import TeamsAuthValidator
 from yigthinker.channels.teams.cards import TeamsCardRenderer
-from yigthinker.channels.teams.hmac import verify_teams_hmac_signature
 from yigthinker.gateway.session_key import SessionKey
 
 if TYPE_CHECKING:
@@ -52,7 +53,8 @@ class TeamsAdapter:
     Uses:
       - ``httpx`` for HTTP requests to Bot Framework service URL
       - ``msal`` for Azure AD token acquisition
-      - Outgoing Webhook for inbound messages (HMAC-SHA256 signature verification)
+      - Bot Framework bearer JWTs for standard Teams bot apps
+      - HMAC verification for legacy Teams Outgoing Webhooks
     """
 
     name = "teams"
@@ -68,18 +70,22 @@ class TeamsAdapter:
         self._max_retries = int(config.get("max_retries", 3))
         self._timeout = float(config.get("timeout", 30.0))
         self._renderer = TeamsCardRenderer()
+        self._auth_validator = TeamsAuthValidator(
+            client_id=self._client_id,
+            webhook_secret=self._webhook_secret,
+            timeout=min(self._timeout, 5.0),
+        )
         self._gateway: GatewayServer | None = None
         self._msal_app: Any = None
 
     async def start(self, gateway: GatewayServer) -> None:
         self._gateway = gateway
 
-        # Warn if HMAC verification is disabled
         if not self._webhook_secret:
             logger.warning(
-                "Teams webhook_secret is empty — HMAC signature verification "
-                "is DISABLED. Set channels.teams.webhook_secret in settings "
-                "to secure the webhook endpoint."
+                "Teams webhook_secret is empty - legacy Outgoing Webhook "
+                "HMAC validation is disabled. Standard Teams bot traffic can "
+                "still authenticate with Bot Framework bearer tokens."
             )
 
         try:
@@ -95,22 +101,12 @@ class TeamsAdapter:
 
         @gateway.app.post("/webhook/teams")
         async def teams_webhook(request: Request):
-            # HMAC verification — must read raw body BEFORE JSON parsing
+            # Read raw body before JSON parsing so HMAC validation, when used,
+            # sees the exact bytes that Teams signed.
             raw_body = await request.body()
-            if not self._webhook_secret:
-                logger.error(
-                    "Teams webhook_secret not configured — rejecting request"
-                )
-                return JSONResponse(
-                    {"error": "webhook not configured"}, status_code=401
-                )
             auth_header = request.headers.get("Authorization", "")
-            if not verify_teams_hmac_signature(
-                raw_body, auth_header, self._webhook_secret
-            ):
-                return JSONResponse(
-                    {"error": "invalid signature"}, status_code=401
-                )
+            if not await self._auth_validator.authenticate(raw_body, auth_header):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
 
             body = json.loads(raw_body)
             text = body.get("text", "").strip()

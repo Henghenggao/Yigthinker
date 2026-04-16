@@ -240,6 +240,60 @@ async def test_webhook_rejects_invalid_hmac(adapter):
     assert response.status_code == 401
 
 
+@pytest.mark.asyncio
+async def test_webhook_accepts_bearer_bot_auth(adapter):
+    """Webhook accepts standard Teams bot traffic after bearer auth passes."""
+    mock_gateway = MagicMock()
+    mock_gateway.app = MagicMock()
+    mock_gateway.handle_message = AsyncMock(return_value="Analysis complete")
+
+    route_handler = None
+
+    def capture_post(path):
+        def decorator(fn):
+            nonlocal route_handler
+            route_handler = fn
+            return fn
+        return decorator
+
+    mock_gateway.app.post = capture_post
+
+    mock_msal = _mock_msal_module()
+    with patch.dict(sys.modules, {"msal": mock_msal}):
+        await adapter.start(mock_gateway)
+
+    adapter._auth_validator.authenticate = AsyncMock(return_value=True)
+
+    body_dict = {
+        "text": "hello from Teams bot",
+        "channelId": "msteams",
+        "from": {"aadObjectId": "user-1"},
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "conv-123"},
+    }
+    body_bytes = json.dumps(body_dict).encode()
+    mock_request = AsyncMock()
+    mock_request.body = AsyncMock(return_value=body_bytes)
+    mock_request.headers = {"Authorization": "Bearer fake.jwt.token"}
+
+    created_tasks = []
+
+    def mock_create_task(coro):
+        created_tasks.append(coro)
+        coro.close()
+        return MagicMock()
+
+    with patch("asyncio.create_task", side_effect=mock_create_task):
+        response = await route_handler(mock_request)
+
+    assert response.status_code == 200
+    adapter._auth_validator.authenticate.assert_awaited_once_with(
+        body_bytes,
+        "Bearer fake.jwt.token",
+    )
+    assert len(created_tasks) == 1
+
+
 # --- Retry logic for Graph API failures ---
 
 
