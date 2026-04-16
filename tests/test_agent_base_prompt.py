@@ -26,9 +26,7 @@ async def test_base_prompt_is_prepended_to_system(tmp_path):
 
     mock_provider = MagicMock()
     mock_provider.chat = fake_chat
-    # Force non-streaming path: AgentLoop falls back to chat() when
-    # stream() is not available or raises.
-    mock_provider.supports_streaming = MagicMock(return_value=False)
+    # AgentLoop.run() without an on_token callback uses chat() (non-streaming).
 
     # Empty registry (no tools needed for this minimal assertion)
     registry = ToolRegistry()

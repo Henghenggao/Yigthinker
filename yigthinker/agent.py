@@ -198,6 +198,11 @@ class AgentLoop:
 
                     # Phase 10 / BHV-02 (CORR-02): first-iteration startup alert provider.
                     # Called EXACTLY ONCE per run, gated on iteration == 1, defensively wrapped.
+                    #
+                    # Phase 0 contract: BASE_SYSTEM_PROMPT must remain the FIRST block
+                    # of system_prompt. The alert appends after (not before) the base
+                    # prompt + any memory section, so the action-first identity is
+                    # anchored before any transient operational alerts.
                     if iteration == 1 and self._startup_alert_provider is not None:
                         try:
                             alert = self._startup_alert_provider()
@@ -205,7 +210,7 @@ class AgentLoop:
                             alert = None  # Pitfall 3: provider exceptions NEVER break the run
                         if alert:
                             if system_prompt:
-                                system_prompt = f"{alert}\n\n{system_prompt}"
+                                system_prompt = f"{system_prompt}\n\n{alert}"
                             else:
                                 system_prompt = alert
 
