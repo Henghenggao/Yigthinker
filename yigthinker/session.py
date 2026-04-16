@@ -168,6 +168,10 @@ class SessionContext:
     channel_origin: str = "cli"
     owner_id: str = ""  # identifies the user who owns this session (channel:sender_id)
     vars: VarRegistry = field(default_factory=VarRegistry)
+    # Adapter-registered allowlist of absolute, resolved paths (e.g. Teams/Feishu
+    # downloads) that `_safe_path` accepts even when outside workspace_dir.
+    # Session-scoped: dies with this context; no cross-session leakage.
+    attachments: set[_Path] = field(default_factory=set)
     context_manager: ContextManager = field(default_factory=ContextManager)
     stats: StatsAccumulator = field(default_factory=StatsAccumulator)
     messages: list[Message] = field(default_factory=list)

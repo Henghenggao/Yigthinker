@@ -1,6 +1,6 @@
 import pandas as pd
 from pathlib import Path
-from yigthinker.tools.reports.report_generate import ReportGenerateTool
+from yigthinker.tools.reports.report_generate import ReportGenerateTool, _safe_output_path
 from yigthinker.session import SessionContext
 
 
@@ -72,3 +72,52 @@ async def test_generate_relative_parent_output_outside_workspace_is_blocked(tmp_
 
     assert result.is_error
     assert "outside workspace" in str(result.content)
+
+
+# --- Quick 260416-fs1: attachment allowlist for _safe_output_path ---
+
+
+def test_safe_output_path_accepts_workspace_relative(tmp_path):
+    """Workspace-relative output paths resolve inside workspace (existing behavior)."""
+    settings = {"workspace_dir": str(tmp_path)}
+    resolved, err = _safe_output_path("out/report.csv", settings)
+    assert err is None
+    assert resolved == (tmp_path / "out" / "report.csv").resolve()
+
+
+def test_safe_output_path_rejects_outside_workspace(tmp_path):
+    """Absolute output paths outside workspace_dir are rejected (existing behavior)."""
+    settings = {"workspace_dir": str(tmp_path)}
+    other = tmp_path.parent / "leaked_report.csv"
+    resolved, err = _safe_output_path(str(other), settings)
+    assert err is not None
+    assert "outside workspace" in err
+
+
+def test_safe_output_path_accepts_allowlisted_outside_workspace(tmp_path):
+    """Output path outside workspace is accepted when present in attachments allowlist."""
+    settings = {"workspace_dir": str(tmp_path)}
+    outside = tmp_path.parent / "teams_tmp" / "report.xlsx"
+    allowlist = {outside.resolve()}
+    resolved, err = _safe_output_path(str(outside), settings, attachments=allowlist)
+    assert err is None
+    assert resolved == outside.resolve()
+
+
+def test_safe_output_path_still_rejects_non_allowlisted_outside(tmp_path):
+    """Unrelated allowlist entries do not whitelist a different output path."""
+    settings = {"workspace_dir": str(tmp_path)}
+    outside = tmp_path.parent / "not_allowlisted.xlsx"
+    unrelated = {(tmp_path.parent / "something_else.xlsx").resolve()}
+    resolved, err = _safe_output_path(str(outside), settings, attachments=unrelated)
+    assert err is not None
+    assert "outside workspace" in err
+
+
+def test_safe_output_path_allowlist_none_preserves_existing_behavior(tmp_path):
+    """Explicit attachments=None behaves identically to the pre-allowlist signature."""
+    settings = {"workspace_dir": str(tmp_path)}
+    outside = tmp_path.parent / "x.csv"
+    resolved, err = _safe_output_path(str(outside), settings, attachments=None)
+    assert err is not None
+    assert "outside workspace" in err

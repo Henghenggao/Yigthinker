@@ -1,7 +1,7 @@
 import json
 import pandas as pd
 import pytest
-from yigthinker.tools.dataframe.df_load import DfLoadTool
+from yigthinker.tools.dataframe.df_load import DfLoadTool, _safe_path
 from yigthinker.session import SessionContext
 
 
@@ -121,3 +121,52 @@ async def test_load_excel_correct_sheet_name(xlsx_multi_sheet, tmp_path):
     df = ctx.vars.get("rev")
     assert list(df.columns) == ["product", "revenue"]
     assert len(df) == 2
+
+
+# --- Quick 260416-fs1: attachment allowlist for _safe_path ---
+
+
+def test_safe_path_accepts_workspace_relative(tmp_path):
+    """Workspace-relative paths resolve inside workspace (existing behavior)."""
+    settings = {"workspace_dir": str(tmp_path)}
+    resolved, err = _safe_path("sub/file.csv", settings)
+    assert err is None
+    assert resolved == (tmp_path / "sub" / "file.csv").resolve()
+
+
+def test_safe_path_rejects_outside_workspace(tmp_path):
+    """Absolute paths outside workspace_dir are rejected (existing behavior)."""
+    settings = {"workspace_dir": str(tmp_path)}
+    other = tmp_path.parent / "elsewhere.csv"
+    resolved, err = _safe_path(str(other), settings)
+    assert err is not None
+    assert "Access denied" in err
+
+
+def test_safe_path_accepts_allowlisted_outside_workspace(tmp_path):
+    """Path outside workspace is accepted when present in attachments allowlist."""
+    settings = {"workspace_dir": str(tmp_path)}
+    outside = tmp_path.parent / "teams_tmp" / "data.xlsx"
+    allowlist = {outside.resolve()}
+    resolved, err = _safe_path(str(outside), settings, attachments=allowlist)
+    assert err is None
+    assert resolved == outside.resolve()
+
+
+def test_safe_path_still_rejects_non_allowlisted_outside(tmp_path):
+    """Unrelated allowlist entries do not whitelist a different outside path."""
+    settings = {"workspace_dir": str(tmp_path)}
+    outside = tmp_path.parent / "not_allowlisted.xlsx"
+    unrelated = {(tmp_path.parent / "something_else.xlsx").resolve()}
+    resolved, err = _safe_path(str(outside), settings, attachments=unrelated)
+    assert err is not None
+    assert "Access denied" in err
+
+
+def test_safe_path_allowlist_none_preserves_existing_behavior(tmp_path):
+    """Explicit attachments=None behaves identically to the pre-allowlist signature."""
+    settings = {"workspace_dir": str(tmp_path)}
+    outside = tmp_path.parent / "x.csv"
+    resolved, err = _safe_path(str(outside), settings, attachments=None)
+    assert err is not None
+    assert "Access denied" in err

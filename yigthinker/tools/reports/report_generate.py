@@ -9,8 +9,18 @@ from yigthinker.session import SessionContext
 ReportFormat = Literal["excel", "pdf", "csv", "docx"]
 
 
-def _safe_output_path(output_path: str, ctx_settings: dict) -> tuple[Path, str | None]:
-    """Return (resolved_path, error_msg). error_msg is None if safe."""
+def _safe_output_path(
+    output_path: str,
+    ctx_settings: dict,
+    attachments: set[Path] | None = None,
+) -> tuple[Path, str | None]:
+    """Return (resolved_path, error_msg). error_msg is None if safe.
+
+    A path outside workspace_dir is accepted if it is present in the
+    ``attachments`` allowlist (caller's contract: set entries are expected to
+    be pre-resolved absolute paths). Symmetrical with df_load._safe_path so
+    adapters that register a temp file can both read from and write to it.
+    """
     workspace = Path(ctx_settings.get("workspace_dir", Path.cwd())).expanduser().resolve()
     raw_path = Path(output_path).expanduser()
     try:
@@ -22,6 +32,8 @@ def _safe_output_path(output_path: str, ctx_settings: dict) -> tuple[Path, str |
         resolved.relative_to(workspace)
         return resolved, None
     except ValueError:
+        if attachments and resolved in attachments:
+            return resolved, None
         return resolved, (
             f"Access denied: output path '{output_path}' is outside workspace '{workspace}'."
         )
@@ -51,7 +63,9 @@ class ReportGenerateTool:
         except KeyError as exc:
             return ToolResult(tool_use_id="", content=str(exc), is_error=True)
 
-        path, err = _safe_output_path(input.output_path, ctx.settings)
+        path, err = _safe_output_path(
+            input.output_path, ctx.settings, attachments=ctx.attachments
+        )
         if err:
             return ToolResult(tool_use_id="", content=err, is_error=True)
         path.parent.mkdir(parents=True, exist_ok=True)
