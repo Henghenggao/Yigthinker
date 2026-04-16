@@ -443,13 +443,10 @@ class TeamsAdapter:
                     artifact = structured_artifact_from_tool_result(data.get("content_obj"))
                     if artifact is not None:
                         artifacts.append(artifact)
-                    tool_id = data.get("tool_id", "")
-                    tool_name = _tool_names.get(tool_id, "tool")
-                    content = data.get("content", "")
-                    summary = content[:80] + ("..." if len(content) > 80 else "")
-                    asyncio.create_task(
-                        self._send_progress_card(event, tool_name, summary)
-                    )
+                    # Progress cards intentionally disabled: the typing
+                    # indicator + final natural-language response (which the
+                    # system prompt instructs the agent to narrate) already
+                    # convey progress without JSON-looking clutter.
 
             # Task 14/15: extract replied-to message for context emphasis.
             # Best-effort: a failed fetch returns []; we never block the send.

@@ -188,6 +188,19 @@ class AgentLoop:
                         else:
                             system_prompt = directive
 
+                    # Tool-usage narration directive (IM-friendly prose progress).
+                    try:
+                        narration = ctx.context_manager.build_narration_directive(
+                            getattr(ctx, "settings", None) or {}
+                        )
+                    except Exception:
+                        narration = None
+                    if narration:
+                        if system_prompt:
+                            system_prompt += f"\n\n{narration}"
+                        else:
+                            system_prompt = narration
+
                     # Phase 10 / BHV-02 (CORR-02): first-iteration startup alert provider.
                     # Called EXACTLY ONCE per run, gated on iteration == 1, defensively wrapped.
                     if iteration == 1 and self._startup_alert_provider is not None:

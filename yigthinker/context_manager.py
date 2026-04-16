@@ -124,6 +124,33 @@ class ContextManager:
             "those belong in `artifact_write` or a direct reply."
         )
 
+    def build_narration_directive(self, settings: dict[str, Any]) -> str | None:
+        """Return the chat-narration directive for the system prompt.
+
+        Instructs the agent to narrate tool usage in natural language so that
+        IM channels (Teams / Feishu / GChat) don't need to render raw tool
+        JSON — the agent's own reply carries the progress story.
+
+        Gated by ``settings['behavior']['narrate_tool_usage']['enabled']``.
+        Default is True so fresh settings.json files get the behavior.
+        """
+        behavior_cfg = settings.get("behavior", {}) if settings else {}
+        narrate_cfg = behavior_cfg.get("narrate_tool_usage", {})
+        enabled = narrate_cfg.get("enabled", True)
+        if not enabled:
+            return None
+
+        return (
+            "**Tool usage narration**: When you call tools, weave a brief "
+            "natural-language progress note into your reply so the user "
+            "understands what you did and why. Reply in the user's "
+            "conversation language. Describe outcomes and next steps in "
+            "plain prose — do NOT paste raw tool JSON, argument blobs, or "
+            "schema-like structures into the chat. One short sentence per "
+            "tool call is usually enough (e.g. \"已读取 Excel，共 4 个 "
+            "sheet\" rather than \"df_load returned {\\\"sheets\\\": [...]}\")."
+        )
+
     def summarize_dataframe_result(self, df: pd.DataFrame) -> dict[str, Any]:
         """Return full records for small DataFrames; summary for large ones.
 
