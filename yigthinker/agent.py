@@ -26,6 +26,20 @@ _ITERATION_LIMIT_SYSTEM_MSG = (
     "can with the information gathered."
 )
 
+# quick-260416-j3y-04: when the wall-clock budget reaches this fraction, inject
+# a single steering message ahead of the next LLM call so the model has a chance
+# to wrap up gracefully instead of being killed mid-iteration.
+SOFT_DEADLINE_FRACTION: float = 0.8
+
+_SOFT_DEADLINE_MSG = (
+    "[SYSTEM] You have used 80% of your time budget. Do NOT start new tool "
+    "calls — summarize what you have and end the turn."
+)
+
+# Cap on how many variables are summarized in the timeout recovery message.
+# Keeps the trailing text usable even when the session produced dozens of DFs.
+_TIMEOUT_VAR_SUMMARY_LIMIT: int = 20
+
 
 def _serialize_tool_content(content: Any) -> str:
     if isinstance(content, str):
@@ -93,7 +107,16 @@ class AgentLoop:
         ctx: SessionContext,
         on_tool_event: Callable[[str, dict], None] | None = None,
         on_token: Callable[[str], None] | None = None,
+        *,
+        timeout_override: float | None = None,
     ) -> str:
+        """Run the agent loop.
+
+        ``timeout_override`` (quick-260416-j3y-04): when set, the wall-clock
+        budget for this single run uses the override instead of
+        ``self._timeout_seconds``. Gateway passes a per-channel value so IM
+        surfaces (e.g. Teams) can tolerate longer waits than the CLI REPL.
+        """
         self._max_tokens_recovery_count = 0
         messages: list[Message] = list(ctx.messages)
         messages.append(Message(role="user", content=user_input))
@@ -110,9 +133,17 @@ class AgentLoop:
         )
         await self._hooks.run(start_event)
 
+        # quick-260416-j3y-04: soft-deadline bookkeeping.
+        effective_timeout = (
+            timeout_override if timeout_override is not None else self._timeout_seconds
+        )
+        loop_start = asyncio.get_event_loop().time()
+        soft_deadline = loop_start + effective_timeout * SOFT_DEADLINE_FRACTION
+        soft_deadline_injected = False
+
         result_text = ""
         try:
-            async with asyncio.timeout(self._timeout_seconds):
+            async with asyncio.timeout(effective_timeout):
                 while True:
                     iteration += 1
 
@@ -224,6 +255,19 @@ class AgentLoop:
                                     system_prompt += f"\n\n{compact_injection}"
                                 else:
                                     system_prompt = compact_injection
+
+                    # quick-260416-j3y-04: inject the soft-deadline steering
+                    # message exactly once, when we cross 80% of the budget.
+                    # Placed right before the LLM call so the model has a chance
+                    # to wrap up cleanly instead of being cut off mid-iteration.
+                    if (
+                        not soft_deadline_injected
+                        and asyncio.get_event_loop().time() >= soft_deadline
+                    ):
+                        messages.append(
+                            Message(role="user", content=_SOFT_DEADLINE_MSG)
+                        )
+                        soft_deadline_injected = True
 
                     using_fallback = False
 
@@ -345,7 +389,32 @@ class AgentLoop:
                             task.add_done_callback(self._background_tasks.discard)
 
         except TimeoutError:
-            result_text = "(Agent loop timed out. Partial results may be available in the variable registry.)"
+            # quick-260416-j3y-04: surface a concrete list of what survived
+            # instead of the opaque "may be available" line. The user can then
+            # reference `ctx.vars.get("name")` or re-prompt the agent against
+            # the registered DataFrames without re-running the pipeline.
+            result_text = (
+                "(Agent loop timed out. Partial results may be available in "
+                "the variable registry.)"
+            )
+            try:
+                infos = ctx.vars.list()
+            except Exception:
+                infos = []
+            if infos:
+                lines = []
+                for info in infos[:_TIMEOUT_VAR_SUMMARY_LIMIT]:
+                    lines.append(
+                        f"- {info.name}: {info.shape[0]}x{info.shape[1]} "
+                        f"({info.var_type})"
+                    )
+                overflow = len(infos) - _TIMEOUT_VAR_SUMMARY_LIMIT
+                if overflow > 0:
+                    lines.append(f"- ...and {overflow} more")
+                result_text += (
+                    "\n\nPartial results still in variable registry:\n"
+                    + "\n".join(lines)
+                )
         finally:
             ctx.messages = messages
             end_event = HookEvent(

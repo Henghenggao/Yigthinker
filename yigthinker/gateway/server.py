@@ -314,10 +314,17 @@ class GatewayServer:
 
         try:
             effective_input = _prepend_quoted_context(user_input, quoted_messages)
+            # quick-260416-j3y-04: honor per-channel wall-clock budgets. Teams
+            # etc. tolerate longer agent runs than the CLI REPL; the default
+            # lives in settings.agent.channel_timeouts.<channel>.
+            agent_settings = self._settings.get("agent", {}) or {}
+            channel_timeouts = agent_settings.get("channel_timeouts", {}) or {}
+            channel_override = channel_timeouts.get(channel)
             result = await self._agent_loop.run(
                 effective_input, session.ctx,
                 on_tool_event=_on_tool_event,
                 on_token=_on_token,
+                timeout_override=channel_override,
             )
         finally:
             session.ctx._is_running = False

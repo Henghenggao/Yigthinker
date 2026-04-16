@@ -22,6 +22,7 @@ from yigthinker.tools.visualization.chart_modify import ChartModifyTool
 from yigthinker.tools.visualization.chart_recommend import ChartRecommendTool
 from yigthinker.tools.agent_cancel import AgentCancelTool
 from yigthinker.tools.agent_status import AgentStatusTool
+from yigthinker.tools.artifact_write import ArtifactWriteTool
 from yigthinker.tools.spawn_agent import SpawnAgentTool
 from yigthinker.tools.finance.finance_calculate import FinanceCalculateTool
 from yigthinker.tools.finance.finance_analyze import FinanceAnalyzeTool
@@ -87,6 +88,10 @@ def build_tool_registry(
     registry.register(DfTransformTool())
     registry.register(DfProfileTool())
     registry.register(DfMergeTool())
+
+    # artifact_write gives the LLM a first-class path to save free-form text
+    # (scripts, configs, markdown). See .planning/quick/260416-j3y-*.
+    registry.register(ArtifactWriteTool())
 
     registry.register(ChartCreateTool())
     registry.register(ChartModifyTool())

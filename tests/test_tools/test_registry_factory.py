@@ -18,11 +18,20 @@ def test_registry_exports_valid_schemas():
     pool = ConnectionPool()
     registry = build_tool_registry(pool=pool)
     schemas = registry.export_schemas()
-    assert len(schemas) == 26  # 20 original (dashboard_push removed) + 4 finance + agent_status + agent_cancel
+    # 20 original (dashboard_push removed) + 4 finance + agent_status + agent_cancel
+    # + artifact_write (quick-260416-j3y)
+    assert len(schemas) == 27
     for schema in schemas:
         assert "name" in schema
         assert "description" in schema
         assert "input_schema" in schema
+
+
+def test_artifact_write_registered():
+    """artifact_write is registered at the base (no optional gate)."""
+    pool = ConnectionPool()
+    registry = build_tool_registry(pool=pool)
+    assert "artifact_write" in registry.names()
 
 
 def test_workflow_deploy_registered(tmp_path):

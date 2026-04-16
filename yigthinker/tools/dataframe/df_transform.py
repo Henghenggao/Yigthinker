@@ -188,7 +188,10 @@ class DfTransformTool:
         "The input DataFrame is bound to both 'df' and its input_var name. "
         "Use extra_vars=[...] to inject additional registered DataFrames under "
         "their own names for multi-DataFrame merges/joins. "
-        "Assign the result to 'result'; it will be stored as output_var."
+        "Assign the result to 'result'; it will be stored as output_var. "
+        "Do NOT use this tool to store script source code, configs, or "
+        "free-form text in a DataFrame — `artifact_write` is the correct tool "
+        "for saving a named text file."
     )
     input_schema = DfTransformInput
 
