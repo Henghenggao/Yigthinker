@@ -25,6 +25,9 @@ def test_file_artifact_detected_from_artifact_write_payload():
         "path": "/tmp/workspace/build_pl_sheet.py",
         "bytes": 4321,
         "summary": "Builds formatted P&L sheet",
+        # mime_type passthrough added for excel_write (quick-260416-kyn); legacy
+        # artifact_write payloads have no mime_type so it surfaces as None.
+        "mime_type": None,
     }
 
 

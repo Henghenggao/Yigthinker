@@ -29,6 +29,10 @@ def structured_artifact_from_tool_result(raw_content: Any) -> dict[str, Any] | N
                 "path": path,
                 "bytes": int(raw_content.get("bytes") or 0),
                 "summary": raw_content.get("summary"),
+                # excel_write sets mime_type; artifact_write does not. Pass it
+                # through when present so downstream adapters can serve the
+                # right Content-Type (see quick-260416-kyn).
+                "mime_type": raw_content.get("mime_type"),
             }
 
     preview = raw_content.get("preview", raw_content)

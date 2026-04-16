@@ -19,8 +19,8 @@ def test_registry_exports_valid_schemas():
     registry = build_tool_registry(pool=pool)
     schemas = registry.export_schemas()
     # 20 original (dashboard_push removed) + 4 finance + agent_status + agent_cancel
-    # + artifact_write (quick-260416-j3y)
-    assert len(schemas) == 27
+    # + artifact_write (quick-260416-j3y) + excel_write (quick-260416-kyn)
+    assert len(schemas) == 28
     for schema in schemas:
         assert "name" in schema
         assert "description" in schema
