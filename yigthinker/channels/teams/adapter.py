@@ -342,6 +342,16 @@ class TeamsAdapter:
                     ),
                     text,
                 )
+            if artifact.get("kind") == "file":
+                # artifact_write output — see quick-260416-j3y.
+                return self._append_text_to_card(
+                    self._renderer.render_file_saved(
+                        artifact["filename"],
+                        int(artifact.get("bytes") or 0),
+                        summary=artifact.get("summary"),
+                    ),
+                    text,
+                )
         except Exception:
             logger.exception("Failed to build Teams structured response card; falling back to text")
         return self._renderer.render_text(text)

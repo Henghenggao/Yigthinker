@@ -162,3 +162,34 @@ def test_render_native_table_stringifies_non_string_values():
     table_rows = card["body"][1]["rows"]
     assert table_rows[1]["cells"][0]["items"][0]["text"] == "42"
     assert table_rows[2]["cells"][0]["items"][0]["text"] == "None"
+
+
+def test_render_file_saved_with_summary():
+    """kind="file" artifact card — see quick-260416-j3y."""
+    renderer = TeamsCardRenderer()
+    card = renderer.render_file_saved(
+        "build_pl_sheet.py",
+        size_bytes=4321,
+        summary="Builds formatted P&L sheet",
+    )
+    assert card["type"] == "AdaptiveCard"
+    body = card["body"]
+    # title, subtitle (workspace + bytes), summary
+    assert len(body) == 3
+    assert body[0]["text"] == "Saved build_pl_sheet.py"
+    assert body[0]["weight"] == "Bolder"
+    assert "4,321 B" in body[1]["text"]
+    assert body[1]["isSubtle"] is True
+    assert body[2]["text"] == "Builds formatted P&L sheet"
+
+
+def test_render_file_saved_without_summary():
+    renderer = TeamsCardRenderer()
+    card = renderer.render_file_saved("notes.md", size_bytes=12)
+    body = card["body"]
+    # title + subtitle only
+    assert len(body) == 2
+    assert body[0]["text"] == "Saved notes.md"
+    assert "12 B" in body[1]["text"]
+    # No OpenUrl action — workspace path is local
+    assert "actions" not in card

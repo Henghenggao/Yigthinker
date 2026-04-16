@@ -113,3 +113,53 @@ async def test_send_response_renders_native_table_when_artifact_provided():
     assert card["body"][1]["type"] == "Table"
     assert card["body"][1]["rows"][1]["cells"][0]["items"][0]["text"] == "EU"
     assert card["body"][-1]["text"] == "2 rows returned"
+
+
+@pytest.mark.asyncio
+async def test_send_response_renders_file_card_when_artifact_write_result():
+    """artifact_write output (kind="file") should surface as a file-saved card.
+
+    Regression guard for quick-260416-j3y: a saved script must not fall back to a
+    plain text card or get misrendered as a table/chart.
+    """
+    adapter = _make_adapter()
+
+    posted_payloads: list[dict] = []
+
+    class _FakeClient:
+        def __init__(self, *_, **__):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return None
+
+        async def post(self, url, json, headers):
+            posted_payloads.append(json)
+            response = MagicMock()
+            response.status_code = 200
+            return response
+
+    event = {
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "conv-789"},
+    }
+    artifact = {
+        "kind": "file",
+        "filename": "build_pl_sheet.py",
+        "path": "/tmp/workspace/build_pl_sheet.py",
+        "bytes": 4321,
+        "summary": "Builds formatted P&L sheet",
+    }
+
+    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+        await adapter.send_response(event, "Script saved", artifact=artifact)
+
+    card = posted_payloads[0]["attachments"][0]["content"]
+    # body = [title, subtitle, summary, text]
+    assert card["body"][0]["text"] == "Saved build_pl_sheet.py"
+    assert "4,321 B" in card["body"][1]["text"]
+    assert card["body"][2]["text"] == "Builds formatted P&L sheet"
+    assert card["body"][-1]["text"] == "Script saved"

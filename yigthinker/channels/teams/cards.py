@@ -139,6 +139,43 @@ class TeamsCardRenderer:
             "body": body,
         }
 
+    def render_file_saved(
+        self,
+        filename: str,
+        size_bytes: int,
+        summary: str | None = None,
+    ) -> dict[str, Any]:
+        """Adaptive Card announcing an artifact_write result (kind="file").
+
+        Shown when the agent persists a script/config/markdown artifact. We keep
+        the card intentionally simple — no OpenUrl action, because the workspace
+        path is local to the gateway host. Cloud deploys can add a download
+        action later via a settings-driven URL template.
+        """
+        body: list[dict[str, Any]] = [
+            {
+                "type": "TextBlock",
+                "text": f"Saved {filename}",
+                "weight": "Bolder",
+                "size": "Medium",
+            },
+            {
+                "type": "TextBlock",
+                "text": f"Saved to workspace \u00b7 {size_bytes:,} B",
+                "size": "Small",
+                "isSubtle": True,
+                "wrap": True,
+            },
+        ]
+        if summary:
+            body.append({"type": "TextBlock", "text": summary, "wrap": True})
+        return {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5",
+            "body": body,
+        }
+
     def render_file_received(self, filenames: list[str]) -> dict[str, Any]:
         """Render a card acknowledging received file attachments."""
         count = len(filenames)

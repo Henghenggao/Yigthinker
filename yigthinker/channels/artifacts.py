@@ -17,6 +17,20 @@ def structured_artifact_from_tool_result(raw_content: Any) -> dict[str, Any] | N
             "chart_json": chart_json,
         }
 
+    # artifact_write returns {"kind": "file", ...} — see
+    # .planning/quick/260416-j3y-artifact-write-timeout-fix/260416-j3y-PLAN.md.
+    if raw_content.get("kind") == "file":
+        filename = raw_content.get("filename")
+        path = raw_content.get("path")
+        if isinstance(filename, str) and isinstance(path, str):
+            return {
+                "kind": "file",
+                "filename": filename,
+                "path": path,
+                "bytes": int(raw_content.get("bytes") or 0),
+                "summary": raw_content.get("summary"),
+            }
+
     preview = raw_content.get("preview", raw_content)
     if not isinstance(preview, dict):
         return None
@@ -49,11 +63,19 @@ def structured_artifact_from_tool_result(raw_content: Any) -> dict[str, Any] | N
 
 
 def choose_best_artifact(artifacts: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Prefer the most recent chart; otherwise fall back to the most recent table."""
+    """Ranking: most recent chart > most recent file > most recent anything.
+
+    File artifacts (artifact_write) outrank table previews because a saved script
+    or report is almost always the concrete thing the user asked for, whereas a
+    DataFrame preview is usually an intermediate step.
+    """
     if not artifacts:
         return None
 
     charts = [artifact for artifact in artifacts if artifact.get("kind") == "chart"]
     if charts:
         return charts[-1]
+    files = [artifact for artifact in artifacts if artifact.get("kind") == "file"]
+    if files:
+        return files[-1]
     return artifacts[-1]
