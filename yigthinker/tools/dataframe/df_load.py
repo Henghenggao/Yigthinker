@@ -6,8 +6,18 @@ from yigthinker.types import ToolResult
 from yigthinker.session import SessionContext
 
 
-def _safe_path(source: str, ctx_settings: dict) -> tuple[Path, str | None]:
-    """Return (resolved_path, error_msg). error_msg is None if safe."""
+def _safe_path(
+    source: str,
+    ctx_settings: dict,
+    attachments: set[Path] | None = None,
+) -> tuple[Path, str | None]:
+    """Return (resolved_path, error_msg). error_msg is None if safe.
+
+    A path outside workspace_dir is accepted if it is present in the
+    ``attachments`` allowlist (caller's contract: set entries are expected to
+    be pre-resolved absolute paths). Used to let Teams/Feishu-downloaded temp
+    files flow into df_load without widening workspace_dir globally.
+    """
     workspace = Path(ctx_settings.get("workspace_dir", Path.cwd())).expanduser().resolve()
     raw_path = Path(source).expanduser()
     try:
@@ -19,6 +29,8 @@ def _safe_path(source: str, ctx_settings: dict) -> tuple[Path, str | None]:
         resolved.relative_to(workspace)
         return resolved, None
     except ValueError:
+        if attachments and resolved in attachments:
+            return resolved, None
         return resolved, (
             f"Access denied: '{source}' is outside the workspace directory "
             f"'{workspace}'. Use a relative path or configure workspace_dir in settings."
@@ -55,7 +67,9 @@ class DfLoadTool:
 
     async def execute(self, input: DfLoadInput, ctx: SessionContext) -> ToolResult:
         try:
-            safe_path, err = _safe_path(input.source, ctx.settings)
+            safe_path, err = _safe_path(
+                input.source, ctx.settings, attachments=ctx.attachments
+            )
             if err:
                 return ToolResult(tool_use_id="", content=err, is_error=True)
             path = safe_path
