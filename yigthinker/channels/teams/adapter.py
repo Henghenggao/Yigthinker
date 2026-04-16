@@ -131,20 +131,17 @@ class TeamsAdapter:
             key = self.session_key(body)
 
             # Immediate ACK + async processing (D-05):
-            # Return 200 immediately with a "thinking..." card.
-            # File download + agent processing run in background task
-            # so the ACK is never blocked by slow downloads.
+            # Bot Framework bots must 200-OK the webhook with an empty body.
+            # Inline Activity attachments in the webhook response (the legacy
+            # Outgoing-Webhook trick) render as "cards.unsupported" on modern
+            # Teams clients — see quick-260416-j3y follow-up. Progress is
+            # conveyed via the typing indicator (_typing_loop) and the final
+            # card is pushed via the Bot Framework activities API.
             asyncio.create_task(
                 self._process_and_respond(key, text, body, file_attachments)
             )
 
-            return JSONResponse({
-                "type": "message",
-                "attachments": [{
-                    "contentType": "application/vnd.microsoft.card.adaptive",
-                    "content": self._renderer.render_thinking(),
-                }],
-            })
+            return JSONResponse({})
 
         logger.info("Teams adapter registered at /webhook/teams")
 
@@ -399,19 +396,19 @@ class TeamsAdapter:
         try:
             # --- Phase 1: download attachments (if any) ---
             if file_attachments:
-                # Resolve the live session so downloaded temp paths can be
-                # allowlisted via ctx.attachments. Mirror the server.py:233
-                # pattern (get_active_key → get) for session-rename safety.
-                # If the session is hibernated and not yet restored
-                # (registry.get returns None), skip registration and let the
-                # download proceed with ctx=None — user will need to retry
-                # the df_load once the session is warm.
+                # Resolve (or eagerly create/restore) the live session so
+                # downloaded temp paths can be allowlisted via ctx.attachments.
+                # Mirrors handle_message's flow at server.py:233-234
+                # (get_active_key → get_or_restore) so first-message attachment
+                # uploads also get allowlist coverage — get_or_restore is
+                # idempotent, so the later handle_message() call reuses it.
                 ctx_for_registration: "SessionContext | None" = None
                 try:
                     active_key = self._gateway.registry.get_active_key(session_key)
-                    managed = self._gateway.registry.get(active_key)
-                    if managed is not None:
-                        ctx_for_registration = managed.ctx
+                    managed = await self._gateway.registry.get_or_restore(
+                        active_key, self._gateway._settings, "teams"
+                    )
+                    ctx_for_registration = managed.ctx
                 except Exception:
                     logger.exception(
                         "Failed to resolve session for attachment registration"

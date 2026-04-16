@@ -592,6 +592,15 @@ class AgentLoop:
             tool = self._tools.get(tool_name)
             input_obj = tool.input_schema(**tool_input)
 
+            # quick-260416-j3y diagnostic: log every tool call so Teams/IM
+            # channel operators can see what the LLM actually picked. Input
+            # repr is truncated to keep logs readable on wide payloads.
+            logger.info(
+                "tool_call name=%s input=%s",
+                tool_name,
+                repr(tool_input)[:300],
+            )
+
             # P1-1: inject progress callback before tool execution.
             # NOTE: concurrent tool batches share the same ctx, so if multiple
             # safe tools run via asyncio.gather(), the last one to set
@@ -606,6 +615,13 @@ class AgentLoop:
 
             result = await tool.execute(input_obj, ctx)
             result.tool_use_id = tool_use_id
+
+            # quick-260416-j3y diagnostic: log tool outcome.
+            logger.info(
+                "tool_result name=%s is_error=%s",
+                tool_name,
+                result.is_error,
+            )
 
             # P1-1: cleanup progress callback
             ctx._progress_callback = None

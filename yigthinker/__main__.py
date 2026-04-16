@@ -228,10 +228,21 @@ def gateway_start(
     port: int | None = typer.Option(None, help="Gateway port (default: from settings or 8766)"),
 ) -> None:
     """Start the Yigthinker Gateway (foreground)."""
+    import logging
     import uvicorn
 
     from yigthinker.gateway.server import GatewayServer
     from yigthinker.settings import load_settings
+
+    # quick-260416-j3y: surface tool_call / tool_result diagnostic logs from
+    # yigthinker.agent when running the gateway. Without this, uvicorn only
+    # ships its own loggers' records and the agent's INFO logs stay silent.
+    logging.getLogger("yigthinker").setLevel(logging.INFO)
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        )
 
     settings = load_settings()
     resolved_host, resolved_port = _resolve_gateway_binding(settings, host, port)

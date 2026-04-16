@@ -380,6 +380,67 @@ class GatewayServer:
             await self._registry.hibernate(key)
             return {"ok": True, "key": key}
 
+        @app.get("/api/sessions/{key:path}/dump")
+        async def dump_session(key: str, request: Request):
+            """Diagnostic (quick-260416-j3y): dump an active session's message
+            history + var registry summary so operators can see exactly what
+            the LLM has in context. Read-only, token-gated.
+
+            If the session is not in memory, check
+            ``~/.yigthinker/hibernate/<key>/messages.jsonl`` directly — the
+            endpoint does NOT auto-restore hibernated state to avoid mutating
+            session lifecycle as a side effect of inspection.
+            """
+            token = _extract_token(request)
+            if not self._auth.verify(token):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+            session = self._registry.get(key)
+            if session is None:
+                return JSONResponse(
+                    {
+                        "error": "session not active in memory",
+                        "hint": (
+                            "Send any message to the channel to restore the "
+                            "session from hibernation, then retry. Or read "
+                            f"~/.yigthinker/hibernate/{key}/messages.jsonl "
+                            "directly if it exists."
+                        ),
+                    },
+                    status_code=404,
+                )
+
+            # Messages: content may be a plain string OR a list of
+            # tool_use / tool_result dicts (Anthropic-style). Best-effort
+            # serialize — fall back to repr for any odd object.
+            messages: list[dict[str, Any]] = []
+            for m in session.ctx.messages:
+                content = m.content
+                if not isinstance(content, (str, list, dict)):
+                    content = repr(content)
+                messages.append({"role": m.role, "content": content})
+
+            vars_info = [
+                {
+                    "name": v.name,
+                    "shape": list(v.shape),
+                    "var_type": v.var_type,
+                    "dtypes": v.dtypes,
+                }
+                for v in session.ctx.vars.list()
+            ]
+
+            return {
+                "key": key,
+                "session_id": session.ctx.session_id,
+                "owner_id": session.ctx.owner_id,
+                "channel_origin": session.channel_origin,
+                "message_count": len(messages),
+                "messages": messages,
+                "vars": vars_info,
+                "attachments": sorted(str(p) for p in session.ctx.attachments),
+            }
+
         # ── Phase 10 / 10-01: RPA callback + report endpoints ─────────────
         # The controller is built in start() after build_app resolves the
         # provider. Route closures read self._rpa_controller lazily so that

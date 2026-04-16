@@ -83,12 +83,18 @@ def test_session_key_per_channel_fallback_to_sender():
     assert key == "teams:user-1"
 
 
-# --- D-05: Webhook returns 200 immediately with thinking card ---
+# --- D-05: Webhook returns 200 immediately, processing runs async ---
 
 
 @pytest.mark.asyncio
-async def test_webhook_returns_thinking_card_immediately(adapter):
-    """Webhook returns 200 with render_thinking() card immediately per D-05, does not block on handle_message."""
+async def test_webhook_returns_empty_ack_immediately(adapter):
+    """Webhook returns 200 with empty body per Bot Framework contract (D-05).
+
+    quick-260416-j3y follow-up: inline Adaptive Cards in the webhook response
+    were rendering as 'cards.unsupported' on modern Teams clients. Bot
+    Framework bots MUST 200-OK the webhook with an empty body; cards are
+    pushed out-of-band via the activities API.
+    """
     mock_gateway = MagicMock()
     mock_gateway.app = MagicMock()
     # handle_message should NOT be awaited in the webhook handler itself
@@ -142,16 +148,11 @@ async def test_webhook_returns_thinking_card_immediately(adapter):
     with patch("asyncio.create_task", side_effect=mock_create_task):
         response = await route_handler(mock_request)
 
-    # Verify response is immediate 200 with thinking card
+    # Verify response is a plain 200 with empty body — no inline card,
+    # because that is what triggered the skype.com/cards.unsupported fallback
+    # for Bot Framework (bearer-auth) bots.
     response_body = json.loads(response.body.decode())
-    assert response_body["type"] == "message"
-    assert len(response_body["attachments"]) == 1
-    card = response_body["attachments"][0]
-    assert card["contentType"] == "application/vnd.microsoft.card.adaptive"
-    # render_thinking() returns "Analyzing..." card
-    assert card["content"]["type"] == "AdaptiveCard"
-    text_block = card["content"]["body"][0]
-    assert "Analyzing" in text_block["text"]
+    assert response_body == {}
 
     # Verify handle_message was NOT called synchronously in the webhook handler
     # (it runs in the background task created by asyncio.create_task)
@@ -758,8 +759,9 @@ async def test_webhook_handles_download_failure(adapter):
 
 @pytest.mark.asyncio
 async def test_webhook_text_only_unchanged(adapter):
-    """Webhook with text but no attachments works exactly as before --
-    no augmentation, same thinking card response."""
+    """Webhook with text but no attachments still 200-OKs with empty body;
+    agent work runs in the background task (quick-260416-j3y: no inline card
+    in the webhook response on Bot Framework bots)."""
     adapter, handler = await _setup_adapter_with_webhook(adapter)
 
     body = _make_webhook_body(text="just a question")
@@ -776,8 +778,7 @@ async def test_webhook_text_only_unchanged(adapter):
         response = await handler(mock_request)
 
     response_body = json.loads(response.body.decode())
-    assert response_body["type"] == "message"
-    assert "Analyzing" in response_body["attachments"][0]["content"]["body"][0]["text"]
+    assert response_body == {}
     assert len(created_coros) == 1
 
 
@@ -1031,10 +1032,9 @@ async def test_webhook_recognizes_teams_file_download_info_content_type(adapter)
 
     # Background task was created (attachment was recognized, not filtered out)
     assert len(created_coros) == 1
-    # Verify thinking card returned
+    # Verify plain 200-OK ack (no inline card — quick-260416-j3y).
     response_body = json.loads(response.body.decode())
-    assert response_body["type"] == "message"
-    assert "Analyzing" in response_body["attachments"][0]["content"]["body"][0]["text"]
+    assert response_body == {}
 
 
 @pytest.mark.asyncio
