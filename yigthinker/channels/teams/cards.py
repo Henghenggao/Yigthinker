@@ -144,13 +144,15 @@ class TeamsCardRenderer:
         filename: str,
         size_bytes: int,
         summary: str | None = None,
+        download_url: str | None = None,
     ) -> dict[str, Any]:
-        """Adaptive Card announcing an artifact_write result (kind="file").
+        """Adaptive Card announcing an artifact_write / excel_write result.
 
-        Shown when the agent persists a script/config/markdown artifact. We keep
-        the card intentionally simple — no OpenUrl action, because the workspace
-        path is local to the gateway host. Cloud deploys can add a download
-        action later via a settings-driven URL template.
+        When ``download_url`` is provided (quick-260416-kyn: Teams signed-URL
+        delivery for binary artifacts), append an Action.OpenUrl button that
+        the Teams client opens in the user's browser. When omitted, the card
+        stays path-only — same shape as the original artifact_write UX, so
+        text artifacts (.py/.md/.sql) never surface a download link.
         """
         body: list[dict[str, Any]] = [
             {
@@ -169,12 +171,21 @@ class TeamsCardRenderer:
         ]
         if summary:
             body.append({"type": "TextBlock", "text": summary, "wrap": True})
-        return {
+        card: dict[str, Any] = {
             "type": "AdaptiveCard",
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.5",
             "body": body,
         }
+        if download_url:
+            card["actions"] = [
+                {
+                    "type": "Action.OpenUrl",
+                    "title": f"Download {filename}",
+                    "url": download_url,
+                }
+            ]
+        return card
 
     def render_file_received(self, filenames: list[str]) -> dict[str, Any]:
         """Render a card acknowledging received file attachments."""

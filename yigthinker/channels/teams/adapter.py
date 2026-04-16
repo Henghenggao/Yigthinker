@@ -37,6 +37,15 @@ logger = logging.getLogger(__name__)
 
 _SUPPORTED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".json", ".parquet"}
 
+# quick-260416-kyn: suffixes we actively deliver back to Teams as a signed-
+# URL download. Matches RESEARCH.md §"Keep text artifacts card-only": .py /
+# .md / .sql / .txt stay card-only (user copy-pastes or scrolls inline).
+_DELIVERABLE_SUFFIXES = frozenset({".xlsx", ".xls", ".csv", ".pdf", ".docx", ".png"})
+_DELIVERABLE_MIME_PREFIXES = (
+    "application/vnd.openxmlformats",
+    "application/pdf",
+)
+
 
 def _sanitize_attachment_name(name: str) -> str:
     candidate = str(name).strip()
@@ -286,6 +295,38 @@ class TeamsAdapter:
         scheme = gw_cfg.get("scheme", "http")
         return f"{scheme}://{host}:{port}"
 
+    def _is_deliverable(self, path_str: str, mime: str) -> bool:
+        """Should this file artifact be offered as a Teams download?
+
+        Binary artifacts (xlsx/pdf/docx/png/csv) → yes. Text scripts
+        (.py/.md/.sql/.txt) → no, keep card-only. See RESEARCH.md §"Keep
+        text artifacts card-only".
+        """
+        if not path_str:
+            return False
+        suffix = Path(path_str).suffix.lower()
+        if suffix in _DELIVERABLE_SUFFIXES:
+            return True
+        if mime:
+            return any(mime.startswith(pfx) for pfx in _DELIVERABLE_MIME_PREFIXES)
+        return False
+
+    def _is_public_base_url(self, url: str) -> bool:
+        """Is this URL reachable from the Teams client (not loopback)?
+
+        Loopback hosts (127.*, localhost, 0.0.0.0) fail because the Teams
+        service fetches the URL from Microsoft's cloud and cannot hit the
+        gateway's local interface. LAN / ngrok / real DNS names are fine.
+        """
+        if not url:
+            return False
+        lower = url.lower()
+        if lower.startswith(("http://127.", "http://localhost", "http://0.0.0.0")):
+            return False
+        if lower.startswith(("https://127.", "https://localhost", "https://0.0.0.0")):
+            return False
+        return lower.startswith(("http://", "https://"))
+
     def _append_text_to_card(self, card: dict[str, Any], text: str) -> dict[str, Any]:
         if text.strip():
             card.setdefault("body", []).append(
@@ -343,12 +384,43 @@ class TeamsAdapter:
                     text,
                 )
             if artifact.get("kind") == "file":
-                # artifact_write output — see quick-260416-j3y.
+                # artifact_write / excel_write output.
+                # quick-260416-kyn: for deliverable binary artifacts
+                # (xlsx/pdf/docx/etc.) issue a signed download URL via the
+                # gateway's FileTokenStore and surface it as Action.OpenUrl.
+                # For text artifacts (.py/.md/.sql) stay card-only — there
+                # is no user win in forcing a browser round-trip for content
+                # that is already human-readable.
+                download_url: str | None = None
+                path_str = artifact.get("path") or ""
+                mime = artifact.get("mime_type") or ""
+                if path_str and self._is_deliverable(path_str, mime):
+                    base_url = self._gateway_base_url()
+                    token_store = getattr(
+                        self._gateway, "_file_token_store", None,
+                    )
+                    if token_store is not None and self._is_public_base_url(base_url):
+                        try:
+                            from urllib.parse import quote
+                            token = token_store.issue(Path(path_str).resolve())
+                            name_q = quote(
+                                artifact.get("filename") or Path(path_str).name,
+                                safe="",
+                            )
+                            download_url = (
+                                f"{base_url}/api/files/{token}?name={name_q}"
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to issue download token for Teams outbound file",
+                            )
+                            download_url = None
                 return self._append_text_to_card(
                     self._renderer.render_file_saved(
                         artifact["filename"],
                         int(artifact.get("bytes") or 0),
                         summary=artifact.get("summary"),
+                        download_url=download_url,
                     ),
                     text,
                 )
