@@ -50,10 +50,14 @@ class ReportGenerateInput(BaseModel):
 class ReportGenerateTool:
     name = "report_generate"
     description = (
-        "Generate a report (Excel/PDF/CSV/DOCX) from a registered DataFrame. "
+        "Use this when the user asks for an Excel / PDF / CSV / DOCX file "
+        "from a DataFrame that's already in the registry. Prefer this over "
+        "explaining how to make a report — just generate it. "
         "Excel output uses openpyxl with formatted headers. "
         "PDF output uses reportlab for tabular layout. "
-        "DOCX output uses python-docx with a styled Light Grid Accent 1 table."
+        "DOCX output uses python-docx with a styled Light Grid Accent 1 table. "
+        "Returns the output path in the result; the channel adapter will "
+        "deliver it as a file card."
     )
     input_schema = ReportGenerateInput
 
