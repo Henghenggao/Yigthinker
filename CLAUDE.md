@@ -422,3 +422,22 @@ Key routing rules:
 - Architecture review → invoke plan-eng-review
 - Save progress, checkpoint, resume → invoke checkpoint
 - Code quality, health check → invoke health
+
+## Phase 0: Teams Excel Delivery (Action-First Behavior)
+
+Yigthinker's agent loop defaults to ACTION, not EXPLANATION. The
+`BASE_SYSTEM_PROMPT` in `yigthinker/prompts/base.py` is always prepended
+to the system message before any dynamic content (memory, directives,
+hooks, steerings). This anchors the LLM to produce artifacts (files,
+charts, tables) rather than tutorials.
+
+**Key files:**
+- `yigthinker/prompts/base.py` — the base prompt, single source of truth
+- `yigthinker/agent.py` — prepends the base prompt at every iteration
+
+**Regression guard:** `pytest tests/test_e2e_teams_excel.py`
+
+**User-scenario acceptance:** `docs/user-scenarios/phase0-teams-excel.md`
+
+Changing the base prompt or removing it from the assembly will break the
+E2E test. This is by design — the action-first contract is the product.
