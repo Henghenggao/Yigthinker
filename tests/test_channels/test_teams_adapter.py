@@ -1281,8 +1281,8 @@ async def test_download_attachments_unsupported_skipped_no_registration(
 @pytest.mark.asyncio
 async def test_process_and_respond_threads_ctx_into_download(adapter, tmp_path):
     """_process_and_respond must resolve the live session via
-    gateway.registry.get_active_key + registry.get, then pass session.ctx
-    through to _download_attachments."""
+    gateway.registry.get_active_key + registry.get_or_restore, then pass
+    session.ctx through to _download_attachments."""
     ctx = _make_ctx_for_attachment_tests()
 
     managed = MagicMock()
@@ -1290,10 +1290,11 @@ async def test_process_and_respond_threads_ctx_into_download(adapter, tmp_path):
 
     registry = MagicMock()
     registry.get_active_key = MagicMock(return_value="teams:user-x-active")
-    registry.get = MagicMock(return_value=managed)
+    registry.get_or_restore = AsyncMock(return_value=managed)
 
     adapter._gateway = MagicMock()
     adapter._gateway.registry = registry
+    adapter._gateway._settings = {}
     adapter._gateway.handle_message = AsyncMock(return_value="ok")
     adapter._acquire_token = MagicMock(return_value="tok")
     adapter.extract_quoted_messages = AsyncMock(return_value=[])  # type: ignore[method-assign]
@@ -1335,9 +1336,11 @@ async def test_process_and_respond_threads_ctx_into_download(adapter, tmp_path):
             }],
         )
 
-    # Registry lookup path used (mirrors server.py:233 pattern)
+    # Registry lookup path used (mirrors server.py:233-234 pattern)
     registry.get_active_key.assert_called_once_with("teams:user-x")
-    registry.get.assert_called_once_with("teams:user-x-active")
+    registry.get_or_restore.assert_awaited_once_with(
+        "teams:user-x-active", {}, "teams"
+    )
 
     # _download_attachments received ctx= kwarg
     spy.assert_awaited_once()
@@ -1347,14 +1350,15 @@ async def test_process_and_respond_threads_ctx_into_download(adapter, tmp_path):
 
 @pytest.mark.asyncio
 async def test_process_and_respond_handles_missing_session_gracefully(adapter):
-    """If registry.get returns None (hibernated, not yet restored), skip
-    registration — download still proceeds with ctx=None rather than crashing."""
+    """If get_or_restore raises (e.g. hibernate payload corrupt), the
+    download still proceeds with ctx=None rather than crashing."""
     registry = MagicMock()
     registry.get_active_key = MagicMock(return_value="teams:ghost")
-    registry.get = MagicMock(return_value=None)
+    registry.get_or_restore = AsyncMock(side_effect=RuntimeError("restore failed"))
 
     adapter._gateway = MagicMock()
     adapter._gateway.registry = registry
+    adapter._gateway._settings = {}
     adapter._gateway.handle_message = AsyncMock(return_value="ok")
     adapter._acquire_token = MagicMock(return_value="tok")
     adapter.extract_quoted_messages = AsyncMock(return_value=[])  # type: ignore[method-assign]
