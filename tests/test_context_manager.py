@@ -50,6 +50,10 @@ def test_build_automation_directive_enabled(cm):
     assert "suggest_automation" in directive
     assert "workflow_generate" in directive
     assert "one-off or exploratory" in directive.lower()
+    # quick-260416-j3y: the directive must explicitly route one-off scripts and
+    # custom-formatted outputs away from workflow_generate toward artifact_write.
+    assert "artifact_write" in directive
+    assert "custom-formatted" in directive
 
 
 def test_build_automation_directive_disabled(cm):

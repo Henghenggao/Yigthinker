@@ -167,7 +167,12 @@ class WorkflowGenerateTool:
         "Generate a self-contained Python script from analysis step definitions. "
         "Supports python, power_automate, and uipath targets. "
         "Set from_history=True to auto-extract steps from recent tool calls. "
-        "Set update_of to create a new version of an existing workflow."
+        "Set update_of to create a new version of an existing workflow. "
+        "Only for recurring workflows built from the supported tool vocabulary "
+        "(sql/df/forecast/finance/report/chart). For one-off scripts or custom "
+        "formatting the template engine cannot express — e.g. openpyxl styling, "
+        "merged cells, bespoke Excel layouts — use `artifact_write` or reply "
+        "with the script text inline instead."
     )
     input_schema = WorkflowGenerateInput
 

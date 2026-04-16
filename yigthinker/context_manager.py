@@ -108,13 +108,20 @@ class ContextManager:
             return None
 
         # D-23 locked text -- do NOT paraphrase.
+        # quick-260416-j3y appends one clause at the end to explicitly steer the
+        # LLM away from forcing one-off scripts / custom Excel outputs through
+        # workflow_generate (the root cause of a Teams agent-loop timeout
+        # documented in .planning/quick/260416-j3y-*).
         return (
             "**Automation awareness**: When the user completes a data analysis "
             "task, briefly consider whether the work is likely to repeat (daily "
             "reports, monthly closes, recurring investigations). If so, call "
             "`suggest_automation` to see detected patterns and offer to generate "
             "a workflow via `workflow_generate`. Do not suggest automation for "
-            "one-off or exploratory analyses."
+            "one-off or exploratory analyses. "
+            "Do not push one-off scripts, ad-hoc reports, or custom-formatted "
+            "outputs (e.g. openpyxl-styled Excel) through `workflow_generate` — "
+            "those belong in `artifact_write` or a direct reply."
         )
 
     def summarize_dataframe_result(self, df: pd.DataFrame) -> dict[str, Any]:
