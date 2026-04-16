@@ -106,6 +106,19 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_iterations": 20,
         "timeout": 120.0,
     },
+    "agent": {
+        # Wall-clock budget for AgentLoop.run() overall. Individual channels
+        # may override via `channel_timeouts` below; unspecified channels use
+        # this default.
+        "timeout_seconds": 300.0,
+        # quick-260416-j3y-04: IM surfaces (Teams/Feishu/etc.) tolerate longer
+        # waits than the CLI REPL because the user is async and expects a card
+        # reply rather than a live cursor. 600s gives the model room to finish
+        # multi-tool analyses on slower Ollama/Azure deployments.
+        "channel_timeouts": {
+            "teams": 600.0,
+        },
+    },
     "sandbox": {
         "df_transform": {
             "allowed_imports": ["pandas", "numpy", "polars"],

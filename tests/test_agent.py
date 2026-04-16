@@ -701,3 +701,152 @@ async def test_microcompact_replaces_old_results():
     # The recent tool_result at index 6 should NOT be replaced (within last 3 messages)
     recent_result = result[6].content[0]
     assert recent_result["content"] == "another result"
+
+
+# ─── quick-260416-j3y-04: soft deadline + partial vars + per-channel override ───
+
+
+async def test_soft_deadline_message_injected_once_when_budget_fraction_crossed():
+    """At 80% of the wall-clock budget, the agent must prepend ONE system-style
+    steering message so the LLM wraps up instead of being killed mid-iteration.
+
+    Timing strategy: budget 1.0s, 80% deadline = 0.8s.
+      - call 1: tool_use, sleeps 0.85s  → elapsed crosses 0.8s during call 1
+      - call 2: end_turn, near-instant  → injection must fire exactly before
+                                          this call, and the run should finish
+                                          inside the 1.0s budget.
+    """
+    from yigthinker.agent import _SOFT_DEADLINE_MSG
+
+    tu_response = LLMResponse(
+        stop_reason="tool_use",
+        tool_uses=[ToolUse(id="tu1", name="echo", input={"message": "a"})],
+    )
+    end_response = LLMResponse(stop_reason="end_turn", text="done")
+
+    captured_messages: list[list[Message]] = []
+    call_count = 0
+
+    async def slow_chat(messages, tools, **kwargs):
+        nonlocal call_count
+        captured_messages.append(list(messages))
+        call_count += 1
+        if call_count == 1:
+            # Crosses the 80% mark during this call.
+            await asyncio.sleep(0.85)
+            return tu_response
+        # Call 2+: fast end_turn so the run completes under budget.
+        await asyncio.sleep(0.01)
+        return end_response
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = slow_chat
+
+    tools = ToolRegistry()
+    tools.register(EchoTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["echo"]})
+    loop = AgentLoop(
+        provider=mock_provider, tools=tools, hooks=hooks, permissions=perms,
+        max_iterations=10, timeout_seconds=1.0,
+    )
+    ctx = SessionContext()
+    result = await loop.run("hello", ctx)
+
+    assert result == "done"
+
+    # The injection must appear exactly once across ALL snapshots (the same
+    # message shows up in every snapshot AFTER it was injected, so we check
+    # the final snapshot, where the message should appear exactly once).
+    final = captured_messages[-1]
+    soft_hits = [
+        m for m in final
+        if m.role == "user" and m.content == _SOFT_DEADLINE_MSG
+    ]
+    assert len(soft_hits) == 1, (
+        f"expected exactly one soft-deadline injection in the final snapshot, "
+        f"got {len(soft_hits)}"
+    )
+
+
+async def test_timeout_appends_var_registry_summary():
+    """TimeoutError must surface concrete variable names/shapes so the user can
+    recover partial work, not just the opaque 'may be available' line."""
+    async def slow_chat(messages, tools, **kwargs):
+        await asyncio.sleep(10)
+        return LLMResponse(stop_reason="end_turn", text="never")
+
+    import pandas as pd
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = slow_chat
+
+    tools = ToolRegistry()
+    tools.register(EchoTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["echo"]})
+    loop = AgentLoop(
+        provider=mock_provider, tools=tools, hooks=hooks, permissions=perms,
+        max_iterations=10, timeout_seconds=0.05,
+    )
+    ctx = SessionContext()
+    ctx.vars.set("df1", pd.DataFrame({"a": [1, 2]}))
+    ctx.vars.set("df2", pd.DataFrame({"b": [3, 4, 5]}))
+
+    result = await loop.run("hello", ctx)
+
+    assert "timed out" in result.lower()
+    assert "Partial results still in variable registry" in result
+    assert "df1" in result
+    assert "df2" in result
+    # Shape should be in the summary too (2x1 / 3x1 in pandas)
+    assert "2x1" in result
+    assert "3x1" in result
+
+
+async def test_timeout_override_is_honored():
+    """timeout_override must replace the constructor default for a single run."""
+    async def slow_chat(messages, tools, **kwargs):
+        await asyncio.sleep(0.25)
+        return LLMResponse(stop_reason="end_turn", text="done")
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = slow_chat
+
+    tools = ToolRegistry()
+    tools.register(EchoTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["echo"]})
+    # Constructor default of 0.05s would time the slow_chat out; the override
+    # of 1.0s must let it finish.
+    loop = AgentLoop(
+        provider=mock_provider, tools=tools, hooks=hooks, permissions=perms,
+        max_iterations=10, timeout_seconds=0.05,
+    )
+    ctx = SessionContext()
+
+    result = await loop.run("hello", ctx, timeout_override=1.0)
+    assert result == "done"
+
+
+async def test_run_without_override_still_uses_constructor_timeout():
+    """Regression guard: omitting timeout_override must not broaden the budget."""
+    async def slow_chat(messages, tools, **kwargs):
+        await asyncio.sleep(10)
+        return LLMResponse(stop_reason="end_turn", text="never")
+
+    mock_provider = AsyncMock()
+    mock_provider.chat = slow_chat
+
+    tools = ToolRegistry()
+    tools.register(EchoTool())
+    hooks = HookExecutor(HookRegistry())
+    perms = PermissionSystem({"allow": ["echo"]})
+    loop = AgentLoop(
+        provider=mock_provider, tools=tools, hooks=hooks, permissions=perms,
+        max_iterations=10, timeout_seconds=0.05,
+    )
+    ctx = SessionContext()
+
+    result = await loop.run("hello", ctx)
+    assert "timed out" in result.lower()
