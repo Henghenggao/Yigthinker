@@ -58,6 +58,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_hibernate_size_mb": 500,
         "session_scope": "per-sender",
         "eviction_interval_seconds": 60,
+        # quick-260416-kyn: HMAC secret for signed file-download tokens.
+        # Empty string → gateway autogenerates and persists under
+        # ~/.yigthinker/gateway_file_token.secret on first boot.
+        "file_token_secret": "",
+        "file_token_ttl_seconds": 1800,  # 30 minutes
+        "artifact_ttl_seconds": 604800,  # 7 days — shutdown sweep cutoff
         "rpa": {
             "max_attempts_24h": 3,
             "max_llm_calls_day": 10,

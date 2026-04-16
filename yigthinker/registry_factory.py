@@ -23,6 +23,7 @@ from yigthinker.tools.visualization.chart_recommend import ChartRecommendTool
 from yigthinker.tools.agent_cancel import AgentCancelTool
 from yigthinker.tools.agent_status import AgentStatusTool
 from yigthinker.tools.artifact_write import ArtifactWriteTool
+from yigthinker.tools.excel_write import ExcelWriteTool
 from yigthinker.tools.spawn_agent import SpawnAgentTool
 from yigthinker.tools.finance.finance_calculate import FinanceCalculateTool
 from yigthinker.tools.finance.finance_analyze import FinanceAnalyzeTool
@@ -92,6 +93,11 @@ def build_tool_registry(
     # artifact_write gives the LLM a first-class path to save free-form text
     # (scripts, configs, markdown). See .planning/quick/260416-j3y-*.
     registry.register(ArtifactWriteTool())
+
+    # excel_write produces formatted .xlsx from a registered DataFrame with
+    # named styles, number formats, and base-file modify mode. See
+    # .planning/quick/260416-kyn-*.
+    registry.register(ExcelWriteTool())
 
     registry.register(ChartCreateTool())
     registry.register(ChartModifyTool())

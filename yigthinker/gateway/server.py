@@ -20,6 +20,15 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from yigthinker.gateway.auth import GatewayAuth
+from yigthinker.gateway.artifacts_cleanup import (
+    ARTIFACTS_ROOT,
+    DEFAULT_ARTIFACT_TTL_SECONDS,
+    sweep_old_artifacts,
+)
+from yigthinker.gateway.file_tokens import (
+    DEFAULT_FILE_TOKEN_TTL_SECONDS,
+    FileTokenStore,
+)
 from yigthinker.visualization.exporter import ChartExporter
 from yigthinker.gateway.protocol import (
     AuthResultMsg,
@@ -104,6 +113,11 @@ class GatewayServer:
 
         self._auth = GatewayAuth()
         self._settings["_gateway_token"] = self._auth.token
+
+        # quick-260416-kyn: HMAC-signed file-download tokens for outbound
+        # Teams/IM artifact delivery. Empty settings value → autogenerate
+        # and persist (per-boot reuse across restarts).
+        self._file_token_store = self._init_file_token_store(gw_cfg)
         self._registry = SessionRegistry(
             idle_timeout=gw_cfg.get("idle_timeout_seconds", 3600),
             max_sessions=gw_cfg.get("max_sessions", 100),
@@ -172,6 +186,27 @@ class GatewayServer:
             await adapter.start(self)
         logger.info("Gateway started (token=%s...)", self._auth.token[:8])
 
+    def _init_file_token_store(self, gw_cfg: dict) -> FileTokenStore:
+        """Build the FileTokenStore, materializing a persistent HMAC secret."""
+        raw_secret = (gw_cfg.get("file_token_secret") or "").strip()
+        if not raw_secret:
+            secret_path = Path.home() / ".yigthinker" / "gateway_file_token.secret"
+            secret_path.parent.mkdir(parents=True, exist_ok=True)
+            if secret_path.exists():
+                raw_secret = secret_path.read_text(encoding="utf-8").strip()
+            if not raw_secret:
+                import secrets as _secrets_mod
+                raw_secret = _secrets_mod.token_urlsafe(32)
+                secret_path.write_text(raw_secret, encoding="utf-8")
+                # Best-effort perm tighten (no-op on Windows).
+                try:
+                    import os
+                    os.chmod(secret_path, 0o600)
+                except OSError:
+                    pass
+        ttl = int(gw_cfg.get("file_token_ttl_seconds") or DEFAULT_FILE_TOKEN_TTL_SECONDS)
+        return FileTokenStore(secret=raw_secret.encode("utf-8"), ttl_seconds=ttl)
+
     async def stop(self) -> None:
         """Graceful shutdown: hibernate sessions, stop adapters, dispose pool."""
         self._shutting_down = True
@@ -198,6 +233,16 @@ class GatewayServer:
                 logger.exception("Error stopping adapter %s", getattr(adapter, "name", "?"))
 
         await self._registry.shutdown()
+
+        # quick-260416-kyn: 7-day artifact sweep. Wrapped in try/except so
+        # a cleanup failure never blocks shutdown.
+        try:
+            gw_cfg = self._settings.get("gateway", {}) or {}
+            ttl = int(gw_cfg.get("artifact_ttl_seconds") or DEFAULT_ARTIFACT_TTL_SECONDS)
+            counts = sweep_old_artifacts(ARTIFACTS_ROOT, time.time(), ttl)
+            logger.info("Artifact sweep on shutdown: %s", counts)
+        except Exception:
+            logger.exception("Artifact sweep on shutdown failed")
 
         if self._pool:
             await self._pool.dispose_all()
@@ -512,6 +557,46 @@ class GatewayServer:
             except ValueError:
                 return JSONResponse({"error": "corrupt chart data"}, status_code=500)
             return HTMLResponse(html)
+
+        # ── Outbound file serving (quick-260416-kyn) ─────────────────────
+        # Tokens are issued by FileTokenStore and carry the capability —
+        # unauthenticated by design so Teams Adaptive Cards can embed the
+        # URL in an Action.OpenUrl that the user clicks in the browser.
+        @app.get("/api/files/{token}")
+        async def serve_artifact_file(token: str, request: Request):
+            store = self._file_token_store
+            if store is None:
+                return JSONResponse(
+                    {"error": "file serving disabled"}, status_code=503,
+                )
+            path = store.resolve(token)
+            if path is None or not path.exists():
+                return JSONResponse(
+                    {"error": "file not found or expired"}, status_code=404,
+                )
+            download_name = request.query_params.get("name") or path.name
+            suffix = path.suffix.lower()
+            if suffix == ".xlsx":
+                media_type = (
+                    "application/vnd.openxmlformats-officedocument"
+                    ".spreadsheetml.sheet"
+                )
+            elif suffix == ".pdf":
+                media_type = "application/pdf"
+            elif suffix == ".docx":
+                media_type = (
+                    "application/vnd.openxmlformats-officedocument"
+                    ".wordprocessingml.document"
+                )
+            elif suffix == ".csv":
+                media_type = "text/csv"
+            elif suffix == ".png":
+                media_type = "image/png"
+            else:
+                media_type = "application/octet-stream"
+            return FileResponse(
+                path, media_type=media_type, filename=download_name,
+            )
 
         @app.websocket("/ws")
         async def websocket_endpoint(ws: WebSocket):
