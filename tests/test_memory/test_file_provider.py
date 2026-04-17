@@ -79,3 +79,20 @@ async def test_different_agent_ids_isolated(tmp_path: Path):
     await p1.write(_rec("r1"))
     assert len(await p1.read()) == 1
     assert len(await p2.read()) == 0
+
+
+@pytest.mark.asyncio
+async def test_write_triggers_compaction_without_deadlock(tmp_path: Path):
+    # Regression: write() → _compact_locked() → _read_active() re-enters the
+    # same FileLock. Relies on the cached _file_lock being reentrant in-process.
+    # If the cache is ever replaced with a fresh per-call FileLock, this hangs.
+    async def _run() -> list[MemoryRecord]:
+        p = FileMemoryProvider(
+            store_dir=tmp_path, agent_id="a", max_records_before_compact=2
+        )
+        for i in range(3):
+            await p.write(_rec(f"r{i}"))
+        return await p.read()
+
+    records = await asyncio.wait_for(_run(), timeout=5.0)
+    assert len(records) == 3

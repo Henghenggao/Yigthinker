@@ -71,7 +71,7 @@ class FileMemoryProvider:
         self._max_records = max_records_before_compact
         self._lock_timeout = lock_timeout
         # Cache a single FileLock instance so nested `with self._lock:` blocks
-        # (e.g. write() → _compact_locked() → _read_active_locked()) are
+        # (e.g. write() → _compact_locked() → _read_active()) are
         # reentrant within a process. A fresh FileLock per call would deadlock.
         self._file_lock = FileLock(
             str(self._path) + ".lock", timeout=lock_timeout
@@ -99,7 +99,7 @@ class FileMemoryProvider:
         session_id: str | None = None,
         limit: int = 50,
     ) -> list[MemoryRecord]:
-        records = self._read_active_locked()
+        records = self._read_active()
         if kind is not None:
             records = [r for r in records if r.kind == kind]
         if session_id is not None:
@@ -108,7 +108,7 @@ class FileMemoryProvider:
 
     async def delete(self, record_id: str) -> bool:
         with self._lock:
-            active = self._read_active_locked()
+            active = self._read_active()
             if not any(r.id == record_id for r in active):
                 return False
             tombstone = {"__tombstone__": True, "id": record_id}
@@ -119,7 +119,7 @@ class FileMemoryProvider:
         return True
 
     async def list_sessions(self) -> list[str]:
-        records = self._read_active_locked()
+        records = self._read_active()
         return sorted({r.session_id for r in records if r.session_id is not None})
 
     # ---------- internals ----------
@@ -130,7 +130,7 @@ class FileMemoryProvider:
         with self._path.open("r", encoding="utf-8") as f:
             return sum(1 for _ in f)
 
-    def _read_active_locked(self) -> list[MemoryRecord]:
+    def _read_active(self) -> list[MemoryRecord]:
         """Return active (non-tombstoned) records, most recent first."""
         if not self._path.exists():
             return []
@@ -153,7 +153,7 @@ class FileMemoryProvider:
 
     def _compact_locked(self) -> None:
         """Rewrite file excluding tombstoned records. Must be called under lock."""
-        active = self._read_active_locked()
+        active = self._read_active()
         tmp = self._path.with_suffix(".jsonl.tmp")
         with tmp.open("w", encoding="utf-8") as f:
             for r in reversed(active):   # back to chronological order
