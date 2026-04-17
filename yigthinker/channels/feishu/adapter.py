@@ -138,7 +138,13 @@ class FeishuAdapter:
         vars_summary: list[dict[str, Any]] | None = None,
         artifact: dict[str, Any] | None = None,
     ) -> None:
-        """Send a card response back to the Feishu chat."""
+        """Send a card response back to the Feishu chat.
+
+        ``vars_summary`` is accepted for protocol compatibility but intentionally
+        unused — see ``ChannelAdapter.send_response`` in ``channels/base.py``.
+        Teams and Google Chat adapters behave the same way pending an agreed
+        cross-channel card footer for the DataFrame registry snapshot.
+        """
         if not self._client:
             return
 
