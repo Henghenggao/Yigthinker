@@ -108,6 +108,10 @@ yigthinker = "yigthinker.__main__:run"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: tests that may take >5 seconds or hang on CI (skip with -m 'not slow')",
+]
+addopts = "-m 'not slow'"
 # Hard per-test wall-clock limit so a single hung test cannot burn the CI slot.
 # Uses the ``thread`` method so it works on Windows (signal.SIGALRM is POSIX-only).
 timeout = 60
