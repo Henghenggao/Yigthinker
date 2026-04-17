@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from yigthinker.hooks.executor import HookExecutor
 from yigthinker.permissions import PermissionSystem
+from yigthinker.prompts.base import BASE_SYSTEM_PROMPT
 from yigthinker.providers.base import LLMProvider
 from yigthinker.session import SessionContext
 from yigthinker.tools.registry import ToolRegistry
@@ -157,12 +158,19 @@ class AgentLoop:
                         result_text = text
                         break
 
+                    # Phase 0 / Yigcore migration: base system prompt is always the
+                    # FIRST block. Everything else (memory, directives, hooks,
+                    # steerings) is appended AFTER. This anchors the LLM to
+                    # action-first behavior regardless of other injections.
+                    # See docs/superpowers/specs/2026-04-16-yigthinker-becomes-yigcore-design.md §2.
+                    system_prompt: str | None = BASE_SYSTEM_PROMPT
+
                     # Token budget check before LLM call — fire PreCompact if exceeded
-                    system_prompt: str | None = None
                     if self._memory_manager is not None:
                         loaded = self._memory_manager.load_memory()
                         if loaded:
-                            system_prompt = ctx.context_manager.build_memory_section(loaded)
+                            memory_section = ctx.context_manager.build_memory_section(loaded)
+                            system_prompt = f"{system_prompt}\n\n{memory_section}"
 
                     # Drain background subagent notifications (D-08)
                     if ctx.subagent_manager is not None:
@@ -203,6 +211,11 @@ class AgentLoop:
 
                     # Phase 10 / BHV-02 (CORR-02): first-iteration startup alert provider.
                     # Called EXACTLY ONCE per run, gated on iteration == 1, defensively wrapped.
+                    #
+                    # Phase 0 contract: BASE_SYSTEM_PROMPT must remain the FIRST block
+                    # of system_prompt. The alert appends after (not before) the base
+                    # prompt + any memory section, so the action-first identity is
+                    # anchored before any transient operational alerts.
                     if iteration == 1 and self._startup_alert_provider is not None:
                         try:
                             alert = self._startup_alert_provider()
@@ -210,7 +223,7 @@ class AgentLoop:
                             alert = None  # Pitfall 3: provider exceptions NEVER break the run
                         if alert:
                             if system_prompt:
-                                system_prompt = f"{alert}\n\n{system_prompt}"
+                                system_prompt = f"{system_prompt}\n\n{alert}"
                             else:
                                 system_prompt = alert
 

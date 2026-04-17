@@ -5,6 +5,7 @@ from yigthinker.session import SessionContext
 from yigthinker.tools.dataframe.df_transform import DfTransformInput, DfTransformTool
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_infinite_loop_is_killed():
     """A user-provided infinite loop must be terminated by the timeout.

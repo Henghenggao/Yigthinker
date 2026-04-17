@@ -104,6 +104,29 @@ class FeishuCardRenderer:
             "elements": elements,
         }
 
+    def render_file_saved(
+        self,
+        filename: str,
+        size_bytes: int,
+        summary: str | None = None,
+    ) -> dict[str, Any]:
+        """Feishu card announcing an artifact_write / report_generate file result.
+
+        Shown when the agent persists a file artifact (Excel/PDF/script). We keep
+        the card simple — no download action, because the workspace path is local
+        to the gateway host. Parallels TeamsCardRenderer.render_file_saved.
+        """
+        elements: list[dict[str, Any]] = [
+            {"tag": "markdown", "content": f"**Saved {filename}**"},
+            {"tag": "markdown", "content": f"Saved to workspace · {size_bytes:,} B"},
+        ]
+        if summary:
+            elements.append({"tag": "markdown", "content": summary})
+        return {
+            "config": {"wide_screen_mode": True},
+            "elements": elements,
+        }
+
     def render_vchart_native(self, chart_name: str, vchart_spec: dict[str, Any]) -> dict[str, Any]:
         """Feishu-exclusive: native interactive chart via VChart in card."""
         return {

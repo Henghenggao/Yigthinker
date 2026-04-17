@@ -75,11 +75,12 @@ class ArtifactWriteInput(BaseModel):
 class ArtifactWriteTool:
     name = "artifact_write"
     description = (
-        "Save free-form text content (Python/SQL scripts, markdown, YAML/JSON "
-        "configs) as a named file in the workspace. Use THIS instead of "
-        "df_transform or df_load when the user asks for a custom script, "
-        "a one-off report, or any text artifact. Returns the saved file's path "
-        "so downstream IM channels can surface it as a downloadable attachment."
+        "Use this to save a free-form text artifact (Python/SQL/VBA scripts, "
+        "YAML/JSON configs, Markdown docs, one-off CSVs from string content) "
+        "as a named file in the workspace. Call this when the user asks for "
+        "a script, a config, a snippet, or any text file — do NOT paste code "
+        "inline and do NOT stuff text into a DataFrame via df_transform. "
+        "The returned path is delivered to the user as a file card."
     )
     input_schema = ArtifactWriteInput
 

@@ -16,6 +16,30 @@ if TYPE_CHECKING:
     from yigthinker.providers.base import LLMProvider
 
 
+def build_memory_provider(settings: dict[str, Any]) -> "Any | None":
+    """Build MemoryProvider from settings.memory.provider.
+
+    Returns None when provider == "null" or when no memory config present.
+    See docs/adr/005-memory-provider-interface.md.
+    """
+    mem_cfg = settings.get("memory") or {}
+    kind = mem_cfg.get("provider", "null")
+    if kind == "null":
+        return None
+    if kind == "file":
+        from yigthinker.memory.provider import FileMemoryProvider
+        file_cfg = mem_cfg.get("file", {})
+        store_dir = file_cfg.get("store_dir")
+        if store_dir is None:
+            store_dir = Path.home() / ".yigthinker" / "memory"
+        return FileMemoryProvider(
+            store_dir=store_dir,
+            agent_id=file_cfg.get("agent_id", "default"),
+            max_records_before_compact=file_cfg.get("max_records_before_compact", 1000),
+        )
+    raise ValueError(f"unknown memory provider: {kind!r}")
+
+
 @dataclass
 class AppContext:
     """Shared application state built once at startup."""

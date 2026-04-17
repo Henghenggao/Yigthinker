@@ -1,0 +1,73 @@
+{
+  "teamCardId": "team-startup",
+  "version": "1.0.0",
+  "schemaVersion": "1.0",
+  "author": "official",
+  "license": "free",
+
+  "name": "Startup Workbench",
+  "description": "A cross-functional startup team covering product strategy, full-stack development, market research, growth, and content. Led by a Product Manager who coordinates all team members and ensures work aligns with business goals.",
+  "icon": "🚀",
+  "tags": [
+    "startup",
+    "product",
+    "development",
+    "research",
+    "growth",
+    "content"
+  ],
+  "category": "business",
+
+  "members": [
+    {
+      "cardId": "card-product-manager",
+      "teamRole": "产品策略 & 协调",
+      "isLeader": true
+    },
+    {
+      "cardId": "card-typescript-dev",
+      "teamRole": "全栈开发"
+    },
+    {
+      "cardId": "card-research-analyst",
+      "teamRole": "市场研究 & 竞品分析"
+    },
+    {
+      "cardId": "card-growth-advisor",
+      "teamRole": "增长策略 & 用户获取"
+    },
+    {
+      "cardId": "card-writing-assistant",
+      "teamRole": "内容 & 文案"
+    }
+  ],
+
+  "defaultMode": "hierarchical",
+  "leaderId": "card-product-manager",
+  "collaborationConfig": {
+    "maxRounds": 10,
+    "overallTimeoutMs": 600000,
+    "perTaskTimeoutMs": 120000
+  },
+
+  "requiredEnvVars": [
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "description": "Anthropic API key for LLM access",
+      "required": true,
+      "example": "sk-ant-..."
+    },
+    {
+      "name": "GITHUB_TOKEN",
+      "description": "GitHub Personal Access Token for code operations",
+      "required": false,
+      "example": "ghp_..."
+    }
+  ],
+
+  "displayName": "创业工作台",
+  "downloads": 0,
+  "rating": 5,
+  "createdAt": 1700000000000,
+  "updatedAt": 1700000000000
+}
