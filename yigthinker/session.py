@@ -168,6 +168,10 @@ class SessionContext:
     last_active: float = field(default_factory=time.monotonic)
     channel_origin: str = "cli"
     owner_id: str = ""  # identifies the user who owns this session (channel:sender_id)
+    # Session-level dry-run flag. When True, write-type tools short-circuit and
+    # return a DryRunReceipt describing what they would do; read-only tools
+    # ignore the flag and execute normally.
+    dry_run: bool = False
     vars: VarRegistry = field(default_factory=VarRegistry)
     # Adapter-registered allowlist of absolute, resolved paths (e.g. Teams/Feishu
     # downloads) that `_safe_path` accepts even when outside workspace_dir.

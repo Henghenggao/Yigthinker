@@ -36,7 +36,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from yigthinker.session import SessionContext
-from yigthinker.types import ToolResult
+from yigthinker.types import DryRunReceipt, ToolResult
 
 # ── Named-style registry ─────────────────────────────────────────────────
 #
@@ -160,6 +160,21 @@ class ExcelWriteTool:
     async def execute(
         self, input: ExcelWriteInput, ctx: SessionContext,
     ) -> ToolResult:
+        if ctx.dry_run:
+            return ToolResult(
+                tool_use_id="",
+                content=DryRunReceipt(
+                    tool_name=self.name,
+                    summary=(
+                        f"Would write Excel sheet '{input.sheet_name}' "
+                        f"from {input.input_var}"
+                        + (f" into base_file {input.base_file}"
+                           if input.base_file else "")
+                    ),
+                    details={"input": input.model_dump()},
+                ),
+            )
+
         # ── 1. Resolve the DataFrame ─────────────────────────────────
         try:
             df = ctx.vars.get(input.input_var)

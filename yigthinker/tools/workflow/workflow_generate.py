@@ -14,7 +14,7 @@ from pydantic import BaseModel, field_validator
 from yigthinker.session import SessionContext
 from yigthinker.tools.workflow.registry import WorkflowRegistry
 from yigthinker.tools.workflow.template_engine import TemplateEngine
-from yigthinker.types import Message, ToolResult
+from yigthinker.types import DryRunReceipt, Message, ToolResult
 
 # Tools that can be automated into workflow scripts
 _AUTOMATABLE_TOOLS = {
@@ -183,6 +183,20 @@ class WorkflowGenerateTool:
     async def execute(
         self, input: WorkflowGenerateInput, ctx: SessionContext,
     ) -> ToolResult:
+        if ctx.dry_run:
+            return ToolResult(
+                tool_use_id="",
+                content=DryRunReceipt(
+                    tool_name=self.name,
+                    summary=(
+                        f"Would generate workflow '{input.name}' "
+                        f"(target={input.target}, "
+                        f"{len(input.steps)} steps, "
+                        f"from_history={input.from_history})"
+                    ),
+                    details={"input": input.model_dump()},
+                ),
+            )
         try:
             return await self._do_execute(input, ctx)
         except Exception as exc:

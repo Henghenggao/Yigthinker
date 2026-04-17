@@ -14,6 +14,18 @@ class ToolResult:
 
 
 @dataclass
+class DryRunReceipt:
+    """Describes what a write-type tool *would* do if dry_run were off.
+
+    Returned as ToolResult.content when ctx.dry_run is True. Read-only tools
+    ignore the flag and execute normally.
+    """
+    tool_name: str
+    summary: str  # human-readable "would do X"
+    details: dict = field(default_factory=dict)
+
+
+@dataclass
 class ToolUse:
     id: str
     name: str

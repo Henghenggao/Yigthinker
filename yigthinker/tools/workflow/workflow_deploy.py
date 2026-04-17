@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field, field_validator
 from yigthinker.session import SessionContext
 from yigthinker.tools.workflow.registry import WorkflowRegistry
 from yigthinker.tools.workflow.template_engine import TemplateEngine
-from yigthinker.types import ToolResult
+from yigthinker.types import DryRunReceipt, ToolResult
 
 _WEEKDAY_NAMES = [
     "Sunday", "Monday", "Tuesday", "Wednesday",
@@ -280,6 +280,18 @@ class WorkflowDeployTool:
     async def execute(
         self, input: WorkflowDeployInput, ctx: SessionContext,
     ) -> ToolResult:
+        if ctx.dry_run:
+            return ToolResult(
+                tool_use_id="",
+                content=DryRunReceipt(
+                    tool_name=self.name,
+                    summary=(
+                        f"Would deploy workflow '{input.workflow_name}' "
+                        f"to {input.target} in {input.deploy_mode} mode"
+                    ),
+                    details={"input": input.model_dump()},
+                ),
+            )
         try:
             return await self._do_execute(input, ctx)
         except Exception as exc:

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal
 import pandas as pd
 from pydantic import BaseModel
-from yigthinker.types import ToolResult
+from yigthinker.types import DryRunReceipt, ToolResult
 from yigthinker.session import SessionContext
 
 ReportFormat = Literal["excel", "pdf", "csv", "docx"]
@@ -62,6 +62,18 @@ class ReportGenerateTool:
     input_schema = ReportGenerateInput
 
     async def execute(self, input: ReportGenerateInput, ctx: SessionContext) -> ToolResult:
+        if ctx.dry_run:
+            return ToolResult(
+                tool_use_id="",
+                content=DryRunReceipt(
+                    tool_name=self.name,
+                    summary=(
+                        f"Would render {input.format} report to "
+                        f"{input.output_path} from {input.var_name}"
+                    ),
+                    details={"input": input.model_dump()},
+                ),
+            )
         try:
             df = ctx.vars.get(input.var_name)
         except KeyError as exc:

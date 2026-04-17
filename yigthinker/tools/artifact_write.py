@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from yigthinker.session import SessionContext
 from yigthinker.tools.reports.report_generate import _safe_output_path
-from yigthinker.types import ToolResult
+from yigthinker.types import DryRunReceipt, ToolResult
 
 ALLOWED_EXTENSIONS: set[str] = {
     ".py", ".sql", ".md", ".txt",
@@ -87,6 +87,28 @@ class ArtifactWriteTool:
     async def execute(
         self, input: ArtifactWriteInput, ctx: SessionContext,
     ) -> ToolResult:
+        if ctx.dry_run:
+            content_bytes = len(input.content.encode("utf-8"))
+            return ToolResult(
+                tool_use_id="",
+                content=DryRunReceipt(
+                    tool_name=self.name,
+                    summary=(
+                        f"Would write artifact {input.filename} "
+                        f"({content_bytes} bytes, overwrite={input.overwrite})"
+                    ),
+                    # Build details manually — do NOT call ``model_dump()`` here,
+                    # because ``content`` is capped at 1 MiB and would balloon
+                    # the message history in receipt form.
+                    details={
+                        "filename": input.filename,
+                        "overwrite": input.overwrite,
+                        "summary": input.summary,
+                        "content_bytes": content_bytes,
+                    },
+                ),
+            )
+
         # Size guard (fast, before path resolution)
         encoded = input.content.encode("utf-8")
         if len(encoded) > MAX_CONTENT_BYTES:
