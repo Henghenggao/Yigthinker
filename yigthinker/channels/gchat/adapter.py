@@ -160,5 +160,11 @@ class GChatAdapter:
         text: str,
         vars_summary: list[dict[str, Any]] | None = None,
     ) -> None:
-        # Google Chat webhooks use synchronous response — no async send needed
-        pass
+        """Google Chat uses a synchronous webhook response — nothing to send here.
+
+        ``vars_summary`` is accepted for protocol compatibility but intentionally
+        unused — see ``ChannelAdapter.send_response`` in ``channels/base.py``.
+        Feishu and Teams adapters behave the same way pending an agreed
+        cross-channel card footer for the DataFrame registry snapshot.
+        """
+        return

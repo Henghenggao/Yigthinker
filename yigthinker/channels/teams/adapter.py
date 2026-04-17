@@ -175,7 +175,13 @@ class TeamsAdapter:
         error: str | None = None,
         artifact: dict[str, Any] | None = None,
     ) -> None:
-        """Send response to Teams via Bot Framework REST API with Adaptive Card."""
+        """Send response to Teams via Bot Framework REST API with Adaptive Card.
+
+        ``vars_summary`` is accepted for protocol compatibility but intentionally
+        unused — see ``ChannelAdapter.send_response`` in ``channels/base.py``.
+        Feishu and Google Chat adapters behave the same way pending an agreed
+        cross-channel card footer for the DataFrame registry snapshot.
+        """
         if error:
             card = self._renderer.render_error(error)
         elif artifact is not None:

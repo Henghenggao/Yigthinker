@@ -39,7 +39,14 @@ class ChannelAdapter(Protocol):
         text: str,
         vars_summary: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Send a formatted response back to the platform."""
+        """Send a formatted response back to the platform.
+
+        ``vars_summary`` is currently accepted but unused by every implementation
+        (Feishu, Teams, Google Chat). It is retained on the protocol so callers
+        can pass a DataFrame registry snapshot once adapters grow a card footer
+        for it — wiring it in is deliberately deferred until the card shape is
+        agreed across channels, to avoid per-channel divergence.
+        """
         ...
 
     async def extract_quoted_messages(self, event: dict[str, Any]) -> list[QuotedMessage]:
