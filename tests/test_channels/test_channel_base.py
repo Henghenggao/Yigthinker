@@ -1,4 +1,4 @@
-from yigthinker.channels.base import ChannelAdapter
+from yigthinker.presence.channels.base import ChannelAdapter
 from yigthinker.session import QuotedMessage  # noqa: F401
 
 

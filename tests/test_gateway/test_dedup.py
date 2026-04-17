@@ -1,5 +1,5 @@
 """Tests for Feishu event deduplicator."""
-from yigthinker.channels.feishu.dedup import EventDeduplicator
+from yigthinker.presence.channels.feishu.dedup import EventDeduplicator
 
 
 def test_not_duplicate_first_time(tmp_path):

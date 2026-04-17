@@ -64,10 +64,10 @@ def test_setup_wizard_saves_settings(tmp_path):
     # Fake key the "user" pastes in
     fake_key = "sk-ant-test-" + "x" * 32
 
-    from yigthinker.cli.setup_wizard import _save_user_settings
+    from yigthinker.presence.cli.setup_wizard import _save_user_settings
 
     # Directly call the save function as if setup wizard completed
-    with patch("yigthinker.cli.setup_wizard._user_settings_path", return_value=settings_path):
+    with patch("yigthinker.presence.cli.setup_wizard._user_settings_path", return_value=settings_path):
         _save_user_settings({
             "model": "claude-sonnet-4-5",
             "anthropic_api_key": fake_key,

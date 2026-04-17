@@ -14,11 +14,11 @@ from typing import TYPE_CHECKING, Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from yigthinker.channels.gchat.cards import GChatCardRenderer
-from yigthinker.gateway.session_key import SessionKey
+from yigthinker.presence.channels.gchat.cards import GChatCardRenderer
+from yigthinker.presence.gateway.session_key import SessionKey
 
 if TYPE_CHECKING:
-    from yigthinker.gateway.server import GatewayServer
+    from yigthinker.presence.gateway.server import GatewayServer
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ class GChatAdapter:
                     return JSONResponse({"text": "Empty message"})
 
                 # P1-2: route slash commands
-                from yigthinker.channels.command_parser import parse_channel_command
+                from yigthinker.presence.channels.command_parser import parse_channel_command
                 cmd = parse_channel_command(text)
                 if cmd is not None:
                     return JSONResponse({"text": f"Command /{cmd.name} received. Slash commands are processed by the agent."})

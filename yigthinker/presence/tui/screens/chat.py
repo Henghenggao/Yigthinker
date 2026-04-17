@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from yigthinker.tui._import_error import TEXTUAL_IMPORT_ERROR
+from yigthinker.presence.tui._import_error import TEXTUAL_IMPORT_ERROR
 
 try:
     from textual.containers import Horizontal, Vertical
@@ -9,10 +9,10 @@ try:
 except ImportError as exc:
     raise ImportError(TEXTUAL_IMPORT_ERROR) from exc
 
-from yigthinker.tui.widgets.chat_log import ChatLog
-from yigthinker.tui.widgets.input_bar import InputBar
-from yigthinker.tui.widgets.status_bar import StatusBar
-from yigthinker.tui.widgets.vars_panel import VarsPanel
+from yigthinker.presence.tui.widgets.chat_log import ChatLog
+from yigthinker.presence.tui.widgets.input_bar import InputBar
+from yigthinker.presence.tui.widgets.status_bar import StatusBar
+from yigthinker.presence.tui.widgets.vars_panel import VarsPanel
 
 
 class ChatScreen(Screen[None]):

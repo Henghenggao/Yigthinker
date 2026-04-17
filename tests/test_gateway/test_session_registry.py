@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from yigthinker.gateway.session_registry import SessionRegistry
+from yigthinker.presence.gateway.session_registry import SessionRegistry
 from yigthinker.types import Message
 
 
@@ -88,20 +88,20 @@ async def test_evict_idle():
 
 
 def test_active_session_default():
-    from yigthinker.gateway.session_registry import SessionRegistry
+    from yigthinker.presence.gateway.session_registry import SessionRegistry
     reg = SessionRegistry()
     assert reg.get_active_key("teams:user1") == "teams:user1"
 
 
 def test_active_session_switch():
-    from yigthinker.gateway.session_registry import SessionRegistry
+    from yigthinker.presence.gateway.session_registry import SessionRegistry
     reg = SessionRegistry()
     reg.set_active_key("teams:user1", "teams:user1:q1-analysis")
     assert reg.get_active_key("teams:user1") == "teams:user1:q1-analysis"
 
 
 def test_reset_session():
-    from yigthinker.gateway.session_registry import SessionRegistry
+    from yigthinker.presence.gateway.session_registry import SessionRegistry
     from yigthinker.settings import DEFAULT_SETTINGS
     reg = SessionRegistry()
     session = reg.get_or_create("teams:user1", DEFAULT_SETTINGS, "teams")

@@ -10,14 +10,14 @@ from unittest.mock import patch
 class TestGatewayWSClient:
     def test_initial_state(self):
         """Client starts in disconnected state."""
-        from yigthinker.tui.ws_client import GatewayWSClient
+        from yigthinker.presence.tui.ws_client import GatewayWSClient
 
         client = GatewayWSClient(url="ws://localhost:8766/ws", token="test")
         assert client.state == "disconnected"
 
     def test_state_change_callback(self):
         """State changes trigger the on_state_change callback."""
-        from yigthinker.tui.ws_client import GatewayWSClient
+        from yigthinker.presence.tui.ws_client import GatewayWSClient
 
         states: list[str] = []
         client = GatewayWSClient(
@@ -33,7 +33,7 @@ class TestGatewayWSClient:
     @pytest.mark.asyncio
     async def test_reconnect_backoff_timing(self):
         """Verify backoff doubles from 1s base up to 30s max on connection failures."""
-        from yigthinker.tui.ws_client import GatewayWSClient
+        from yigthinker.presence.tui.ws_client import GatewayWSClient
 
         states: list[str] = []
         sleep_calls: list[float] = []
@@ -56,7 +56,7 @@ class TestGatewayWSClient:
             # Yield control briefly
             await original_sleep(0.01)
 
-        with patch("yigthinker.tui.ws_client.asyncio.sleep", side_effect=mock_sleep):
+        with patch("yigthinker.presence.tui.ws_client.asyncio.sleep", side_effect=mock_sleep):
             with patch(
                 "websockets.connect",
                 side_effect=ConnectionRefusedError("refused"),

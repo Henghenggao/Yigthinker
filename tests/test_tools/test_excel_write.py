@@ -376,7 +376,7 @@ def test_mime_type_passthrough():
     """structured_artifact_from_tool_result must preserve mime_type when present
     in the file-kind payload (excel_write sets it; artifact_write does not).
     """
-    from yigthinker.channels.artifacts import structured_artifact_from_tool_result
+    from yigthinker.presence.channels.artifacts import structured_artifact_from_tool_result
 
     raw = {
         "kind": "file",

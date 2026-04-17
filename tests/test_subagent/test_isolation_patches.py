@@ -83,7 +83,7 @@ async def test_spawn_agent_wildcard_copies_all():
 
 async def test_background_merge_back_skips_evicted_session():
     """If parent session was evicted, merge-back should not crash."""
-    from yigthinker.gateway.session_registry import SessionRegistry
+    from yigthinker.presence.gateway.session_registry import SessionRegistry
 
     registry = SessionRegistry()
     # Simulate: parent session existed but was evicted

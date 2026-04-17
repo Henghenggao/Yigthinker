@@ -5,7 +5,7 @@ import base64
 import hashlib
 import hmac as hmac_mod
 
-from yigthinker.channels.teams.hmac import verify_teams_hmac_signature
+from yigthinker.presence.channels.teams.hmac import verify_teams_hmac_signature
 
 
 def _compute_hmac(body: bytes, secret_b64: str) -> str:

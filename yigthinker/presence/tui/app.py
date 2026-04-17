@@ -5,22 +5,22 @@ import asyncio
 import uuid
 from typing import Any
 
-from yigthinker.tui._import_error import TEXTUAL_IMPORT_ERROR
+from yigthinker.presence.tui._import_error import TEXTUAL_IMPORT_ERROR
 
 try:
     from textual.app import App
 except ImportError as exc:
     raise ImportError(TEXTUAL_IMPORT_ERROR) from exc
 
-from yigthinker.tui.screens.chat import ChatScreen
-from yigthinker.tui.screens.model_picker import ModelPickerScreen
-from yigthinker.tui.screens.session_picker import SessionPickerScreen
-from yigthinker.tui.widgets.chat_log import ChatLog
-from yigthinker.tui.widgets.input_bar import InputBar
-from yigthinker.tui.widgets.status_bar import StatusBar
-from yigthinker.tui.widgets.tool_card import ToolCard
-from yigthinker.tui.widgets.vars_panel import VarsPanel
-from yigthinker.tui.ws_client import GatewayWSClient
+from yigthinker.presence.tui.screens.chat import ChatScreen
+from yigthinker.presence.tui.screens.model_picker import ModelPickerScreen
+from yigthinker.presence.tui.screens.session_picker import SessionPickerScreen
+from yigthinker.presence.tui.widgets.chat_log import ChatLog
+from yigthinker.presence.tui.widgets.input_bar import InputBar
+from yigthinker.presence.tui.widgets.status_bar import StatusBar
+from yigthinker.presence.tui.widgets.tool_card import ToolCard
+from yigthinker.presence.tui.widgets.vars_panel import VarsPanel
+from yigthinker.presence.tui.ws_client import GatewayWSClient
 
 
 class YigthinkerTUI(App):
@@ -280,7 +280,7 @@ class YigthinkerTUI(App):
         name = first_var.get("name", "unknown")
         # For Phase 3, show metadata as preview since we don't have row data from Gateway
         preview_rows = [first_var.get("dtypes", {})] if first_var.get("dtypes") else []
-        from yigthinker.tui.screens.dataframe_preview import DataFramePreviewScreen
+        from yigthinker.presence.tui.screens.dataframe_preview import DataFramePreviewScreen
         self.push_screen(DataFramePreviewScreen(name=name, data=preview_rows))
 
     def action_toggle_thinking(self) -> None:

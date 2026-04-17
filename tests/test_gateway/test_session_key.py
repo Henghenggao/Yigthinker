@@ -1,7 +1,7 @@
 """Tests for gateway session key derivation and parsing."""
 import pytest
 
-from yigthinker.gateway.session_key import SessionKey
+from yigthinker.presence.gateway.session_key import SessionKey
 
 
 def test_per_sender():

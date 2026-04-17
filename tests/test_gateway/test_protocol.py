@@ -1,7 +1,7 @@
 """Tests for WebSocket message protocol."""
 import pytest
 
-from yigthinker.gateway.protocol import (
+from yigthinker.presence.gateway.protocol import (
     AttachMsg,
     AuthMsg,
     ErrorMsg,

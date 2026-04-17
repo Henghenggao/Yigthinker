@@ -15,7 +15,7 @@ import httpx
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from yigthinker.channels.teams.adapter import TeamsAdapter
+from yigthinker.presence.channels.teams.adapter import TeamsAdapter
 
 
 def _mock_msal_module() -> ModuleType:
@@ -651,7 +651,7 @@ async def test_webhook_with_single_xlsx_attachment(adapter):
         coro.close()
         return MagicMock()
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client), \
          patch("asyncio.create_task", side_effect=capture_create_task):
         await handler(mock_request)
@@ -668,7 +668,7 @@ async def test_download_attachments_augments_text_with_file_path(adapter):
     adapter._acquire_token = MagicMock(return_value="test-download-token")
 
     mock_dl_client = _mock_httpx_download()
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client):
         file_lines, error_lines = await adapter._download_attachments([{
             "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -691,7 +691,7 @@ async def test_webhook_with_multiple_attachments(adapter):
     adapter._acquire_token = MagicMock(return_value="test-download-token")
 
     mock_dl_client = _mock_httpx_download()
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client):
         file_lines, error_lines = await adapter._download_attachments([
             {
@@ -717,7 +717,7 @@ async def test_webhook_skips_unsupported_file_type(adapter):
     adapter._acquire_token = MagicMock(return_value="test-download-token")
 
     mock_dl_client = _mock_httpx_download()
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client):
         file_lines, error_lines = await adapter._download_attachments([{
             "contentUrl": "https://teams.example.com/files/report.pdf",
@@ -745,7 +745,7 @@ async def test_webhook_handles_download_failure(adapter):
     mock_dl_client.__aenter__ = AsyncMock(return_value=mock_dl_client)
     mock_dl_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client):
         file_lines, error_lines = await adapter._download_attachments([{
             "contentUrl": "https://teams.example.com/files/data.xlsx",
@@ -838,7 +838,7 @@ async def test_webhook_attachment_only_no_text(adapter):
         coro.close()
         return MagicMock()
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client), \
          patch("asyncio.create_task", side_effect=capture_create_task):
         adapter._process_and_respond = AsyncMock()
@@ -899,7 +899,7 @@ async def test_download_uses_bearer_token(adapter):
     adapter._acquire_token = MagicMock(return_value="test-download-token-abc")
 
     mock_dl_client = _mock_httpx_download()
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client):
         file_lines, error_lines = await adapter._download_attachments([{
             "contentUrl": "https://teams.example.com/files/data.xlsx",
@@ -916,7 +916,7 @@ async def test_download_uses_bearer_token(adapter):
 @pytest.mark.asyncio
 async def test_render_file_received_card():
     """render_file_received produces card with file names and count header."""
-    from yigthinker.channels.teams.cards import TeamsCardRenderer
+    from yigthinker.presence.channels.teams.cards import TeamsCardRenderer
     renderer = TeamsCardRenderer()
     card = renderer.render_file_received(["data.xlsx", "report.csv"])
     assert card["type"] == "AdaptiveCard"
@@ -933,7 +933,7 @@ async def test_render_file_received_card():
 @pytest.mark.asyncio
 async def test_render_file_received_card_single_file():
     """render_file_received with single file uses singular 'file' not 'files'."""
-    from yigthinker.channels.teams.cards import TeamsCardRenderer
+    from yigthinker.presence.channels.teams.cards import TeamsCardRenderer
     renderer = TeamsCardRenderer()
     card = renderer.render_file_received(["data.xlsx"])
     body_text = json.dumps(card["body"])
@@ -948,7 +948,7 @@ async def test_download_uses_content_download_url_without_bearer(adapter):
     adapter._acquire_token = MagicMock(return_value="should-not-be-used")
 
     mock_dl_client = _mock_httpx_download()
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client):
         file_lines, error_lines = await adapter._download_attachments([{
             "contentType": "application/vnd.microsoft.teams.file.download.info",
@@ -982,9 +982,9 @@ async def test_download_sanitizes_attachment_name(adapter, tmp_path):
     download_dir.mkdir()
 
     mock_dl_client = _mock_httpx_download()
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient",
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
                return_value=mock_dl_client), \
-         patch("yigthinker.channels.teams.adapter.tempfile.mkdtemp",
+         patch("yigthinker.presence.channels.teams.adapter.tempfile.mkdtemp",
                return_value=str(download_dir)):
         file_lines, error_lines = await adapter._download_attachments([{
             "contentUrl": "https://teams.example.com/files/data.csv",
@@ -1040,7 +1040,7 @@ async def test_webhook_recognizes_teams_file_download_info_content_type(adapter)
 @pytest.mark.asyncio
 async def test_supported_extensions_match_df_load():
     """_SUPPORTED_EXTENSIONS in adapter matches df_load._LOADERS keys exactly."""
-    from yigthinker.channels.teams.adapter import _SUPPORTED_EXTENSIONS
+    from yigthinker.presence.channels.teams.adapter import _SUPPORTED_EXTENSIONS
     from yigthinker.tools.dataframe.df_load import _LOADERS
     assert _SUPPORTED_EXTENSIONS == set(_LOADERS.keys())
 
@@ -1088,7 +1088,7 @@ async def test_process_and_respond_skips_send_when_steering_returns_none(adapter
             resp.status_code = 200
             return resp
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
         await adapter._process_and_respond("teams:user-1", "steer me", event, None)
 
     adapter._gateway.handle_message.assert_awaited_once()
@@ -1141,7 +1141,7 @@ async def test_process_and_respond_passes_quoted_messages_to_gateway(adapter):
         "replyToId": "msg-1",
     }
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
         await adapter._process_and_respond("teams:user-2", "compare to Q4", event, None)
 
     adapter.extract_quoted_messages.assert_awaited_once()
@@ -1180,7 +1180,7 @@ async def test_process_and_respond_passes_none_when_no_quotes(adapter):
         "conversation": {"id": "conv-789"},
     }
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
         await adapter._process_and_respond("teams:user-3", "hello", event, None)
 
     kwargs = adapter._gateway.handle_message.await_args.kwargs
@@ -1209,10 +1209,10 @@ async def test_download_attachments_registers_path_in_ctx_attachments(
 
     mock_dl_client = _mock_httpx_download()
     with patch(
-        "yigthinker.channels.teams.adapter.httpx.AsyncClient",
+        "yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
         return_value=mock_dl_client,
     ), patch(
-        "yigthinker.channels.teams.adapter.tempfile.mkdtemp",
+        "yigthinker.presence.channels.teams.adapter.tempfile.mkdtemp",
         return_value=str(download_dir),
     ):
         file_lines, error_lines = await adapter._download_attachments(
@@ -1239,7 +1239,7 @@ async def test_download_attachments_without_ctx_noop(adapter):
 
     mock_dl_client = _mock_httpx_download()
     with patch(
-        "yigthinker.channels.teams.adapter.httpx.AsyncClient",
+        "yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
         return_value=mock_dl_client,
     ):
         file_lines, error_lines = await adapter._download_attachments([{
@@ -1262,7 +1262,7 @@ async def test_download_attachments_unsupported_skipped_no_registration(
 
     mock_dl_client = _mock_httpx_download()
     with patch(
-        "yigthinker.channels.teams.adapter.httpx.AsyncClient",
+        "yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
         return_value=mock_dl_client,
     ):
         file_lines, error_lines = await adapter._download_attachments(
@@ -1325,7 +1325,7 @@ async def test_process_and_respond_threads_ctx_into_download(adapter, tmp_path):
         "conversation": {"id": "conv-files"},
     }
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
         await adapter._process_and_respond(
             "teams:user-x",
             "load this",
@@ -1389,7 +1389,7 @@ async def test_process_and_respond_handles_missing_session_gracefully(adapter):
         "conversation": {"id": "conv-ghost"},
     }
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
         await adapter._process_and_respond(
             "teams:ghost",
             "load this",

@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from yigthinker.channels.teams.hmac import verify_teams_hmac_signature
+from yigthinker.presence.channels.teams.hmac import verify_teams_hmac_signature
 
 logger = logging.getLogger(__name__)
 

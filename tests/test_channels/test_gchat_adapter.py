@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.responses import JSONResponse
 
-from yigthinker.channels.gchat.adapter import GChatAdapter
+from yigthinker.presence.channels.gchat.adapter import GChatAdapter
 
 
 def _make_adapter() -> GChatAdapter:
@@ -68,7 +68,7 @@ async def test_webhook_skips_render_when_handle_message_returns_none():
     # Bypass JWT check (project_number is empty → verify returns False).
     # Patch _verify_gchat_token to allow the request.
     with patch(
-        "yigthinker.channels.gchat.adapter._verify_gchat_token",
+        "yigthinker.presence.channels.gchat.adapter._verify_gchat_token",
         return_value=True,
     ):
         # Replace renderer with a spy that would raise if called on None
@@ -95,7 +95,7 @@ async def test_webhook_renders_card_when_handle_message_returns_text():
     gateway.handle_message = AsyncMock(return_value="Analysis complete")
 
     with patch(
-        "yigthinker.channels.gchat.adapter._verify_gchat_token",
+        "yigthinker.presence.channels.gchat.adapter._verify_gchat_token",
         return_value=True,
     ):
         adapter._renderer = MagicMock()

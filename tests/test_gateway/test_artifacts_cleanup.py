@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from yigthinker.gateway.artifacts_cleanup import (
+from yigthinker.presence.gateway.artifacts_cleanup import (
     DEFAULT_ARTIFACT_TTL_SECONDS,
     sweep_old_artifacts,
 )

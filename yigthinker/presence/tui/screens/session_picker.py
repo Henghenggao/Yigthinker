@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from yigthinker.tui._import_error import TEXTUAL_IMPORT_ERROR
+from yigthinker.presence.tui._import_error import TEXTUAL_IMPORT_ERROR
 
 try:
     from textual.app import ComposeResult

@@ -107,7 +107,7 @@ async def build_app(
     # --- RPA state (Phase 10 / 10-01) ---
     rpa_state: Any | None = None
     try:
-        from yigthinker.gateway.rpa_state import RPAStateStore
+        from yigthinker.presence.gateway.rpa_state import RPAStateStore
         gateway_cfg = settings.get("gateway", {})
         rpa_cfg = gateway_cfg.get("rpa", {})
         db_path_str = rpa_cfg.get("db_path", "~/.yigthinker/rpa/state.db")
@@ -167,7 +167,7 @@ async def build_app(
             pass  # fallback is best-effort
 
     if ask_fn is _SENTINEL:
-        from yigthinker.cli.ask_prompt import ask_user_permission
+        from yigthinker.presence.cli.ask_prompt import ask_user_permission
         resolved_ask_fn = ask_user_permission
     else:
         resolved_ask_fn = ask_fn

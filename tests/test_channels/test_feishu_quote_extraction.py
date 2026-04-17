@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from yigthinker.channels.feishu.adapter import FeishuAdapter
+from yigthinker.presence.channels.feishu.adapter import FeishuAdapter
 from yigthinker.session import QuotedMessage
 
 

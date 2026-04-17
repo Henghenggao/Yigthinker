@@ -21,17 +21,17 @@ import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from yigthinker.channels.artifacts import (
+from yigthinker.presence.channels.artifacts import (
     choose_best_artifact,
     structured_artifact_from_tool_result,
 )
-from yigthinker.channels.teams.auth import TeamsAuthValidator
-from yigthinker.channels.teams.cards import TeamsCardRenderer
-from yigthinker.gateway.session_key import SessionKey
+from yigthinker.presence.channels.teams.auth import TeamsAuthValidator
+from yigthinker.presence.channels.teams.cards import TeamsCardRenderer
+from yigthinker.presence.gateway.session_key import SessionKey
 
 if TYPE_CHECKING:
-    from yigthinker.gateway.server import GatewayServer
-    from yigthinker.channels.command_parser import ChannelCommand
+    from yigthinker.presence.gateway.server import GatewayServer
+    from yigthinker.presence.channels.command_parser import ChannelCommand
     from yigthinker.session import SessionContext
 
 logger = logging.getLogger(__name__)
@@ -328,7 +328,7 @@ class TeamsAdapter:
         return card
 
     def _build_chart_card(self, artifact: dict[str, Any]) -> dict[str, Any]:
-        from yigthinker.gateway.server import CHART_CACHE_DIR
+        from yigthinker.presence.gateway.server import CHART_CACHE_DIR
         from yigthinker.visualization.exporter import ChartExporter
 
         chart_id = uuid.uuid4().hex
@@ -497,7 +497,7 @@ class TeamsAdapter:
                 return
 
             # P1-2: route slash commands before sending to agent
-            from yigthinker.channels.command_parser import parse_channel_command
+            from yigthinker.presence.channels.command_parser import parse_channel_command
             cmd = parse_channel_command(text)
             if cmd is not None:
                 cmd_result = await self._handle_command(cmd, session_key, event)

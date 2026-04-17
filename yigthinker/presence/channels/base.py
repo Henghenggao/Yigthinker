@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from yigthinker.gateway.server import GatewayServer
+    from yigthinker.presence.gateway.server import GatewayServer
     from yigthinker.session import QuotedMessage
 
 

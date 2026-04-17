@@ -54,7 +54,7 @@ def test_run_dispatches_bare_query_to_default_main():
 
 
 def test_setup_command_invokes_setup_wizard():
-    with patch("yigthinker.cli.setup_wizard.run_setup") as mock_run_setup:
+    with patch("yigthinker.presence.cli.setup_wizard.run_setup") as mock_run_setup:
         result = runner.invoke(app, ["setup"])
 
     assert result.exit_code == 0

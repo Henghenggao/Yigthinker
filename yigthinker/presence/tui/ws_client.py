@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Callable
 
-from yigthinker.gateway.protocol import (
+from yigthinker.presence.gateway.protocol import (
     AttachMsg,
     AuthMsg,
     UserInputMsg,

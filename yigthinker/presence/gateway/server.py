@@ -19,18 +19,18 @@ from typing import Any, Callable
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from yigthinker.gateway.auth import GatewayAuth
-from yigthinker.gateway.artifacts_cleanup import (
+from yigthinker.presence.gateway.auth import GatewayAuth
+from yigthinker.presence.gateway.artifacts_cleanup import (
     ARTIFACTS_ROOT,
     DEFAULT_ARTIFACT_TTL_SECONDS,
     sweep_old_artifacts,
 )
-from yigthinker.gateway.file_tokens import (
+from yigthinker.presence.gateway.file_tokens import (
     DEFAULT_FILE_TOKEN_TTL_SECONDS,
     FileTokenStore,
 )
 from yigthinker.visualization.exporter import ChartExporter
-from yigthinker.gateway.protocol import (
+from yigthinker.presence.gateway.protocol import (
     AuthResultMsg,
     ErrorMsg,
     ResponseDoneMsg,
@@ -44,7 +44,7 @@ from yigthinker.gateway.protocol import (
     parse_client_msg,
     to_json_dict,
 )
-from yigthinker.gateway.session_registry import ManagedSession, SessionRegistry
+from yigthinker.presence.gateway.session_registry import ManagedSession, SessionRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +174,7 @@ class GatewayServer:
             getattr(app_ctx, "rpa_state", None) is not None
             and getattr(app_ctx, "workflow_registry", None) is not None
         ):
-            from yigthinker.gateway.rpa_controller import RPAController
+            from yigthinker.presence.gateway.rpa_controller import RPAController
             self._rpa_controller = RPAController(
                 state=app_ctx.rpa_state,
                 registry=app_ctx.workflow_registry,
@@ -748,17 +748,17 @@ class GatewayServer:
         adapters: list[Any] = []
 
         if channels.get("feishu", {}).get("enabled"):
-            from yigthinker.channels.feishu.adapter import FeishuAdapter
+            from yigthinker.presence.channels.feishu.adapter import FeishuAdapter
 
             adapters.append(FeishuAdapter(channels["feishu"]))
 
         if channels.get("gchat", {}).get("enabled"):
-            from yigthinker.channels.gchat.adapter import GChatAdapter
+            from yigthinker.presence.channels.gchat.adapter import GChatAdapter
 
             adapters.append(GChatAdapter(channels["gchat"]))
 
         if channels.get("teams", {}).get("enabled"):
-            from yigthinker.channels.teams.adapter import TeamsAdapter
+            from yigthinker.presence.channels.teams.adapter import TeamsAdapter
 
             adapters.append(TeamsAdapter(channels["teams"]))
 

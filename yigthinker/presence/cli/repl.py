@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from yigthinker.agent import AgentLoop
-from yigthinker.cli.commands import CommandRouter
+from yigthinker.presence.cli.commands import CommandRouter
 from yigthinker.persistence import TranscriptWriter
 from yigthinker.session import SessionContext
 from yigthinker.tools.sql.connection import ConnectionPool

@@ -5,7 +5,7 @@
 
 from yigthinker.context_manager import ContextManager, _sanitize_memory_content
 from yigthinker.session import SessionContext
-from yigthinker.gateway.session_registry import SessionRegistry
+from yigthinker.presence.gateway.session_registry import SessionRegistry
 
 
 # ── Finding 3: Memory sanitization ──────────────────────────────────────
@@ -155,12 +155,12 @@ class TestGChatVerification:
 
     def test_verify_function_exists(self):
         """_verify_gchat_token function should be importable."""
-        from yigthinker.channels.gchat.adapter import _verify_gchat_token
+        from yigthinker.presence.channels.gchat.adapter import _verify_gchat_token
         assert callable(_verify_gchat_token)
 
     def test_verify_rejects_empty_project_number(self):
         """Verification should fail if project_number is not configured."""
-        from yigthinker.channels.gchat.adapter import _verify_gchat_token
+        from yigthinker.presence.channels.gchat.adapter import _verify_gchat_token
 
         class FakeRequest:
             headers = {"authorization": "Bearer fake-token"}
@@ -169,7 +169,7 @@ class TestGChatVerification:
 
     def test_verify_rejects_missing_bearer(self):
         """Verification should fail if no Bearer token in Authorization."""
-        from yigthinker.channels.gchat.adapter import _verify_gchat_token
+        from yigthinker.presence.channels.gchat.adapter import _verify_gchat_token
 
         class FakeRequest:
             headers = {}
@@ -178,7 +178,7 @@ class TestGChatVerification:
 
     def test_adapter_has_project_number_config(self):
         """GChatAdapter should read project_number from config."""
-        from yigthinker.channels.gchat.adapter import GChatAdapter
+        from yigthinker.presence.channels.gchat.adapter import GChatAdapter
         adapter = GChatAdapter({"project_number": "123456789"})
         assert adapter._project_number == "123456789"
 

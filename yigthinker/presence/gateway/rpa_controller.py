@@ -12,14 +12,14 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-from yigthinker.gateway.extraction_prompt import (
+from yigthinker.presence.gateway.extraction_prompt import (
     EXTRACTION_SYSTEM,
     parse_extraction_response,
 )
 from yigthinker.types import Message
 
 if TYPE_CHECKING:
-    from yigthinker.gateway.rpa_state import RPAStateStore
+    from yigthinker.presence.gateway.rpa_state import RPAStateStore
     from yigthinker.providers.base import LLMProvider
     from yigthinker.tools.workflow.registry import WorkflowRegistry
 

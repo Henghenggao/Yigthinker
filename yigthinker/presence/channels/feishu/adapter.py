@@ -16,16 +16,16 @@ from typing import TYPE_CHECKING, Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from yigthinker.channels.artifacts import (
+from yigthinker.presence.channels.artifacts import (
     choose_best_artifact,
     structured_artifact_from_tool_result,
 )
-from yigthinker.channels.feishu.cards import FeishuCardRenderer
-from yigthinker.channels.feishu.dedup import EventDeduplicator
-from yigthinker.gateway.session_key import SessionKey
+from yigthinker.presence.channels.feishu.cards import FeishuCardRenderer
+from yigthinker.presence.channels.feishu.dedup import EventDeduplicator
+from yigthinker.presence.gateway.session_key import SessionKey
 
 if TYPE_CHECKING:
-    from yigthinker.gateway.server import GatewayServer
+    from yigthinker.presence.gateway.server import GatewayServer
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +179,7 @@ class FeishuAdapter:
 
         try:
             if artifact.get("kind") == "chart":
-                from yigthinker.gateway.server import CHART_CACHE_DIR
+                from yigthinker.presence.gateway.server import CHART_CACHE_DIR
                 from yigthinker.visualization.exporter import ChartExporter
 
                 chart_id = artifact["chart_name"].replace(" ", "-") or "chart"
@@ -253,7 +253,7 @@ class FeishuAdapter:
                 return
 
             # P1-2: route slash commands
-            from yigthinker.channels.command_parser import parse_channel_command
+            from yigthinker.presence.channels.command_parser import parse_channel_command
             cmd = parse_channel_command(text)
             if cmd is not None:
                 await self.send_response(body, f"Command /{cmd.name} received. Slash commands are processed by the agent.")

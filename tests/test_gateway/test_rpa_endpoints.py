@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from yigthinker.gateway.rpa_controller import RPAController
-from yigthinker.gateway.rpa_state import RPAStateStore
-from yigthinker.gateway.server import GatewayServer
+from yigthinker.presence.gateway.rpa_controller import RPAController
+from yigthinker.presence.gateway.rpa_state import RPAStateStore
+from yigthinker.presence.gateway.server import GatewayServer
 
 
 def _fake_settings() -> dict:

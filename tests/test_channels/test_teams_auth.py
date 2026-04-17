@@ -11,7 +11,7 @@ from types import ModuleType, SimpleNamespace
 import pytest
 from unittest.mock import patch
 
-from yigthinker.channels.teams.auth import TeamsAuthValidator
+from yigthinker.presence.channels.teams.auth import TeamsAuthValidator
 
 
 def _hmac_auth_header(body: bytes, secret_b64: str) -> str:
@@ -118,7 +118,7 @@ async def test_authenticator_accepts_valid_bearer_token():
     )
 
     with patch.dict(sys.modules, {"jwt": fake_jwt}), patch(
-        "yigthinker.channels.teams.auth.httpx.AsyncClient",
+        "yigthinker.presence.channels.teams.auth.httpx.AsyncClient",
         _FakeAsyncClient,
     ):
         assert await validator.authenticate(body, "Bearer fake.jwt.token") is True
@@ -139,7 +139,7 @@ async def test_authenticator_rejects_bearer_when_service_url_mismatches():
     )
 
     with patch.dict(sys.modules, {"jwt": fake_jwt}), patch(
-        "yigthinker.channels.teams.auth.httpx.AsyncClient",
+        "yigthinker.presence.channels.teams.auth.httpx.AsyncClient",
         _FakeAsyncClient,
     ):
         assert await validator.authenticate(body, "Bearer fake.jwt.token") is False
@@ -174,7 +174,7 @@ async def test_authenticator_rejects_bearer_when_key_not_endorsed():
             })
 
     with patch.dict(sys.modules, {"jwt": fake_jwt}), patch(
-        "yigthinker.channels.teams.auth.httpx.AsyncClient",
+        "yigthinker.presence.channels.teams.auth.httpx.AsyncClient",
         _UnendorsedClient,
     ):
         assert await validator.authenticate(body, "Bearer fake.jwt.token") is False

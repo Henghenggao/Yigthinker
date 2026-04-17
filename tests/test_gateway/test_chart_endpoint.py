@@ -13,8 +13,8 @@ import plotly.graph_objects as go
 import pytest
 from fastapi.testclient import TestClient
 
-import yigthinker.gateway.server as server_mod
-from yigthinker.gateway.server import GatewayServer, _resolve_chart_path
+import yigthinker.presence.gateway.server as server_mod
+from yigthinker.presence.gateway.server import GatewayServer, _resolve_chart_path
 
 
 class _DummyAuth:

@@ -14,7 +14,7 @@ import pytest
 
 def test_artifact_builder_recognizes_file_kind():
     """artifact_write returns {kind: 'file', ...} — helper must pass it through."""
-    from yigthinker.channels.artifacts import structured_artifact_from_tool_result
+    from yigthinker.presence.channels.artifacts import structured_artifact_from_tool_result
 
     raw = {
         "kind": "file",
@@ -32,7 +32,7 @@ def test_artifact_builder_recognizes_file_kind():
 
 def test_artifact_builder_recognizes_chart_kind():
     """chart_create returns {chart_name, chart_json, ...}."""
-    from yigthinker.channels.artifacts import structured_artifact_from_tool_result
+    from yigthinker.presence.channels.artifacts import structured_artifact_from_tool_result
 
     raw = {"chart_name": "revenue-trend", "chart_json": "{\"data\":[]}"}
     out = structured_artifact_from_tool_result(raw)
@@ -43,7 +43,7 @@ def test_artifact_builder_recognizes_chart_kind():
 
 def test_artifact_builder_returns_none_for_plain_text():
     """Plain text tool results (e.g. sql_explain output) have no artifact."""
-    from yigthinker.channels.artifacts import structured_artifact_from_tool_result
+    from yigthinker.presence.channels.artifacts import structured_artifact_from_tool_result
 
     assert structured_artifact_from_tool_result("just a string") is None
     assert structured_artifact_from_tool_result({"message": "ok"}) is None
@@ -53,7 +53,7 @@ def test_artifact_builder_returns_none_for_plain_text():
 
 def test_choose_best_artifact_prefers_file_over_table():
     """A file artifact (artifact_write) outranks a DataFrame preview table."""
-    from yigthinker.channels.artifacts import choose_best_artifact
+    from yigthinker.presence.channels.artifacts import choose_best_artifact
 
     artifacts = [
         {"kind": "table", "title": "preview", "columns": [], "rows": [], "total_rows": 0},
@@ -66,7 +66,7 @@ def test_choose_best_artifact_prefers_file_over_table():
 
 def test_choose_best_artifact_prefers_chart_over_file():
     """A chart outranks a file (per the helper docstring: chart > file > table)."""
-    from yigthinker.channels.artifacts import choose_best_artifact
+    from yigthinker.presence.channels.artifacts import choose_best_artifact
 
     artifacts = [
         {"kind": "file", "filename": "a.xlsx", "path": "/tmp/a.xlsx", "bytes": 1},
@@ -78,7 +78,7 @@ def test_choose_best_artifact_prefers_chart_over_file():
 
 
 def test_choose_best_artifact_returns_none_for_empty():
-    from yigthinker.channels.artifacts import choose_best_artifact
+    from yigthinker.presence.channels.artifacts import choose_best_artifact
     assert choose_best_artifact([]) is None
 
 
@@ -86,7 +86,7 @@ def test_choose_best_artifact_returns_none_for_empty():
 
 def test_teams_build_card_for_file_artifact_includes_filename():
     """Teams _build_card_for_artifact must reference the filename in the card."""
-    from yigthinker.channels.teams.adapter import TeamsAdapter
+    from yigthinker.presence.channels.teams.adapter import TeamsAdapter
 
     adapter = TeamsAdapter({
         "tenant_id": "t",
@@ -119,7 +119,7 @@ def test_teams_build_card_for_file_artifact_includes_filename():
 def test_feishu_build_card_for_file_artifact_includes_filename():
     """Feishu _build_card_for_artifact must reference the filename in the card."""
     try:
-        from yigthinker.channels.feishu.adapter import FeishuAdapter
+        from yigthinker.presence.channels.feishu.adapter import FeishuAdapter
     except Exception:
         pytest.skip("Feishu adapter import failed; skipping")
 

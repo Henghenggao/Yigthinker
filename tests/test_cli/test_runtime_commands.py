@@ -10,7 +10,7 @@ def test_gateway_command_prefers_cli_host_and_port():
     settings = {"gateway": {"host": "127.0.0.1", "port": 8766}, "channels": {}}
 
     with patch("yigthinker.settings.load_settings", return_value=settings), \
-         patch("yigthinker.gateway.server.GatewayServer", return_value=MagicMock()) as mock_gateway_server, \
+         patch("yigthinker.presence.gateway.server.GatewayServer", return_value=MagicMock()) as mock_gateway_server, \
          patch("uvicorn.run") as mock_uvicorn_run:
         result = runner.invoke(app, ["gateway", "--host", "0.0.0.0", "--port", "9000"])
 

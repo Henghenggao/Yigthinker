@@ -4,7 +4,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from yigthinker.gateway.protocol import SubagentEventMsg, to_json_dict
+from yigthinker.presence.gateway.protocol import SubagentEventMsg, to_json_dict
 
 
 def test_subagent_event_msg_serialization():
@@ -52,7 +52,7 @@ def test_subagent_event_msg_all_event_types():
 @pytest.mark.asyncio
 async def test_on_tool_event_subagent_broadcast(tmp_path, monkeypatch):
     """Gateway _on_tool_event handler creates SubagentEventMsg for subagent_event type."""
-    from yigthinker.gateway.server import GatewayServer, _WSClient
+    from yigthinker.presence.gateway.server import GatewayServer, _WSClient
 
     class DummyAuth:
         def __init__(self):
@@ -60,7 +60,7 @@ async def test_on_tool_event_subagent_broadcast(tmp_path, monkeypatch):
         def verify(self, candidate):
             return candidate == self.token
 
-    monkeypatch.setattr("yigthinker.gateway.server.GatewayAuth", DummyAuth)
+    monkeypatch.setattr("yigthinker.presence.gateway.server.GatewayAuth", DummyAuth)
     settings = {
         "gateway": {
             "idle_timeout_seconds": 3600,

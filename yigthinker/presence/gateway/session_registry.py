@@ -176,7 +176,7 @@ class SessionRegistry:
         if not session:
             return False
 
-        from yigthinker.gateway.hibernation import SessionHibernator
+        from yigthinker.presence.gateway.hibernation import SessionHibernator
 
         hibernator = SessionHibernator(self._hibernate_dir)
         try:
@@ -197,7 +197,7 @@ class SessionRegistry:
         channel: str = "cli",
     ) -> ManagedSession | None:
         """Restore a previously hibernated session from disk."""
-        from yigthinker.gateway.hibernation import SessionHibernator
+        from yigthinker.presence.gateway.hibernation import SessionHibernator
 
         hibernator = SessionHibernator(self._hibernate_dir)
         try:
@@ -254,7 +254,7 @@ class SessionRegistry:
         logger.warning("LRU-evicted session %s (at capacity %d)", lru_key, self._max_sessions)
 
     def _schedule_hibernate(self, session: ManagedSession) -> None:
-        from yigthinker.gateway.hibernation import SessionHibernator
+        from yigthinker.presence.gateway.hibernation import SessionHibernator
 
         hibernator = SessionHibernator(self._hibernate_dir)
         session.touch()

@@ -12,7 +12,7 @@ from typing import Any
 
 import pandas as pd
 
-from yigthinker.gateway.session_registry import ManagedSession
+from yigthinker.presence.gateway.session_registry import ManagedSession
 from yigthinker.persistence import TranscriptReader, TranscriptWriter
 from yigthinker.session import SessionContext
 

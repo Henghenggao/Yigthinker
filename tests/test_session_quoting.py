@@ -35,5 +35,5 @@ def test_quoted_message_full_fields():
 
 
 def test_channel_adapter_extract_quoted_messages_exists():
-    from yigthinker.channels.base import ChannelAdapter
+    from yigthinker.presence.channels.base import ChannelAdapter
     assert hasattr(ChannelAdapter, "extract_quoted_messages")

@@ -760,7 +760,7 @@ class AgentLoop:
                 is_error=True,
             )
         if decision == "ask" and self._ask_fn is not None:
-            from yigthinker.cli.ask_prompt import PermissionAnswer
+            from yigthinker.presence.cli.ask_prompt import PermissionAnswer
 
             answer = await self._ask_fn(tool_name, tool_input)
             if answer == PermissionAnswer.DENY:
