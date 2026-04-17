@@ -75,9 +75,11 @@ secrets.json
 
 # Product plans, specs, design docs
 docs/*
-# Architecture Decision Records + formal audit reports are versioned
+# Only the ADR index README is versioned — individual ADRs, templates,
+# and audit reports stay local.
 !docs/adr
-!docs/audit
+docs/adr/*
+!docs/adr/README.md
 plans/
 specs/
 design/
