@@ -10,6 +10,7 @@ from pathlib import Path as _Path
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
+    from yigthinker.memory.provider import MemoryProvider
     from yigthinker.subagent.manager import SubagentManager
 
 import pandas as pd
@@ -178,6 +179,9 @@ class SessionContext:
     undo_stack: list[UndoEntry] = field(default_factory=list)
     message_id_map: MessageIdMap = field(default_factory=MessageIdMap, repr=False)
     subagent_manager: SubagentManager | None = None
+    # Phase 1a: optional MemoryProvider. None by default for zero side-effects.
+    # Instantiated by builder.py when settings.memory.provider != "null".
+    memory: "MemoryProvider | None" = None
     _progress_callback: Callable[[str], None] | None = field(default=None, repr=False)
     _on_tool_event: Callable[[str, dict], None] | None = field(default=None, repr=False)
     _pending_injections: list[str] | None = field(default=None, repr=False)
