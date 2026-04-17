@@ -74,7 +74,10 @@ secrets.json
 .planning/
 
 # Product plans, specs, design docs
-docs/
+docs/*
+# Architecture Decision Records + formal audit reports are versioned
+!docs/adr
+!docs/audit
 plans/
 specs/
 design/
