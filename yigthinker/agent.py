@@ -37,9 +37,21 @@ _SOFT_DEADLINE_MSG = (
     "calls — summarize what you have and end the turn."
 )
 
+
+class _StreamIdleTimeout(TimeoutError):
+    """Phase 1b / Task A1: raised by _stream_with_idle_watchdog when both
+    attempts exceed the per-event idle timeout. Subclass of TimeoutError so
+    callers can `except TimeoutError` naturally, but distinguishable from the
+    wall-clock `asyncio.timeout()` expiry so AgentLoop.run() does not swallow
+    it as a soft-timeout and can surface a real TimeoutError to the caller.
+    """
+
+
 # Cap on how many variables are summarized in the timeout recovery message.
 # Keeps the trailing text usable even when the session produced dozens of DFs.
 _TIMEOUT_VAR_SUMMARY_LIMIT: int = 20
+
+_STREAM_MAX_ATTEMPTS: int = 2  # idle watchdog: one retry, then give up
 
 
 def _serialize_tool_content(content: Any) -> str:
@@ -72,6 +84,10 @@ class AgentLoop:
         self._timeout_seconds = timeout_seconds
         self._fallback_provider = fallback_provider
         self._max_tokens_recovery_count = 0
+        # Phase 1b / Task A1: per-event idle timeout for the streaming provider
+        # path. Wired from settings.agent.stream_idle_timeout_seconds by
+        # builder.py. See _stream_with_idle_watchdog().
+        self._stream_idle_timeout_seconds: float = 30.0
         self._memory_manager: MemoryManager | None = None
         self._compact: SmartCompact | None = None
         self._background_tasks: set[asyncio.Task] = set()
@@ -298,51 +314,36 @@ class AgentLoop:
                     using_fallback = False
 
                     if on_token is not None:
-                        accumulated_text = ""
-                        tool_uses_from_stream: list[ToolUse] = []
-                        stop_reason = "end_turn"
-
                         try:
-                            async for event in self._provider.stream(messages, tool_schemas, system=system_prompt):
-                                if event.type == "text":
-                                    accumulated_text += event.text
-                                    on_token(event.text)
-                                elif event.type == "tool_use" and event.tool_use is not None:
-                                    tool_uses_from_stream.append(event.tool_use)
-                                elif event.type == "done":
-                                    stop_reason = event.stop_reason or "end_turn"
-                                elif event.type == "error":
-                                    break
-                        except (TimeoutError, asyncio.CancelledError):
+                            response = await self._stream_with_idle_watchdog(
+                                self._provider, messages, tool_schemas, system_prompt, on_token,
+                            )
+                        except (asyncio.CancelledError,):
                             raise
+                        except _StreamIdleTimeout:
+                            # Phase 1b / Task A1: watchdog gave up after two
+                            # attempts on the primary. If a fallback is
+                            # configured, try it once; otherwise propagate
+                            # the TimeoutError subclass up to the caller.
+                            if self._fallback_provider is not None and not using_fallback:
+                                logger.warning(
+                                    "Primary provider idle-timed out on both attempts, switching to fallback"
+                                )
+                                using_fallback = True
+                                response = await self._stream_with_idle_watchdog(
+                                    self._fallback_provider, messages, tool_schemas, system_prompt, on_token,
+                                )
+                            else:
+                                raise
                         except Exception as exc:
                             if self._fallback_provider is not None and not using_fallback:
                                 logger.warning("Primary provider failed (%s), switching to fallback", exc)
                                 using_fallback = True
-                                accumulated_text = ""
-                                tool_uses_from_stream = []
-                                stop_reason = "end_turn"
-                                try:
-                                    async for event in self._fallback_provider.stream(messages, tool_schemas, system=system_prompt):
-                                        if event.type == "text":
-                                            accumulated_text += event.text
-                                            on_token(event.text)
-                                        elif event.type == "tool_use" and event.tool_use is not None:
-                                            tool_uses_from_stream.append(event.tool_use)
-                                        elif event.type == "done":
-                                            stop_reason = event.stop_reason or "end_turn"
-                                        elif event.type == "error":
-                                            break
-                                except Exception:
-                                    raise
+                                response = await self._stream_with_idle_watchdog(
+                                    self._fallback_provider, messages, tool_schemas, system_prompt, on_token,
+                                )
                             else:
                                 raise
-
-                        response = LLMResponse(
-                            stop_reason=stop_reason,
-                            text=accumulated_text,
-                            tool_uses=tool_uses_from_stream,
-                        )
                     else:
                         try:
                             response = await self._provider.chat(messages, tool_schemas, system=system_prompt)
@@ -414,6 +415,11 @@ class AgentLoop:
                             self._background_tasks.add(task)
                             task.add_done_callback(self._background_tasks.discard)
 
+        except _StreamIdleTimeout:
+            # Phase 1b / Task A1: idle-watchdog timeout after retry is an
+            # operational error that callers need to observe distinctly from
+            # the soft wall-clock timeout below. Re-raise unchanged.
+            raise
         except TimeoutError:
             # quick-260416-j3y-04: surface a concrete list of what survived
             # instead of the opaque "may be available" line. The user can then
@@ -451,6 +457,66 @@ class AgentLoop:
             await self._hooks.run(end_event)
 
         return result_text
+
+    async def _stream_with_idle_watchdog(
+        self,
+        provider: LLMProvider,
+        messages: list[Message],
+        tool_schemas: list[dict],
+        system_prompt: str | None,
+        on_token: Callable[[str], None],
+    ) -> LLMResponse:
+        """Stream from provider; abort if inter-event idle > _stream_idle_timeout_seconds.
+
+        Retries once with a fresh stream. On second timeout, raises TimeoutError.
+        Phase 1b / Task A1.
+        """
+        for _attempt in range(_STREAM_MAX_ATTEMPTS):
+            accumulated_text = ""
+            tool_uses_from_stream: list[ToolUse] = []
+            stop_reason = "end_turn"
+            stream = provider.stream(messages, tool_schemas, system=system_prompt)
+            aiter = stream.__aiter__()
+            timed_out = False
+            try:
+                while True:
+                    try:
+                        event = await asyncio.wait_for(
+                            aiter.__anext__(),
+                            timeout=self._stream_idle_timeout_seconds,
+                        )
+                    except StopAsyncIteration:
+                        break
+                    except asyncio.TimeoutError:
+                        timed_out = True
+                        break
+                    if event.type == "text":
+                        accumulated_text += event.text
+                        on_token(event.text)
+                    elif event.type == "tool_use" and event.tool_use is not None:
+                        tool_uses_from_stream.append(event.tool_use)
+                    elif event.type == "done":
+                        stop_reason = event.stop_reason or "end_turn"
+                    elif event.type == "error":
+                        break
+            finally:
+                aclose = getattr(aiter, "aclose", None)
+                if aclose is not None:
+                    try:
+                        await aclose()
+                    except Exception:
+                        pass
+
+            if not timed_out:
+                return LLMResponse(
+                    stop_reason=stop_reason,
+                    text=accumulated_text,
+                    tool_uses=tool_uses_from_stream,
+                )
+            # else: retry once
+        raise _StreamIdleTimeout(
+            f"Stream idle > {self._stream_idle_timeout_seconds}s on both attempts"
+        )
 
     async def _run_extraction(self, messages_snapshot: list[Message]) -> None:
         """Fire-and-forget extraction. Errors are silently suppressed."""

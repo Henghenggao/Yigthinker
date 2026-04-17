@@ -125,6 +125,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         # may override via `channel_timeouts` below; unspecified channels use
         # this default.
         "timeout_seconds": 300.0,
+        # Phase 1b / Task A1: per-event idle timeout for the streaming provider
+        # path. If no StreamEvent arrives within this many seconds, the current
+        # stream is aborted and retried once. If the retry also times out, a
+        # TimeoutError propagates up to the caller.
+        "stream_idle_timeout_seconds": 30,
         # quick-260416-j3y-04: IM surfaces (Teams/Feishu/etc.) tolerate longer
         # waits than the CLI REPL because the user is async and expects a card
         # reply rather than a live cursor. 600s gives the model room to finish

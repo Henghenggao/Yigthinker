@@ -186,6 +186,10 @@ async def build_app(
         timeout_seconds=timeout_seconds,
         fallback_provider=fallback_provider,
     )
+    # Phase 1b / Task A1: idle watchdog timeout for streaming provider calls.
+    agent._stream_idle_timeout_seconds = float(
+        agent_settings.get("stream_idle_timeout_seconds", 30)
+    )
 
     # --- Spawn agent wiring ---
     spawn_tool = tools.get("spawn_agent")
