@@ -257,14 +257,30 @@ Yigthinker is a Python-based AI agent for financial and data analysis with workf
 - Cross-cutting concerns (permissions, audit, RBAC) are implemented as Hook functions, not as architectural layers
 - Multiple input surfaces (CLI REPL, Gateway daemon + WebSocket, messaging channel adapters) all funnel into the same `AgentLoop.run()` call
 ## Layers
+- Purpose: Umbrella for all user-facing surfaces; may not import yigthinker internals (agent/session/tools/hooks/etc.)
+- Location: `yigthinker/presence/`
+- Contains: `channels/` (Teams, Feishu, GChat), `gateway/` (FastAPI daemon), `cli/` (REPL + Typer entrypoint), `tui/` (Textual app)
+- Depends on: `yigthinker/core/*` (for Protocols) + stdlib + third-party
+- Enforced by: `scripts/check_presence_boundaries.py` (AST-based import-graph lint)
+
+- Purpose: Stable core abstractions re-exported for presence/ to import from
+- Location: `yigthinker/core/`
+- Contains: `presence.py` — `ChannelAdapter` Protocol (now with required `deliver_artifact` method, added Phase 1b)
+
 - Purpose: Accept user input from any surface, build `SessionContext`, invoke `AgentLoop.run()`
 - Locations:
 - Depends on: AgentLoop, SessionContext, PluginLoader, Settings
+
 - Purpose: Drive the LLM ↔ tool-call cycle until `end_turn`; enforce hooks and permissions before each tool call
 - Location: `yigthinker/agent.py`
 - Contains: `AgentLoop` class with `run()` and `_execute_tool()` methods
 - Depends on: `LLMProvider`, `ToolRegistry`, `HookExecutor`, `PermissionSystem`, `SessionContext`
 - Used by: CLI REPL, Gateway `handle_message()`, single-shot query path in `__main__._run_query()`
+
+The Agent Loop supports two optional modes added in Phase 1b:
+- **Dry-run** (`ctx.dry_run = True`): write-type tools return `DryRunReceipt` instead of executing; read-only tools execute normally
+- **ArgPatch reflexion** (`settings.agent.reflexion_enabled = True`, default false): on tool error the LLM emits a JSON patch for tool_input, and the tool is retried once
+- **Idle watchdog** (`settings.agent.stream_idle_timeout_seconds`, default 30): streams idle > N seconds are aborted + retried once
 - Purpose: Abstract LLM API differences behind a uniform `chat()` interface
 - Location: `yigthinker/providers/`
 - Contains: `LLMProvider` Protocol (`base.py`), `ClaudeProvider`, `OpenAIProvider`, `OllamaProvider`, `AzureProvider`, `factory.py`
