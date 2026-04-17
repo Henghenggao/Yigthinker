@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import hmac
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -84,9 +86,20 @@ class MCPClient:
         else:
             raise ValueError(f"Unknown MCP transport: {self._transport!r}")
 
-        self._session = ClientSession(read, write)
-        await self._session.__aenter__()
-        await self._session.initialize()
+        try:
+            self._session = ClientSession(read, write)
+            await self._session.__aenter__()
+            await self._session.initialize()
+        except BaseException:
+            # Session init failed after transport opened; tear down transport.
+            self._session = None
+            if self._cm is not None:
+                try:
+                    await self._cm.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                self._cm = None
+            raise
 
     async def stop(self) -> None:
         if self._session is not None:
@@ -112,7 +125,22 @@ class MCPClient:
     async def call_tool(self, tool_name: str, tool_input: dict) -> str:
         if self._session is None:
             raise RuntimeError(f"MCPClient '{self.name}' not started. Call start() first.")
-        result = await self._session.call_tool(tool_name, tool_input)
+        try:
+            result = await self._session.call_tool(tool_name, tool_input)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            raise
+        except Exception:
+            # auto_reconnect_on_tool_exec_failure — one retry with fresh session
+            try:
+                await self.stop()
+            except Exception:
+                pass
+            await self.start()
+            if self._session is None:
+                raise RuntimeError(
+                    f"MCPClient '{self.name}' failed to reconnect: session is None after start()"
+                )
+            result = await self._session.call_tool(tool_name, tool_input)
         parts = [block.text for block in result.content if hasattr(block, "text")]
         return "\n".join(parts)
 
@@ -140,3 +168,14 @@ class MCPClient:
         result = await self._session.read_resource(uri)
         parts = [c.text for c in result.contents if hasattr(c, "text")]
         return "\n".join(parts)
+
+
+def constant_time_equal(a: str, b: str) -> bool:
+    """Constant-time string comparison using ``hmac.compare_digest``.
+
+    The comparison takes time proportional to the length of the shorter input
+    and does not short-circuit on the first differing byte, which prevents
+    timing side-channel attacks on secret comparisons (e.g. bearer tokens).
+    Use this for any future MCP bearer-token auth.
+    """
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))

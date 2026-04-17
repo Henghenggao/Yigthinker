@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -73,9 +75,12 @@ class MCPLoader:
             return
 
         config = json.loads(self._path.read_text(encoding="utf-8"))
-        for server_name, server_cfg in config.get("mcpServers", {}).items():
-            transport = server_cfg.get("transport", "stdio")
+        servers = list(config.get("mcpServers", {}).items())
+        clients: list[MCPClient] = []
 
+        # Build all clients first (no I/O)
+        for server_name, server_cfg in servers:
+            transport = server_cfg.get("transport", "stdio")
             if transport in ("sse", "http"):
                 client = MCPClient(
                     name=server_name,
@@ -84,7 +89,6 @@ class MCPLoader:
                     headers=server_cfg.get("headers", {}),
                 )
             else:
-                # Default: stdio
                 env = {
                     key: _resolve_env(value)
                     for key, value in server_cfg.get("env", {}).items()
@@ -96,22 +100,53 @@ class MCPLoader:
                     args=server_cfg.get("args", []),
                     env=env,
                 )
+            clients.append(client)
 
-            await client.start()
-            self._clients.append(client)
+        # parallel_tool_discovery: start all clients concurrently
+        start_results = await asyncio.gather(
+            *[c.start() for c in clients], return_exceptions=True,
+        )
+        for c, r in zip(clients, start_results):
+            if isinstance(r, BaseException):
+                # Surface start failures without aborting other servers
+                print(
+                    f"[yigthinker.mcp] server '{c.name}' failed to start: "
+                    f"{type(r).__name__}: {r}",
+                    file=sys.stderr,
+                )
+        live_clients = [
+            c for c, r in zip(clients, start_results)
+            if not isinstance(r, BaseException)
+        ]
+        self._clients.extend(live_clients)
 
-            for tool_def in await client.list_tools():
-                self._registry.register(_MCPToolWrapper(tool_def, client))
+        # Discover tools concurrently
+        tool_lists = await asyncio.gather(
+            *[c.list_tools() for c in live_clients], return_exceptions=True,
+        )
 
-            # P1-7: discover resources
+        # stable_tool_name_sort: flatten and sort by name for stable
+        # LLM prompt-cache hits across runs.
+        all_tool_pairs: list[tuple[MCPToolDef, MCPClient]] = []
+        for client, tools in zip(live_clients, tool_lists):
+            if isinstance(tools, BaseException):
+                continue
+            for t in tools:
+                all_tool_pairs.append((t, client))
+        all_tool_pairs.sort(key=lambda p: p[0].name)
+
+        for tool_def, client in all_tool_pairs:
+            self._registry.register(_MCPToolWrapper(tool_def, client))
+
+        # Resource discovery (existing logic) — sequential is fine, runs after
+        for client in live_clients:
             try:
                 resources = await client.list_resources()
                 if resources:
-                    self._resource_clients[server_name] = client
+                    self._resource_clients[client.name] = client
             except Exception:
-                pass  # Server doesn't support resources
+                pass
 
-        # Register resource tools once if any server has resources
         if self._resource_clients and not self._resources_registered:
             from yigthinker.mcp.resource_tools import MCPListResourcesTool, MCPReadResourceTool
             self._registry.register(MCPListResourcesTool(self._resource_clients))
