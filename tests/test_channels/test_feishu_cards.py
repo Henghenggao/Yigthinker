@@ -1,7 +1,7 @@
 # tests/test_channels/test_feishu_cards.py
 """Tests for FeishuCardRenderer including chart image, VChart native, and native table."""
 
-from yigthinker.channels.feishu.cards import FeishuCardRenderer
+from yigthinker.presence.channels.feishu.cards import FeishuCardRenderer
 
 
 def test_render_chart_image_without_interactive_url():

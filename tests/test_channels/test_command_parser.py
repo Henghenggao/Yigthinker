@@ -1,4 +1,4 @@
-from yigthinker.channels.command_parser import parse_channel_command
+from yigthinker.presence.channels.command_parser import parse_channel_command
 
 
 def test_parse_new_no_args():

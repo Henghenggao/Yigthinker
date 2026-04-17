@@ -15,7 +15,13 @@ from pydantic import BaseModel
 
 from yigthinker.session import SessionContext
 from yigthinker.tools.workflow.registry import WorkflowRegistry
-from yigthinker.types import ToolResult
+from yigthinker.types import DryRunReceipt, ToolResult
+
+# Actions that mutate registry state. Hoisted to module scope so it is
+# built once at import time rather than on every execute() call.
+_MUTATING_ACTIONS: frozenset[str] = frozenset(
+    {"pause", "resume", "rollback", "retire"}
+)
 
 
 class WorkflowManageInput(BaseModel):
@@ -55,6 +61,22 @@ class WorkflowManageTool:
     async def execute(
         self, input: WorkflowManageInput, ctx: SessionContext,
     ) -> ToolResult:
+        # Only mutating actions short-circuit in dry_run; list/inspect/
+        # health_check are read-only and execute normally.
+        if ctx.dry_run and input.action in _MUTATING_ACTIONS:
+            return ToolResult(
+                tool_use_id="",
+                content=DryRunReceipt(
+                    tool_name=self.name,
+                    summary=(
+                        f"Would {input.action} workflow "
+                        f"'{input.workflow_name}'"
+                        + (f" (target_version={input.target_version})"
+                           if input.target_version is not None else "")
+                    ),
+                    details={"input": input.model_dump()},
+                ),
+            )
         try:
             if input.action == "list":
                 return self._list(input)

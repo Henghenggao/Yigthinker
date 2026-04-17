@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from yigthinker.cli.commands import CommandRouter
+from yigthinker.presence.cli.commands import CommandRouter
 from yigthinker.session import SessionContext
 from yigthinker.tools.sql.connection import ConnectionPool
 

@@ -4,7 +4,7 @@ Covers the kind="file" extension added for artifact_write (quick-260416-j3y).
 """
 from __future__ import annotations
 
-from yigthinker.channels.artifacts import (
+from yigthinker.presence.channels.artifacts import (
     choose_best_artifact,
     structured_artifact_from_tool_result,
 )

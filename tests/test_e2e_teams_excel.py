@@ -162,7 +162,7 @@ def test_phase0_tool_result_to_artifact_chain(tmp_path: Path):
     endpoint). Task 5's helper tests cover the dispatch primitives.
     """
     import json
-    from yigthinker.channels.teams.adapter import TeamsAdapter
+    from yigthinker.presence.channels.teams.adapter import TeamsAdapter
 
     # Create a file so bytes() / path existence checks in renderers don't choke
     xlsx_path = tmp_path / "monthly_summary.xlsx"

@@ -3,7 +3,7 @@ import re
 import pandas as pd
 import sqlalchemy as sa
 from pydantic import BaseModel
-from yigthinker.types import ToolResult
+from yigthinker.types import DryRunReceipt, ToolResult
 from yigthinker.session import SessionContext
 from yigthinker.tools.sql.connection import ConnectionPool
 
@@ -31,6 +31,20 @@ class SqlQueryTool:
         self._pool = pool
 
     async def execute(self, input: SqlQueryInput, ctx: SessionContext) -> ToolResult:
+        if ctx.dry_run and _DML_KEYWORDS.search(input.query):
+            return ToolResult(
+                tool_use_id="",
+                content=DryRunReceipt(
+                    tool_name=self.name,
+                    summary=f"Would execute DML ({len(input.query)} chars)",
+                    details={
+                        "input": input.model_dump(),
+                        "sql_head": input.query[:200],
+                    },
+                ),
+            )
+        # SELECT queries continue to execute in dry_run — they are read-only.
+
         if _DML_KEYWORDS.search(input.query):
             allow_dml = (
                 ctx.settings

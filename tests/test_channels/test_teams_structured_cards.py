@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import yigthinker.gateway.server as server_mod
-from yigthinker.channels.teams.adapter import TeamsAdapter
+import yigthinker.presence.gateway.server as server_mod
+from yigthinker.presence.channels.teams.adapter import TeamsAdapter
 
 
 def _make_adapter() -> TeamsAdapter:
@@ -59,7 +59,7 @@ async def test_send_response_renders_chart_card_when_artifact_provided(tmp_path,
     }
 
     with patch("yigthinker.visualization.exporter.ChartExporter.to_png", return_value=b"\x89PNG\r\n\x1a\n"), patch(
-        "yigthinker.channels.teams.adapter.httpx.AsyncClient",
+        "yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
         _FakeClient,
     ):
         await adapter.send_response(event, "Analysis complete", artifact=artifact)
@@ -106,7 +106,7 @@ async def test_send_response_renders_native_table_when_artifact_provided():
         "total_rows": 2,
     }
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
         await adapter.send_response(event, "2 rows returned", artifact=artifact)
 
     card = posted_payloads[0]["attachments"][0]["content"]
@@ -154,7 +154,7 @@ async def test_send_response_renders_file_card_when_artifact_write_result():
         "summary": "Builds formatted P&L sheet",
     }
 
-    with patch("yigthinker.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
+    with patch("yigthinker.presence.channels.teams.adapter.httpx.AsyncClient", _FakeClient):
         await adapter.send_response(event, "Script saved", artifact=artifact)
 
     card = posted_payloads[0]["attachments"][0]["content"]

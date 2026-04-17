@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from yigthinker.channels.feishu.adapter import FeishuAdapter
+from yigthinker.presence.channels.feishu.adapter import FeishuAdapter
 
 
 def _make_adapter() -> FeishuAdapter:

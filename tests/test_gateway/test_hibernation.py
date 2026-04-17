@@ -5,8 +5,8 @@ import pickle
 import pandas as pd
 import pytest
 
-from yigthinker.gateway.hibernation import SessionHibernator
-from yigthinker.gateway.session_registry import ManagedSession
+from yigthinker.presence.gateway.hibernation import SessionHibernator
+from yigthinker.presence.gateway.session_registry import ManagedSession
 from yigthinker.session import SessionContext
 from yigthinker.types import Message
 

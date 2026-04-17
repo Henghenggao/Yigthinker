@@ -11,7 +11,7 @@ import httpx
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from yigthinker.channels.teams.adapter import TeamsAdapter
+from yigthinker.presence.channels.teams.adapter import TeamsAdapter
 from yigthinker.session import QuotedMessage
 
 

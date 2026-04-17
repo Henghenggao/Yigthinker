@@ -37,9 +37,21 @@ _SOFT_DEADLINE_MSG = (
     "calls — summarize what you have and end the turn."
 )
 
+
+class _StreamIdleTimeout(TimeoutError):
+    """Phase 1b / Task A1: raised by _stream_with_idle_watchdog when both
+    attempts exceed the per-event idle timeout. Subclass of TimeoutError so
+    callers can `except TimeoutError` naturally, but distinguishable from the
+    wall-clock `asyncio.timeout()` expiry so AgentLoop.run() does not swallow
+    it as a soft-timeout and can surface a real TimeoutError to the caller.
+    """
+
+
 # Cap on how many variables are summarized in the timeout recovery message.
 # Keeps the trailing text usable even when the session produced dozens of DFs.
 _TIMEOUT_VAR_SUMMARY_LIMIT: int = 20
+
+_STREAM_MAX_ATTEMPTS: int = 2  # idle watchdog: one retry, then give up
 
 
 def _serialize_tool_content(content: Any) -> str:
@@ -72,6 +84,15 @@ class AgentLoop:
         self._timeout_seconds = timeout_seconds
         self._fallback_provider = fallback_provider
         self._max_tokens_recovery_count = 0
+        # Phase 1b / Task A1: per-event idle timeout for the streaming provider
+        # path. Wired from settings.agent.stream_idle_timeout_seconds by
+        # builder.py. See _stream_with_idle_watchdog().
+        self._stream_idle_timeout_seconds: float = 30.0
+        # Phase 1b / Task A3: ArgPatch reflexion. When True, a tool call that
+        # returns is_error=True triggers a follow-up LLM call asking for a
+        # JSON "arg patch" which is then applied and the tool retried once.
+        # Wired from settings.agent.reflexion_enabled by builder.py.
+        self._reflexion_enabled: bool = False
         self._memory_manager: MemoryManager | None = None
         self._compact: SmartCompact | None = None
         self._background_tasks: set[asyncio.Task] = set()
@@ -125,6 +146,9 @@ class AgentLoop:
         ctx._on_tool_event = on_tool_event
         tool_schemas = self._tools.export_schemas()
         iteration = 0
+        # Phase 1b / Task A3: per-tool_use_id dedup for reflexion retries. A
+        # given tool_use_id is retried at most once regardless of outcome.
+        reflexion_used_for: dict[str, bool] = {}
 
         # Fire SessionStart before the main loop
         start_event = HookEvent(
@@ -298,51 +322,36 @@ class AgentLoop:
                     using_fallback = False
 
                     if on_token is not None:
-                        accumulated_text = ""
-                        tool_uses_from_stream: list[ToolUse] = []
-                        stop_reason = "end_turn"
-
                         try:
-                            async for event in self._provider.stream(messages, tool_schemas, system=system_prompt):
-                                if event.type == "text":
-                                    accumulated_text += event.text
-                                    on_token(event.text)
-                                elif event.type == "tool_use" and event.tool_use is not None:
-                                    tool_uses_from_stream.append(event.tool_use)
-                                elif event.type == "done":
-                                    stop_reason = event.stop_reason or "end_turn"
-                                elif event.type == "error":
-                                    break
-                        except (TimeoutError, asyncio.CancelledError):
+                            response = await self._stream_with_idle_watchdog(
+                                self._provider, messages, tool_schemas, system_prompt, on_token,
+                            )
+                        except (asyncio.CancelledError,):
                             raise
+                        except _StreamIdleTimeout:
+                            # Phase 1b / Task A1: watchdog gave up after two
+                            # attempts on the primary. If a fallback is
+                            # configured, try it once; otherwise propagate
+                            # the TimeoutError subclass up to the caller.
+                            if self._fallback_provider is not None and not using_fallback:
+                                logger.warning(
+                                    "Primary provider idle-timed out on both attempts, switching to fallback"
+                                )
+                                using_fallback = True
+                                response = await self._stream_with_idle_watchdog(
+                                    self._fallback_provider, messages, tool_schemas, system_prompt, on_token,
+                                )
+                            else:
+                                raise
                         except Exception as exc:
                             if self._fallback_provider is not None and not using_fallback:
                                 logger.warning("Primary provider failed (%s), switching to fallback", exc)
                                 using_fallback = True
-                                accumulated_text = ""
-                                tool_uses_from_stream = []
-                                stop_reason = "end_turn"
-                                try:
-                                    async for event in self._fallback_provider.stream(messages, tool_schemas, system=system_prompt):
-                                        if event.type == "text":
-                                            accumulated_text += event.text
-                                            on_token(event.text)
-                                        elif event.type == "tool_use" and event.tool_use is not None:
-                                            tool_uses_from_stream.append(event.tool_use)
-                                        elif event.type == "done":
-                                            stop_reason = event.stop_reason or "end_turn"
-                                        elif event.type == "error":
-                                            break
-                                except Exception:
-                                    raise
+                                response = await self._stream_with_idle_watchdog(
+                                    self._fallback_provider, messages, tool_schemas, system_prompt, on_token,
+                                )
                             else:
                                 raise
-
-                        response = LLMResponse(
-                            stop_reason=stop_reason,
-                            text=accumulated_text,
-                            tool_uses=tool_uses_from_stream,
-                        )
                     else:
                         try:
                             response = await self._provider.chat(messages, tool_schemas, system=system_prompt)
@@ -393,6 +402,51 @@ class AgentLoop:
                     tool_results = await self._execute_tool_batch(
                         response.tool_uses, ctx, on_tool_event
                     )
+
+                    # Phase 1b / Task A3: ArgPatch reflexion — retry failed
+                    # tools once by asking the LLM for an input-arg patch. Flag
+                    # gated; default OFF. Dedup is per tool_use_id so a single
+                    # turn with N failing calls yields N reflexion attempts.
+                    if self._reflexion_enabled:
+                        for idx, (tu, tr_dict) in enumerate(
+                            zip(response.tool_uses, tool_results)
+                        ):
+                            if not tr_dict.get("is_error"):
+                                continue
+                            if reflexion_used_for.get(tu.id):
+                                continue
+                            patch = await self._reflect_on_tool_error(
+                                tu,
+                                str(tr_dict.get("content", "")),
+                                messages,
+                                system_prompt,
+                            )
+                            if patch is None:
+                                continue
+                            reflexion_used_for[tu.id] = True
+                            patched_input = self._apply_arg_patches(tu.input, patch)
+                            retry_result = await self._execute_tool(
+                                tu.name, patched_input, tu.id, ctx, on_tool_event,
+                            )
+                            tool_results[idx] = {
+                                "type": "tool_result",
+                                "tool_use_id": tu.id,
+                                "content": _serialize_tool_content(retry_result.content),
+                                "is_error": retry_result.is_error,
+                            }
+                            # Propagate hook injections from the retry — mirror
+                            # the pattern in _execute_tool_batch so PostToolUse
+                            # hooks on the retried call aren't silently dropped.
+                            retry_injections = getattr(
+                                retry_result, "_hook_injections", None
+                            )
+                            if retry_injections:
+                                existing = getattr(ctx, "_pending_injections", None)
+                                if existing:
+                                    existing.extend(retry_injections)
+                                else:
+                                    ctx._pending_injections = list(retry_injections)
+
                     messages.append(Message(role="user", content=tool_results))
 
                     # Memory extraction after tool calls
@@ -414,6 +468,11 @@ class AgentLoop:
                             self._background_tasks.add(task)
                             task.add_done_callback(self._background_tasks.discard)
 
+        except _StreamIdleTimeout:
+            # Phase 1b / Task A1: idle-watchdog timeout after retry is an
+            # operational error that callers need to observe distinctly from
+            # the soft wall-clock timeout below. Re-raise unchanged.
+            raise
         except TimeoutError:
             # quick-260416-j3y-04: surface a concrete list of what survived
             # instead of the opaque "may be available" line. The user can then
@@ -451,6 +510,66 @@ class AgentLoop:
             await self._hooks.run(end_event)
 
         return result_text
+
+    async def _stream_with_idle_watchdog(
+        self,
+        provider: LLMProvider,
+        messages: list[Message],
+        tool_schemas: list[dict],
+        system_prompt: str | None,
+        on_token: Callable[[str], None],
+    ) -> LLMResponse:
+        """Stream from provider; abort if inter-event idle > _stream_idle_timeout_seconds.
+
+        Retries once with a fresh stream. On second timeout, raises TimeoutError.
+        Phase 1b / Task A1.
+        """
+        for _attempt in range(_STREAM_MAX_ATTEMPTS):
+            accumulated_text = ""
+            tool_uses_from_stream: list[ToolUse] = []
+            stop_reason = "end_turn"
+            stream = provider.stream(messages, tool_schemas, system=system_prompt)
+            aiter = stream.__aiter__()
+            timed_out = False
+            try:
+                while True:
+                    try:
+                        event = await asyncio.wait_for(
+                            aiter.__anext__(),
+                            timeout=self._stream_idle_timeout_seconds,
+                        )
+                    except StopAsyncIteration:
+                        break
+                    except asyncio.TimeoutError:
+                        timed_out = True
+                        break
+                    if event.type == "text":
+                        accumulated_text += event.text
+                        on_token(event.text)
+                    elif event.type == "tool_use" and event.tool_use is not None:
+                        tool_uses_from_stream.append(event.tool_use)
+                    elif event.type == "done":
+                        stop_reason = event.stop_reason or "end_turn"
+                    elif event.type == "error":
+                        break
+            finally:
+                aclose = getattr(aiter, "aclose", None)
+                if aclose is not None:
+                    try:
+                        await aclose()
+                    except Exception:
+                        pass
+
+            if not timed_out:
+                return LLMResponse(
+                    stop_reason=stop_reason,
+                    text=accumulated_text,
+                    tool_uses=tool_uses_from_stream,
+                )
+            # else: retry once
+        raise _StreamIdleTimeout(
+            f"Stream idle > {self._stream_idle_timeout_seconds}s on both attempts"
+        )
 
     async def _run_extraction(self, messages_snapshot: list[Message]) -> None:
         """Fire-and-forget extraction. Errors are silently suppressed."""
@@ -563,6 +682,52 @@ class AgentLoop:
 
         return messages
 
+    async def _reflect_on_tool_error(
+        self,
+        failed_tool_use: ToolUse,
+        error_content: str,
+        messages: list[Message],
+        system_prompt: str | None,
+    ) -> dict | None:
+        """Ask the LLM for an arg patch after a tool error. Returns the patch dict or None.
+
+        Phase 1b / A3. Flag-gated by self._reflexion_enabled. The reflection
+        call intentionally passes no tool schemas so the LLM cannot emit a
+        tool_use block instead of the JSON patch we asked for.
+        """
+        reflection_prompt = (
+            f"The tool call `{failed_tool_use.name}` with input "
+            f"{json.dumps(failed_tool_use.input)} failed with error: {error_content!r}. "
+            "Respond with a JSON object of the form "
+            '{"tool_use_id": "' + failed_tool_use.id + '", "patch": {<field>: <new_value>, ...}} '
+            "describing exactly which input fields to change to make the call succeed. "
+            "Only respond with the JSON — no prose."
+        )
+        reflection_messages = messages + [Message(role="user", content=reflection_prompt)]
+        try:
+            response = await self._provider.chat(
+                reflection_messages, [], system=system_prompt,
+            )
+        except Exception:
+            return None
+        try:
+            obj = json.loads(response.text.strip())
+            if obj.get("tool_use_id") != failed_tool_use.id:
+                return None
+            patch = obj.get("patch")
+            if not isinstance(patch, dict):
+                return None
+            return patch
+        except (json.JSONDecodeError, AttributeError):
+            return None
+
+    @staticmethod
+    def _apply_arg_patches(original: dict, patch: dict) -> dict:
+        """Shallow-merge patch into original. Patch keys overwrite original keys,
+        including nested dict values (no deep merge — nested structures are
+        replaced wholesale, which is the intended behavior for arg patches)."""
+        return {**original, **patch}
+
     async def _execute_tool(
         self,
         tool_name: str,
@@ -595,7 +760,7 @@ class AgentLoop:
                 is_error=True,
             )
         if decision == "ask" and self._ask_fn is not None:
-            from yigthinker.cli.ask_prompt import PermissionAnswer
+            from yigthinker.presence.cli.ask_prompt import PermissionAnswer
 
             answer = await self._ask_fn(tool_name, tool_input)
             if answer == PermissionAnswer.DENY:

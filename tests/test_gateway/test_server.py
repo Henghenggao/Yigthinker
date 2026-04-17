@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from yigthinker.gateway.server import GatewayServer
+from yigthinker.presence.gateway.server import GatewayServer
 
 
 class DummyAuth:
@@ -22,7 +22,7 @@ class FakeAgentLoop:
 
 @pytest.fixture
 def server(tmp_path, monkeypatch):
-    monkeypatch.setattr("yigthinker.gateway.server.GatewayAuth", DummyAuth)
+    monkeypatch.setattr("yigthinker.presence.gateway.server.GatewayAuth", DummyAuth)
     settings = {
         "gateway": {
             "idle_timeout_seconds": 3600,
@@ -269,7 +269,7 @@ async def test_streaming_broadcast_sends_token_msgs(server):
     mock_ws = MagicMock()
     mock_ws.send_json = AsyncMock(side_effect=lambda msg: sent_messages.append(msg))
 
-    from yigthinker.gateway.server import _WSClient
+    from yigthinker.presence.gateway.server import _WSClient
     client = _WSClient(ws=mock_ws)
     client.session_key = "tui:stream-test"
     server._ws_clients.append(client)

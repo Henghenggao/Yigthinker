@@ -4,7 +4,7 @@ import asyncio
 import builtins
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
-from yigthinker.types import ToolResult
+from yigthinker.types import DryRunReceipt, ToolResult
 from yigthinker.session import SessionContext
 
 # Default wall-clock timeout (seconds) for a single df_transform exec().
@@ -196,6 +196,26 @@ class DfTransformTool:
     input_schema = DfTransformInput
 
     async def execute(self, input: DfTransformInput, ctx: SessionContext) -> ToolResult:
+        if ctx.dry_run:
+            return ToolResult(
+                tool_use_id="",
+                content=DryRunReceipt(
+                    tool_name=self.name,
+                    summary=(
+                        f"Would exec {len(input.code)} chars of transform code "
+                        f"on {input.input_var} → {input.output_var}"
+                    ),
+                    # Build details manually — ``code`` is arbitrary user input
+                    # with no upstream cap, so ``model_dump()`` would echo a
+                    # potentially large program back into message history.
+                    details={
+                        "input_var": input.input_var,
+                        "output_var": input.output_var,
+                        "extra_vars": list(input.extra_vars),
+                        "code_length": len(input.code),
+                    },
+                ),
+            )
         try:
             _check_ast(input.code)
         except SyntaxError as exc:

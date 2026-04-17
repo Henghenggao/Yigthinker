@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from yigthinker.gateway.rpa_state import RPAStateStore
+from yigthinker.presence.gateway.rpa_state import RPAStateStore
 
 
 @pytest.fixture

@@ -3,10 +3,10 @@ from pathlib import Path
 from typing import Literal
 import pandas as pd
 from pydantic import BaseModel
-from yigthinker.types import ToolResult
+from yigthinker.types import DryRunReceipt, ToolResult
 from yigthinker.session import SessionContext
 
-ReportFormat = Literal["excel", "pdf", "csv", "docx"]
+ReportFormat = Literal["excel", "pdf", "csv", "docx", "pptx"]
 
 
 def _safe_output_path(
@@ -50,18 +50,32 @@ class ReportGenerateInput(BaseModel):
 class ReportGenerateTool:
     name = "report_generate"
     description = (
-        "Use this when the user asks for an Excel / PDF / CSV / DOCX file "
+        "Use this when the user asks for an Excel / PDF / CSV / DOCX / PPTX file "
         "from a DataFrame that's already in the registry. Prefer this over "
         "explaining how to make a report — just generate it. "
         "Excel output uses openpyxl with formatted headers. "
         "PDF output uses reportlab for tabular layout. "
         "DOCX output uses python-docx with a styled Light Grid Accent 1 table. "
+        "PPTX output uses python-pptx: title slide + data table slide, "
+        "plus a bar-chart slide if the DataFrame has numeric columns. "
         "Returns the output path in the result; the channel adapter will "
         "deliver it as a file card."
     )
     input_schema = ReportGenerateInput
 
     async def execute(self, input: ReportGenerateInput, ctx: SessionContext) -> ToolResult:
+        if ctx.dry_run:
+            return ToolResult(
+                tool_use_id="",
+                content=DryRunReceipt(
+                    tool_name=self.name,
+                    summary=(
+                        f"Would render {input.format} report to "
+                        f"{input.output_path} from {input.var_name}"
+                    ),
+                    details={"input": input.model_dump()},
+                ),
+            )
         try:
             df = ctx.vars.get(input.var_name)
         except KeyError as exc:
@@ -83,6 +97,8 @@ class ReportGenerateTool:
                 self._write_pdf(df, path, input.title)
             elif input.format == "docx":
                 self._write_docx(df, path, input.title)
+            elif input.format == "pptx":
+                self._write_pptx(df, path, input.title)
 
             return ToolResult(
                 tool_use_id="",
@@ -181,3 +197,8 @@ class ReportGenerateTool:
                 table.rows[row_idx].cells[col_idx].text = str(value)
 
         doc.save(str(path))
+
+    def _write_pptx(self, df: pd.DataFrame, path: Path, title: str) -> None:
+        from yigthinker.tools.reports.pptx_engine import render_pptx
+
+        render_pptx(df, path, title)

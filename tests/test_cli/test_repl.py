@@ -1,5 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
-from yigthinker.cli.repl import Repl
+from yigthinker.presence.cli.repl import Repl
 from yigthinker.session import SessionContext
 from yigthinker.tools.sql.connection import ConnectionPool
 

@@ -12,10 +12,10 @@ _TEST_SIZE = (80, 24)
 @pytest.mark.asyncio
 async def test_tui_app_mounts_chat_screen():
     """TUI app mounts ChatScreen with ChatLog, VarsPanel, StatusBar, InputBar."""
-    from yigthinker.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.app import YigthinkerTUI
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
@@ -35,11 +35,11 @@ async def test_tui_app_mounts_chat_screen():
 @pytest.mark.asyncio
 async def test_chat_log_append_response():
     """ChatLog.append_response renders Rich Markdown."""
-    from yigthinker.tui.app import YigthinkerTUI
-    from yigthinker.tui.widgets.chat_log import ChatLog
+    from yigthinker.presence.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.widgets.chat_log import ChatLog
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
@@ -57,11 +57,11 @@ async def test_chat_log_append_response():
 @pytest.mark.asyncio
 async def test_keyboard_shortcut_session_picker():
     """Ctrl+G opens SessionPickerScreen."""
-    from yigthinker.tui.app import YigthinkerTUI
-    from yigthinker.tui.screens.session_picker import SessionPickerScreen
+    from yigthinker.presence.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.screens.session_picker import SessionPickerScreen
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
@@ -74,11 +74,11 @@ async def test_keyboard_shortcut_session_picker():
 @pytest.mark.asyncio
 async def test_keyboard_shortcut_model_picker():
     """Ctrl+L opens ModelPickerScreen."""
-    from yigthinker.tui.app import YigthinkerTUI
-    from yigthinker.tui.screens.model_picker import ModelPickerScreen
+    from yigthinker.presence.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.screens.model_picker import ModelPickerScreen
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
@@ -92,11 +92,11 @@ async def test_keyboard_shortcut_model_picker():
 @pytest.mark.asyncio
 async def test_keyboard_shortcut_dataframe_preview():
     """Ctrl+D opens DataFramePreviewScreen when vars data is available."""
-    from yigthinker.tui.app import YigthinkerTUI
-    from yigthinker.tui.screens.dataframe_preview import DataFramePreviewScreen
+    from yigthinker.presence.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.screens.dataframe_preview import DataFramePreviewScreen
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
@@ -119,11 +119,11 @@ async def test_keyboard_shortcut_dataframe_preview():
 @pytest.mark.asyncio
 async def test_keyboard_shortcut_dataframe_preview_empty():
     """Ctrl+D shows error when no vars data available."""
-    from yigthinker.tui.app import YigthinkerTUI
-    from yigthinker.tui.screens.dataframe_preview import DataFramePreviewScreen
+    from yigthinker.presence.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.screens.dataframe_preview import DataFramePreviewScreen
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
@@ -141,10 +141,10 @@ async def test_keyboard_shortcut_dataframe_preview_empty():
 @pytest.mark.asyncio
 async def test_status_bar_reflects_state():
     """StatusBar updates when connection state changes."""
-    from yigthinker.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.app import YigthinkerTUI
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
@@ -162,10 +162,10 @@ async def test_status_bar_reflects_state():
 @pytest.mark.asyncio
 async def test_token_streaming_creates_markdown_widget():
     """TUI creates a Markdown widget on first token message (STRM-04)."""
-    from yigthinker.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.app import YigthinkerTUI
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
@@ -200,10 +200,10 @@ async def test_token_streaming_creates_markdown_widget():
 @pytest.mark.asyncio
 async def test_token_streaming_handles_tool_call_midstream():
     """TUI stops stream, removes cursor, and shows ToolCard when tool_call arrives mid-stream (D-11, D-12)."""
-    from yigthinker.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.app import YigthinkerTUI
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")
@@ -238,10 +238,10 @@ async def test_token_streaming_handles_tool_call_midstream():
 @pytest.mark.asyncio
 async def test_blinking_cursor_lifecycle():
     """D-12: Blinking cursor appears on stream start, blinks, and disappears on done."""
-    from yigthinker.tui.app import YigthinkerTUI
+    from yigthinker.presence.tui.app import YigthinkerTUI
 
     with patch(
-        "yigthinker.tui.ws_client.GatewayWSClient.connect_loop",
+        "yigthinker.presence.tui.ws_client.GatewayWSClient.connect_loop",
         new_callable=AsyncMock,
     ):
         app = YigthinkerTUI(gateway_url="ws://localhost:1/ws", token="test")

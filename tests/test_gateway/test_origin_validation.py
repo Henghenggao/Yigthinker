@@ -4,7 +4,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from yigthinker.gateway.server import GatewayServer
+from yigthinker.presence.gateway.server import GatewayServer
 
 
 class DummyAuth:
@@ -18,7 +18,7 @@ class DummyAuth:
 @pytest.fixture
 def gateway_with_origins(tmp_path, monkeypatch):
     """Gateway with custom allowed origins for LAN access."""
-    monkeypatch.setattr("yigthinker.gateway.server.GatewayAuth", DummyAuth)
+    monkeypatch.setattr("yigthinker.presence.gateway.server.GatewayAuth", DummyAuth)
     settings = {
         "gateway": {
             "idle_timeout_seconds": 3600,
@@ -45,7 +45,7 @@ def gateway_with_origins(tmp_path, monkeypatch):
 @pytest.fixture
 def gateway_default(tmp_path, monkeypatch):
     """Gateway with default localhost-only origins."""
-    monkeypatch.setattr("yigthinker.gateway.server.GatewayAuth", DummyAuth)
+    monkeypatch.setattr("yigthinker.presence.gateway.server.GatewayAuth", DummyAuth)
     settings = {
         "gateway": {
             "idle_timeout_seconds": 3600,
@@ -91,7 +91,7 @@ def test_gateway_ws_accepts_127_origin(gateway_default):
 
 def test_gateway_ws_accepts_runtime_port_origin(tmp_path, monkeypatch):
     """WebSocket should accept the configured runtime port, not just 8766."""
-    monkeypatch.setattr("yigthinker.gateway.server.GatewayAuth", DummyAuth)
+    monkeypatch.setattr("yigthinker.presence.gateway.server.GatewayAuth", DummyAuth)
     settings = {
         "gateway": {
             "idle_timeout_seconds": 3600,

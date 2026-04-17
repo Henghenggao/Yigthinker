@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from yigthinker.gateway.rpa_controller import (
+from yigthinker.presence.gateway.rpa_controller import (
     RPAController,
     MAX_ATTEMPTS_24H,
     MAX_LLM_CALLS_DAY,
 )
-from yigthinker.gateway.rpa_state import RPAStateStore
+from yigthinker.presence.gateway.rpa_state import RPAStateStore
 
 
 def _fake_payload(**overrides: Any) -> dict:
@@ -231,7 +231,7 @@ async def test_lazy_30d_rollover(controller: RPAController) -> None:
 async def test_extraction_no_tools(controller: RPAController) -> None:
     """D-05: provider.chat is called with tools=[] and system=EXTRACTION_SYSTEM."""
     from yigthinker.types import LLMResponse
-    from yigthinker.gateway.extraction_prompt import EXTRACTION_SYSTEM
+    from yigthinker.presence.gateway.extraction_prompt import EXTRACTION_SYSTEM
     controller._provider.chat.return_value = LLMResponse(
         stop_reason="end_turn",
         text='{"action": "escalate", "instruction": "Unknown error.", "reason": "unclassified"}',

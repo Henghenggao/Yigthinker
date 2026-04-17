@@ -1,7 +1,7 @@
 # tests/test_channels/test_teams_cards.py
 """Tests for TeamsCardRenderer including progress cards."""
 
-from yigthinker.channels.teams.cards import TeamsCardRenderer
+from yigthinker.presence.channels.teams.cards import TeamsCardRenderer
 
 
 def test_render_text_card():

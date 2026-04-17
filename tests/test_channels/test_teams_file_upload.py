@@ -16,8 +16,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from yigthinker.channels.teams.adapter import TeamsAdapter
-from yigthinker.channels.teams.cards import TeamsCardRenderer
+from yigthinker.presence.channels.teams.adapter import TeamsAdapter
+from yigthinker.presence.channels.teams.cards import TeamsCardRenderer
 
 
 # ── Fixtures / helpers ───────────────────────────────────────────────────
@@ -274,7 +274,7 @@ def test_cjk_filename_survives_url_quote(tmp_path):
 def test_build_card_for_artifact_chart_still_works(tmp_path, monkeypatch):
     """Regression: chart artifacts must not regress through the file branch."""
     # Redirect CHART_CACHE_DIR to tmp_path so we don't pollute the real cache.
-    import yigthinker.gateway.server as server_mod
+    import yigthinker.presence.gateway.server as server_mod
     monkeypatch.setattr(server_mod, "CHART_CACHE_DIR", tmp_path / "charts")
 
     adapter = _make_adapter(

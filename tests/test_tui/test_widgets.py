@@ -9,7 +9,7 @@ import pytest
 class TestVarsPanel:
     def test_vars_panel_display_with_data(self):
         """VarsPanel.update_vars renders name, shape, and column names."""
-        from yigthinker.tui.widgets.vars_panel import VarsPanel
+        from yigthinker.presence.tui.widgets.vars_panel import VarsPanel
 
         panel = VarsPanel(id="test-panel")
         vars_data = [
@@ -35,7 +35,7 @@ class TestVarsPanel:
 
     def test_vars_panel_empty(self):
         """VarsPanel shows 'No variables' when list is empty."""
-        from yigthinker.tui.widgets.vars_panel import VarsPanel
+        from yigthinker.presence.tui.widgets.vars_panel import VarsPanel
 
         panel = VarsPanel(id="test-panel")
         panel.update_vars([])
@@ -47,7 +47,7 @@ class TestVarsPanel:
 class TestStatusBar:
     def test_status_bar_connected(self):
         """StatusBar shows green for connected state."""
-        from yigthinker.tui.widgets.status_bar import StatusBar
+        from yigthinker.presence.tui.widgets.status_bar import StatusBar
 
         bar = StatusBar(id="test-bar")
         bar.set_status(session="test", state="connected")
@@ -57,7 +57,7 @@ class TestStatusBar:
 
     def test_status_bar_disconnected(self):
         """StatusBar shows red for disconnected state."""
-        from yigthinker.tui.widgets.status_bar import StatusBar
+        from yigthinker.presence.tui.widgets.status_bar import StatusBar
 
         bar = StatusBar(id="test-bar")
         bar.set_status(session="test", state="disconnected")
@@ -67,7 +67,7 @@ class TestStatusBar:
 
     def test_status_bar_reconnecting(self):
         """StatusBar shows yellow for reconnecting state."""
-        from yigthinker.tui.widgets.status_bar import StatusBar
+        from yigthinker.presence.tui.widgets.status_bar import StatusBar
 
         bar = StatusBar(id="test-bar")
         bar.set_status(session="test", state="reconnecting")
@@ -80,14 +80,14 @@ class TestStatusBar:
 class TestToolCard:
     def test_tool_card_starts_collapsed(self):
         """ToolCard defaults to collapsed state."""
-        from yigthinker.tui.widgets.tool_card import ToolCard
+        from yigthinker.presence.tui.widgets.tool_card import ToolCard
 
         card = ToolCard(tool_name="sql_query")
         assert card.collapsed is True
 
     def test_tool_card_toggle(self):
         """ToolCard.toggle_collapsed() flips state."""
-        from yigthinker.tui.widgets.tool_card import ToolCard
+        from yigthinker.presence.tui.widgets.tool_card import ToolCard
 
         card = ToolCard(tool_name="sql_query")
         card.toggle_collapsed()
@@ -97,7 +97,7 @@ class TestToolCard:
 
     def test_tool_card_set_result(self):
         """ToolCard.set_result() stores content and error state."""
-        from yigthinker.tui.widgets.tool_card import ToolCard
+        from yigthinker.presence.tui.widgets.tool_card import ToolCard
 
         card = ToolCard(tool_name="sql_query")
         card.set_result("5 rows returned", is_error=False)
@@ -111,7 +111,7 @@ class TestSlashCommandSuggester:
     @pytest.mark.asyncio
     async def test_suggest_on_slash_prefix(self):
         """Suggester returns matching command when input starts with /."""
-        from yigthinker.tui.widgets.input_bar import SlashCommandSuggester
+        from yigthinker.presence.tui.widgets.input_bar import SlashCommandSuggester
 
         s = SlashCommandSuggester(commands=["/help", "/clear", "/model"])
         result = await s.get_suggestion("/he")
@@ -120,7 +120,7 @@ class TestSlashCommandSuggester:
     @pytest.mark.asyncio
     async def test_no_suggest_without_slash(self):
         """Suggester returns None when input does not start with /."""
-        from yigthinker.tui.widgets.input_bar import SlashCommandSuggester
+        from yigthinker.presence.tui.widgets.input_bar import SlashCommandSuggester
 
         s = SlashCommandSuggester(commands=["/help", "/clear"])
         result = await s.get_suggestion("hello")
@@ -129,7 +129,7 @@ class TestSlashCommandSuggester:
     @pytest.mark.asyncio
     async def test_no_suggest_exact_match(self):
         """Suggester returns None when input exactly matches a command."""
-        from yigthinker.tui.widgets.input_bar import SlashCommandSuggester
+        from yigthinker.presence.tui.widgets.input_bar import SlashCommandSuggester
 
         s = SlashCommandSuggester(commands=["/help"])
         result = await s.get_suggestion("/help")
@@ -138,7 +138,7 @@ class TestSlashCommandSuggester:
     @pytest.mark.asyncio
     async def test_suggest_case_insensitive(self):
         """Suggester matches case-insensitively."""
-        from yigthinker.tui.widgets.input_bar import SlashCommandSuggester
+        from yigthinker.presence.tui.widgets.input_bar import SlashCommandSuggester
 
         s = SlashCommandSuggester(commands=["/Help", "/Clear"])
         result = await s.get_suggestion("/he")

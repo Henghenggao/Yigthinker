@@ -20,7 +20,7 @@ _ROOT_HELP_FLAGS = frozenset({"--help", "--install-completion", "--show-completi
 @app.command("install")
 def install_command() -> None:
     """Interactive installer — configure usage mode and components."""
-    from yigthinker.cli.installer import run_install
+    from yigthinker.presence.cli.installer import run_install
 
     run_install()
 
@@ -28,7 +28,7 @@ def install_command() -> None:
 @app.command("setup")
 def setup_command() -> None:
     """Configure your LLM provider and API key without launching the gateway."""
-    from yigthinker.cli.setup_wizard import run_setup
+    from yigthinker.presence.cli.setup_wizard import run_setup
 
     run_setup()
 
@@ -98,7 +98,7 @@ async def _async_main(
     settings: dict,
 ) -> None:
     from yigthinker.builder import build_app
-    from yigthinker.cli.repl import Repl
+    from yigthinker.presence.cli.repl import Repl
     from yigthinker.plugins.loader import PluginLoader
     from yigthinker.session import SessionContext
 
@@ -172,7 +172,7 @@ def quickstart(
 
     if need_setup:
         console.print("\n[bold]Step 1/3[/] — Configure your LLM provider\n")
-        from yigthinker.cli.setup_wizard import run_setup
+        from yigthinker.presence.cli.setup_wizard import run_setup
         run_setup()
         # Reload settings after setup
         settings = load_settings()
@@ -198,7 +198,7 @@ def quickstart(
     # Step 3: Launch gateway
     console.print("\n[bold]Step 3/3[/] — Starting gateway\n")
 
-    from yigthinker.gateway.auth import GatewayAuth
+    from yigthinker.presence.gateway.auth import GatewayAuth
     auth = GatewayAuth()
     token = auth.token
 
@@ -212,7 +212,7 @@ def quickstart(
 
     import uvicorn
 
-    from yigthinker.gateway.server import GatewayServer
+    from yigthinker.presence.gateway.server import GatewayServer
 
     gateway = GatewayServer(settings)
     url = f"http://127.0.0.1:{port}"
@@ -231,7 +231,7 @@ def gateway_start(
     import logging
     import uvicorn
 
-    from yigthinker.gateway.server import GatewayServer
+    from yigthinker.presence.gateway.server import GatewayServer
     from yigthinker.settings import load_settings
 
     # quick-260416-j3y: surface tool_call / tool_result diagnostic logs from
@@ -272,7 +272,7 @@ def tui_command(
         token = ""
         console.print("[yellow]Warning: Gateway token not found. Start gateway first: yigthinker gateway[/]")
 
-    from yigthinker.tui import YigthinkerTUI
+    from yigthinker.presence.tui import YigthinkerTUI
 
     tui = YigthinkerTUI(
         gateway_url=f"ws://{resolved_host}:{resolved_port}/ws",
