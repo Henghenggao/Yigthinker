@@ -1,0 +1,71 @@
+{
+  "teamCardId": "team-data-analysis",
+  "version": "1.0.0",
+  "schemaVersion": "1.0",
+  "author": "official",
+  "license": "free",
+
+  "name": "Data Analysis Studio",
+  "description": "A comprehensive data analysis team that handles the full analytics lifecycle: data ingestion, quality checking, statistical analysis, BI dashboards, written reports, and presentation slides. Led by a Chief Data Analyst who coordinates all team members.",
+  "icon": "📊",
+  "tags": [
+    "data",
+    "analysis",
+    "bi",
+    "reporting",
+    "dashboards",
+    "visualization"
+  ],
+  "category": "data-analysis",
+
+  "members": [
+    {
+      "cardId": "card-data-analyst",
+      "teamRole": "首席分析师 & 仪表板架构师",
+      "isLeader": true
+    },
+    {
+      "cardId": "card-bi-assistant",
+      "teamRole": "BI 问答专员"
+    },
+    {
+      "cardId": "card-excel-ops",
+      "teamRole": "数据处理 & Excel 操作"
+    },
+    {
+      "cardId": "card-data-checker",
+      "teamRole": "数据质量 & 校验"
+    },
+    {
+      "cardId": "card-report-writer",
+      "teamRole": "报告撰写 & 文档输出"
+    },
+    {
+      "cardId": "card-slides-ops",
+      "teamRole": "演示文稿 & 可视化呈现"
+    }
+  ],
+
+  "defaultMode": "hierarchical",
+  "leaderId": "card-data-analyst",
+  "collaborationConfig": {
+    "maxRounds": 10,
+    "overallTimeoutMs": 600000,
+    "perTaskTimeoutMs": 120000
+  },
+
+  "requiredEnvVars": [
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "description": "Anthropic API key for LLM access",
+      "required": true,
+      "example": "sk-ant-..."
+    }
+  ],
+
+  "displayName": "数据分析工作室",
+  "downloads": 0,
+  "rating": 5,
+  "createdAt": 1700000000000,
+  "updatedAt": 1700000000000
+}

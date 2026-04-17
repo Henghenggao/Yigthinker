@@ -1,0 +1,70 @@
+{
+  "teamCardId": "team-fpa-report",
+  "version": "1.0.0",
+  "schemaVersion": "1.0",
+  "author": "official",
+  "license": "free",
+
+  "name": "FPA Report Generation Team",
+  "description": "A collaborative team for generating financial planning & analysis reports from Excel data files and PowerPoint templates. Parallel Excel analysis feeds into a structured ContentUpdatePlan, which is executed by the PPT Writer and verified by the QA Reviewer. Led by the Content Strategist.",
+  "icon": "📑",
+  "tags": [
+    "fpa",
+    "finance",
+    "pptx",
+    "excel",
+    "report",
+    "analysis",
+    "powerpoint"
+  ],
+  "category": "data-analysis",
+
+  "members": [
+    {
+      "cardId": "card-excel-analyst",
+      "teamRole": "数据分析 & KPI 提取",
+      "isLeader": false
+    },
+    {
+      "cardId": "card-pptx-template-analyst",
+      "teamRole": "PPT 模板结构解析",
+      "isLeader": false
+    },
+    {
+      "cardId": "card-content-strategist",
+      "teamRole": "内容规划 & ContentUpdatePlan 总监",
+      "isLeader": true
+    },
+    {
+      "cardId": "card-pptx-writer",
+      "teamRole": "PPT 内容填充 & 快照生成"
+    },
+    {
+      "cardId": "card-qa-reviewer",
+      "teamRole": "数据准确性 & 格式一致性审核"
+    }
+  ],
+
+  "defaultMode": "hierarchical",
+  "leaderId": "card-content-strategist",
+  "collaborationConfig": {
+    "maxRounds": 3,
+    "overallTimeoutMs": 300000,
+    "perTaskTimeoutMs": 120000
+  },
+
+  "requiredEnvVars": [
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "description": "Anthropic API key for LLM access",
+      "required": true,
+      "example": "sk-ant-..."
+    }
+  ],
+
+  "displayName": "FPA 报告生成团队",
+  "downloads": 0,
+  "rating": 5,
+  "createdAt": 1740038400000,
+  "updatedAt": 1740038400000
+}
