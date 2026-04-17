@@ -162,3 +162,24 @@ class GChatAdapter:
     ) -> None:
         # Google Chat webhooks use synchronous response — no async send needed
         pass
+
+    async def deliver_artifact(
+        self,
+        event: dict[str, Any],
+        artifact: dict[str, Any],
+    ) -> None:
+        """Phase 1b: deliver an artifact via text fallback.
+
+        GChat adapter has no artifact-aware send path yet, so we post the
+        artifact's path/URL/filename as text via send_response. The base
+        send_response is a no-op for GChat (webhook-synchronous), but we
+        route through it to keep the code shape consistent with the other
+        adapters; actual delivery in GChat happens via the webhook response.
+        """
+        path_or_url = (
+            artifact.get("path")
+            or artifact.get("url")
+            or artifact.get("filename")
+            or "(artifact)"
+        )
+        await self.send_response(event, f"Artifact: {path_or_url}")

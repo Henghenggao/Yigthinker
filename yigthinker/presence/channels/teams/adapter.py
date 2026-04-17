@@ -275,6 +275,14 @@ class TeamsAdapter:
             self._max_retries, last_error,
         )
 
+    async def deliver_artifact(
+        self,
+        event: dict[str, Any],
+        artifact: dict[str, Any],
+    ) -> None:
+        """Phase 1b: deliver an artifact via the existing send_response path."""
+        await self.send_response(event, "", artifact=artifact)
+
     def _gateway_base_url(self) -> str:
         gw_cfg = getattr(self._gateway, "_settings", {}).get("gateway", {})
         public_base_url = gw_cfg.get("public_base_url", "")
