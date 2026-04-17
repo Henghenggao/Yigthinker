@@ -25,5 +25,6 @@ def test_all_phase3_tools_registered():
 def test_registry_has_20_tools():
     pool = ConnectionPool()
     registry = build_tool_registry(pool=pool)
-    # 20 original (dashboard_push removed) + 4 finance + agent_status + agent_cancel + artifact_write = 27
-    assert len(registry.names()) == 27
+    # 20 original (dashboard_push removed) + 4 finance + agent_status + agent_cancel
+    # + artifact_write + excel_write = 28
+    assert len(registry.names()) == 28
