@@ -74,6 +74,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "enabled": True,
         },
     },
+    "memory": {
+        "provider": "null",   # "null" | "file". See docs/adr/005-memory-provider-interface.md
+        "file": {
+            "store_dir": None,   # None -> ~/.yigthinker/memory/
+            "agent_id": "default",
+            "max_records_before_compact": 1000,
+        },
+    },
     "channels": {
         "feishu": {
             "enabled": False,
