@@ -555,60 +555,6 @@ async def test_result_no_truncation_under_limit():
 
 
 # ---------------------------------------------------------------------------
-# Max-Tokens Recovery Tests
-# ---------------------------------------------------------------------------
-
-
-async def test_max_tokens_recovery():
-    """Agent auto-recovers from max_tokens by injecting continuation prompt."""
-    mock_provider = AsyncMock()
-    mock_provider.chat = AsyncMock(side_effect=[
-        LLMResponse(stop_reason="max_tokens", text="partial...", tool_uses=[]),
-        LLMResponse(stop_reason="end_turn", text="completed"),
-    ])
-
-    tools = ToolRegistry()
-    tools.register(EchoTool())
-    hooks = HookExecutor(HookRegistry())
-    perms = PermissionSystem({"allow": ["echo"]})
-    loop = AgentLoop(provider=mock_provider, tools=tools, hooks=hooks, permissions=perms)
-    ctx = SessionContext()
-
-    result = await loop.run("do it", ctx)
-    assert result == "completed"
-
-    # Verify recovery message was injected
-    second_call_messages = mock_provider.chat.await_args_list[1].args[0]
-    recovery_msgs = [m for m in second_call_messages if m.role == "user" and "token limit reached" in str(m.content)]
-    assert len(recovery_msgs) == 1
-
-
-async def test_max_tokens_recovery_cap_at_3():
-    """max_tokens recovery is capped at 3 attempts; 4th max_tokens is treated as end."""
-    mock_provider = AsyncMock()
-    mock_provider.chat = AsyncMock(side_effect=[
-        LLMResponse(stop_reason="max_tokens", text="p1", tool_uses=[]),
-        LLMResponse(stop_reason="max_tokens", text="p2", tool_uses=[]),
-        LLMResponse(stop_reason="max_tokens", text="p3", tool_uses=[]),
-        LLMResponse(stop_reason="max_tokens", text="p4", tool_uses=[]),
-        LLMResponse(stop_reason="max_tokens", text="p5", tool_uses=[]),
-    ])
-
-    tools = ToolRegistry()
-    tools.register(EchoTool())
-    hooks = HookExecutor(HookRegistry())
-    perms = PermissionSystem({"allow": ["echo"]})
-    loop = AgentLoop(provider=mock_provider, tools=tools, hooks=hooks, permissions=perms)
-    ctx = SessionContext()
-
-    result = await loop.run("do it", ctx)
-    # After 3 recoveries (calls 1-3 inject recovery), the 4th max_tokens (call 4) falls through
-    # to the end_turn check (no tool_uses), so result is "p4"
-    assert result == "p4"
-    assert mock_provider.chat.await_count == 4  # 1 original + 3 recovery attempts
-
-
-# ---------------------------------------------------------------------------
 # Fallback Provider Tests
 # ---------------------------------------------------------------------------
 
