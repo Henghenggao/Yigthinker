@@ -88,6 +88,11 @@ class AgentLoop:
         # path. Wired from settings.agent.stream_idle_timeout_seconds by
         # builder.py. See _stream_with_idle_watchdog().
         self._stream_idle_timeout_seconds: float = 30.0
+        # Phase 1b / Task A3: ArgPatch reflexion. When True, a tool call that
+        # returns is_error=True triggers a follow-up LLM call asking for a
+        # JSON "arg patch" which is then applied and the tool retried once.
+        # Wired from settings.agent.reflexion_enabled by builder.py.
+        self._reflexion_enabled: bool = False
         self._memory_manager: MemoryManager | None = None
         self._compact: SmartCompact | None = None
         self._background_tasks: set[asyncio.Task] = set()
@@ -141,6 +146,9 @@ class AgentLoop:
         ctx._on_tool_event = on_tool_event
         tool_schemas = self._tools.export_schemas()
         iteration = 0
+        # Phase 1b / Task A3: per-tool_use_id dedup for reflexion retries. A
+        # given tool_use_id is retried at most once regardless of outcome.
+        reflexion_used_for: dict[str, bool] = {}
 
         # Fire SessionStart before the main loop
         start_event = HookEvent(
@@ -394,6 +402,51 @@ class AgentLoop:
                     tool_results = await self._execute_tool_batch(
                         response.tool_uses, ctx, on_tool_event
                     )
+
+                    # Phase 1b / Task A3: ArgPatch reflexion — retry failed
+                    # tools once by asking the LLM for an input-arg patch. Flag
+                    # gated; default OFF. Dedup is per tool_use_id so a single
+                    # turn with N failing calls yields N reflexion attempts.
+                    if self._reflexion_enabled:
+                        for idx, (tu, tr_dict) in enumerate(
+                            zip(response.tool_uses, tool_results)
+                        ):
+                            if not tr_dict.get("is_error"):
+                                continue
+                            if reflexion_used_for.get(tu.id):
+                                continue
+                            patch = await self._reflect_on_tool_error(
+                                tu,
+                                str(tr_dict.get("content", "")),
+                                messages,
+                                system_prompt,
+                            )
+                            if patch is None:
+                                continue
+                            reflexion_used_for[tu.id] = True
+                            patched_input = self._apply_arg_patches(tu.input, patch)
+                            retry_result = await self._execute_tool(
+                                tu.name, patched_input, tu.id, ctx, on_tool_event,
+                            )
+                            tool_results[idx] = {
+                                "type": "tool_result",
+                                "tool_use_id": tu.id,
+                                "content": _serialize_tool_content(retry_result.content),
+                                "is_error": retry_result.is_error,
+                            }
+                            # Propagate hook injections from the retry — mirror
+                            # the pattern in _execute_tool_batch so PostToolUse
+                            # hooks on the retried call aren't silently dropped.
+                            retry_injections = getattr(
+                                retry_result, "_hook_injections", None
+                            )
+                            if retry_injections:
+                                existing = getattr(ctx, "_pending_injections", None)
+                                if existing:
+                                    existing.extend(retry_injections)
+                                else:
+                                    ctx._pending_injections = list(retry_injections)
+
                     messages.append(Message(role="user", content=tool_results))
 
                     # Memory extraction after tool calls
@@ -628,6 +681,52 @@ class AgentLoop:
                             item["content"] = sentinel
 
         return messages
+
+    async def _reflect_on_tool_error(
+        self,
+        failed_tool_use: ToolUse,
+        error_content: str,
+        messages: list[Message],
+        system_prompt: str | None,
+    ) -> dict | None:
+        """Ask the LLM for an arg patch after a tool error. Returns the patch dict or None.
+
+        Phase 1b / A3. Flag-gated by self._reflexion_enabled. The reflection
+        call intentionally passes no tool schemas so the LLM cannot emit a
+        tool_use block instead of the JSON patch we asked for.
+        """
+        reflection_prompt = (
+            f"The tool call `{failed_tool_use.name}` with input "
+            f"{json.dumps(failed_tool_use.input)} failed with error: {error_content!r}. "
+            "Respond with a JSON object of the form "
+            '{"tool_use_id": "' + failed_tool_use.id + '", "patch": {<field>: <new_value>, ...}} '
+            "describing exactly which input fields to change to make the call succeed. "
+            "Only respond with the JSON — no prose."
+        )
+        reflection_messages = messages + [Message(role="user", content=reflection_prompt)]
+        try:
+            response = await self._provider.chat(
+                reflection_messages, [], system=system_prompt,
+            )
+        except Exception:
+            return None
+        try:
+            obj = json.loads(response.text.strip())
+            if obj.get("tool_use_id") != failed_tool_use.id:
+                return None
+            patch = obj.get("patch")
+            if not isinstance(patch, dict):
+                return None
+            return patch
+        except (json.JSONDecodeError, AttributeError):
+            return None
+
+    @staticmethod
+    def _apply_arg_patches(original: dict, patch: dict) -> dict:
+        """Shallow-merge patch into original. Patch keys overwrite original keys,
+        including nested dict values (no deep merge — nested structures are
+        replaced wholesale, which is the intended behavior for arg patches)."""
+        return {**original, **patch}
 
     async def _execute_tool(
         self,

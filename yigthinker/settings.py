@@ -130,6 +130,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         # stream is aborted and retried once. If the retry also times out, a
         # TimeoutError propagates up to the caller.
         "stream_idle_timeout_seconds": 30,
+        # Phase 1b / Task A3: when a tool returns is_error=True, ask the LLM for
+        # an "arg patch" (JSON describing input changes) and retry the tool
+        # once. Disabled by default — enable only for models that benefit from
+        # self-correction loops. Capped at 1 retry per tool_use_id.
+        "reflexion_enabled": False,
         # quick-260416-j3y-04: IM surfaces (Teams/Feishu/etc.) tolerate longer
         # waits than the CLI REPL because the user is async and expects a card
         # reply rather than a live cursor. 600s gives the model room to finish

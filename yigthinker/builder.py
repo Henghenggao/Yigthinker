@@ -190,6 +190,10 @@ async def build_app(
     agent._stream_idle_timeout_seconds = float(
         agent_settings.get("stream_idle_timeout_seconds", 30)
     )
+    # Phase 1b / Task A3: ArgPatch reflexion flag (default OFF).
+    agent._reflexion_enabled = bool(
+        agent_settings.get("reflexion_enabled", False)
+    )
 
     # --- Spawn agent wiring ---
     spawn_tool = tools.get("spawn_agent")
