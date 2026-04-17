@@ -23,7 +23,7 @@ Branch: `claude/phase-1a-harvest-and-docs`
 
 ## Test numbers
 
-- **Full pytest (default, `-m 'not slow'`)**: 1040 passed, 1 skipped, 1 deselected (the slow-gated `test_infinite_loop_is_killed`), 2 pre-existing failures tolerated (`test_registry_has_20_tools`, `test_df_load_description_mentions_artifact_write` — both out of Phase 1a scope; baseline carryover documented since Phase 0)
+- **Full pytest (default, `-m 'not slow'`)**: 1042 passed, 1 skipped, 1 deselected (the slow-gated `test_infinite_loop_is_killed`), **0 failed**. The two pre-existing Phase 0 carryover failures (`test_registry_has_20_tools`, `test_df_load_description_mentions_artifact_write`) were also fixed in this branch — see commit `b6c47b7` (test-only stale-expectation updates; no source changes).
 - **Slow-only (`-m slow`)**: 1 passed (the `test_infinite_loop_is_killed` timeout gate fires correctly)
 - **ADR validator**: exit 0 on all 8 ADRs in `docs/adr/`
 - **Pure-core subset** (81 tests): all green under `pip install yigthinker` with zero extras
@@ -31,6 +31,7 @@ Branch: `claude/phase-1a-harvest-and-docs`
 ## Commit chain (this branch)
 
 ```
+b6c47b7 test(tools): fix stale baseline expectations (registry count + df_load wording)
 082c26a test(agent): regression for definitional direct-reply path (H4)
 2d46c11 test(feishu): integration coverage for send_response (H3)
 1c9dd29 docs(CLAUDE.md): document MemoryProvider abstraction
@@ -60,10 +61,10 @@ Parent-spec commit (on `claude/condescending-cartwright`): `88247cc`.
 ## Open observations (non-blocking, noted for follow-up phases)
 
 1. **`FeishuAdapter.send_response(vars_summary=...)` kwarg is silently dropped.** Task 20's integration test confirmed the adapter accepts but doesn't propagate `vars_summary` into the card body. Not a Phase 1a regression — the test pins current behavior, not ideal behavior. Worth filing as a Phase 2 bug if IM channel parity matters.
-2. **Pre-existing failures (x2)**: `test_registry_has_20_tools` (registry count drift vs. Phase 3 expectation) and `test_df_load_description_mentions_artifact_write` (artifact-first nudge wording). Both carry over from Phase 0; out of Phase 1a housekeeping scope.
+2. ~~**Pre-existing failures (x2)**: `test_registry_has_20_tools` and `test_df_load_description_mentions_artifact_write`.~~ **Resolved in commit `b6c47b7`** — both were stale test expectations (registry now has 27 tools after `artifact_write` was added; df_load description was reworded to "load tabular data"). Fix is test-only; tool source untouched.
 
 ## Ready to merge
 
-**Yes.** Every §2.3 gate item is satisfied. Phase 1a produces no regressions on the existing green baseline; the 2 failures in the default suite are pre-existing and were tolerated entering Phase 1a.
+**Yes.** Every §2.3 gate item is satisfied. Phase 1a produces no regressions on the existing green baseline, and the 2 pre-existing Phase 0 failures were also fixed as a courtesy cleanup — the default suite is now fully green (1042 passed, 0 failed).
 
 Phase 1b (agent.py core-loop work — MemoryProvider integration into the agent loop, action-first prompt tightening) can now start from this branch's tip.
