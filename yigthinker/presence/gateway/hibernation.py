@@ -14,7 +14,7 @@ import pandas as pd
 
 from yigthinker.presence.gateway.session_registry import ManagedSession
 from yigthinker.persistence import TranscriptReader, TranscriptWriter
-from yigthinker.session import SessionContext
+from yigthinker.core.session import SessionContext
 
 logger = logging.getLogger(__name__)
 

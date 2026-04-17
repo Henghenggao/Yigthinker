@@ -20,8 +20,8 @@ from yigthinker.types import Message
 
 if TYPE_CHECKING:
     from yigthinker.presence.gateway.rpa_state import RPAStateStore
-    from yigthinker.providers.base import LLMProvider
-    from yigthinker.tools.workflow.registry import WorkflowRegistry
+    from yigthinker.core.providers import LLMProvider
+    from yigthinker.core.workflow import WorkflowRegistry
 
 logger = logging.getLogger(__name__)
 

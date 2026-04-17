@@ -4,11 +4,11 @@ from __future__ import annotations
 from rich.console import Console
 from rich.markdown import Markdown
 
-from yigthinker.agent import AgentLoop
+from yigthinker.core.agent import AgentLoop
 from yigthinker.presence.cli.commands import CommandRouter
 from yigthinker.persistence import TranscriptWriter
-from yigthinker.session import SessionContext
-from yigthinker.tools.sql.connection import ConnectionPool
+from yigthinker.core.session import SessionContext
+from yigthinker.core.connection import ConnectionPool
 
 _console = Console()
 

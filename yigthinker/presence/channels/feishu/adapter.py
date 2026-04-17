@@ -319,7 +319,7 @@ class FeishuAdapter:
 
     async def extract_quoted_messages(self, event: dict[str, Any]) -> list[Any]:
         """Fetch the replied-to / parent message when Feishu supplies linkage IDs."""
-        from yigthinker.session import QuotedMessage
+        from yigthinker.core.session import QuotedMessage
 
         if not self._client:
             return []

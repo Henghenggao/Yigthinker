@@ -32,7 +32,7 @@ from yigthinker.presence.gateway.session_key import SessionKey
 if TYPE_CHECKING:
     from yigthinker.presence.gateway.server import GatewayServer
     from yigthinker.presence.channels.command_parser import ChannelCommand
-    from yigthinker.session import SessionContext
+    from yigthinker.core.session import SessionContext
 
 logger = logging.getLogger(__name__)
 
@@ -727,7 +727,7 @@ class TeamsAdapter:
         Best-effort: any failure (missing IDs, non-200, network error) returns
         an empty list rather than raising.
         """
-        from yigthinker.session import QuotedMessage
+        from yigthinker.core.session import QuotedMessage
 
         reply_to_id = event.get("replyToId")
         if not reply_to_id:

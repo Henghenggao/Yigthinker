@@ -162,7 +162,7 @@ class GatewayServer:
         if self._agent_loop is not None:
             return
 
-        from yigthinker.builder import build_app
+        from yigthinker.core.builder import build_app
 
         app_ctx = await build_app(self._settings, ask_fn=None)
         self._agent_loop = app_ctx.agent_loop

@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 
-from yigthinker.session import SessionContext
-from yigthinker.tools.sql.connection import ConnectionPool
+from yigthinker.core.session import SessionContext
+from yigthinker.core.connection import ConnectionPool
 
 
 @dataclass
