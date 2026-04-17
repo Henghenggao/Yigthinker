@@ -358,6 +358,9 @@ Yigthinker is a Python-based AI agent for financial and data analysis with workf
 - Purpose: Gateway-level wrapper adding per-session concurrency guard and lifecycle metadata to `SessionContext`
 - Location: `yigthinker/gateway/session_registry.py`
 - Pattern: `asyncio.Lock` field; `GatewayServer.handle_message()` always uses `async with session.lock`
+- Purpose: Agent-private session-scoped memory; strictly separate from enterprise RAG (`RetrievalProvider`, Phase 3)
+- Location: `yigthinker/memory/provider.py`
+- Pattern: `Protocol` with `write(record)`, `read(kind, session_id, limit)`, `delete(id)`, `list_sessions()`. Default impl `FileMemoryProvider` (stdlib+filelock JSONL, zero new dependencies). Wire via `settings.memory.provider = "null" | "file"` (default `"null"`). See `docs/adr/005-memory-provider-interface.md`.
 ## Entry Points
 - Location: `yigthinker/__main__.py` → `main()` decorated with `@app.command()`
 - Triggers: `yigthinker [query]` or `yigthinker` (REPL)
