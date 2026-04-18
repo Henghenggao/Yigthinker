@@ -76,9 +76,20 @@ _MARKDOWN_TABLE_BLOCK_RE = re.compile(
     re.MULTILINE,
 )
 _INLINE_TABLE_DUMP_RE = re.compile(
-    # Header row + separator + at least one data row, optionally collapsed
-    # onto a single logical line (some Teams renderers eat newlines).
-    r"\|[^`\n]{0,400}?\|[ \t]*\|\s*-{2,}[^\n]{0,400}?(?:\n|\|\s*)\|[^`\n]{0,400}?\|",
+    # Inline-collapsed markdown table where the header, separator (|---|),
+    # and arbitrarily many data rows all end up on a single logical line
+    # (some IM clients eat newlines inside LLM output). We anchor on the
+    # separator — ``|---`` or ``| --- |`` — and greedily consume the
+    # entire line span from the first pipe before the header to the
+    # last pipe after the final data row.
+    #
+    # Design: non-greedy pre-separator portion (``[^\n]*?\|`` to find the
+    # separator as early as possible), then GREEDY post-separator
+    # (``[^\n]*\|`` to stretch to the last pipe on the same line). The
+    # earlier revision used non-greedy on both sides and stopped after
+    # the first data row, leaking all subsequent rows — UAT surfaced
+    # this with a 10-data-row inline table on 2026-04-18.
+    r"\|[^\n]*?\|\s*-{2,}[^\n]*\|",
 )
 _CODE_FENCE_RE = re.compile(r"`[^`\n]+`")
 _MULTI_BLANK_LINE_RE = re.compile(r"\n{3,}")

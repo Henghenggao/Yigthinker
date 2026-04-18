@@ -71,6 +71,44 @@ def test_strip_removes_inline_single_line_pipe_dump():
     assert "Observations: Americas dominates." in stripped
 
 
+def test_strip_removes_inline_table_with_many_data_rows():
+    """2026-04-18 UAT regression: when the LLM emits a wide table
+    inline (many data rows separated by `| |` boundaries on a single
+    line), the earlier non-greedy regex stopped after the FIRST data
+    row and let the remaining rows leak as visible pipes. This is the
+    variant Anthropic's Claude happens to produce for its 'FP&A
+    capabilities' self-description — 10+ data rows on a single line.
+
+    The strip MUST consume the entire inline table — from the first
+    pipe before the separator to the last pipe on the line."""
+    text = (
+        "Intro prose with no table.\n\n"
+        "Beyond slash commands, I handle the full FP&A toolkit on demand:\n\n"
+        "| Ask me for... | What I produce | |---|---| "
+        "| P&L / Income Statement | Formatted Excel or PDF | "
+        "| Balance Sheet | Structured report with ratios | "
+        "| Cash Flow Statement | Waterfall chart + xlsx | "
+        "| Variance Analysis | Actual vs. Budget table | "
+        "| Forecast / Trend | Time-series model + chart | "
+        "| Reconciliation Worksheet | Side-by-side comparison xlsx | "
+        "| Financial Ratios | Profitability, liquidity, leverage | "
+        "| Break-even / NPV / IRR | Instant calculation | "
+        "| Budget Template | Monthly / quarterly / annual | "
+        "| SQL on your ERP data | Direct query against connected DB |\n\n"
+        "Outro prose with no pipes."
+    )
+    stripped = _strip_markdown_tables(text)
+    # Every pipe must be gone — this is the regression surface the UAT exposed
+    assert "|" not in stripped, (
+        f"inline table leaked {stripped.count('|')} pipes: "
+        f"{stripped[:400]!r}"
+    )
+    # Narrative prose survives
+    assert "Intro prose with no table." in stripped
+    assert "FP&A toolkit on demand" in stripped
+    assert "Outro prose with no pipes." in stripped
+
+
 def test_strip_preserves_text_without_tables():
     """Pure prose must pass through unchanged."""
     text = "The NPV is $17.63 at 8%, positive and worth pursuing."
