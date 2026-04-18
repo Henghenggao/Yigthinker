@@ -4,7 +4,7 @@ Yigthinker is a headless AI agent for financial and data analysis. It runs as a 
 
 It combines:
 
-- An LLM-driven agent loop with 32 registered tools (28 core + 4 workflow optional), 3 more with the `forecast` extra
+- An LLM-driven agent loop with 25 core tools, up to 32 total when the `forecast` and workflow tool groups are available
 - Session-scoped in-memory DataFrame storage (`ctx.vars`)
 - A hook system for permissions, auditing, and cross-cutting concerns
 - 4 LLM providers: Claude, OpenAI, Ollama, Azure
@@ -134,7 +134,7 @@ Ollama requires no API key — it uses the local HTTP endpoint at `http://localh
 
 ## Tool Surface
 
-### Always available (28 tools)
+### Always available (25 tools)
 
 | Category | Tools |
 |----------|-------|
@@ -155,7 +155,7 @@ Ollama requires no API key — it uses the local HTTP endpoint at `http://localh
 
 `workflow_generate`, `workflow_deploy`, `workflow_manage`, `suggest_automation`
 
-**Total:** 28 core + 3 forecast + 4 workflow = up to **32 tools** with all extras.
+**Total:** 25 core + 3 forecast + 4 workflow = up to **32 tools** with all extras.
 
 ## Built-in Slash Commands
 
@@ -168,8 +168,8 @@ Ollama requires no API key — it uses the local HTTP endpoint at `http://localh
 /export                 Export session data
 /schedule               Manage report schedules
 /stats                  Show session statistics
-/advisor [off|model]    Toggle dual-model advisor
-/voice [on|off|lang]    Toggle voice input
+/advisor [off|model]    Enable or disable the pre-tool advisor hook
+/voice [on|off|lang]    Configure voice provider settings (capture wiring pending)
 ```
 
 Plugin-provided commands are loaded from `~/.yigthinker/plugins` and `.yigthinker/plugins`.
@@ -271,9 +271,12 @@ Current workspace status:
 
 - **PyPI publication is still pending.** The one-line installer and manual `uv tool install` examples currently install from the GitHub repo source.
 - The gateway runs in the foreground; no built-in daemon manager (use systemd, supervisor, or similar).
-- `report_schedule` persists entries durably to `~/.yigthinker/scheduled_reports.json` and returns cron / Task Scheduler hand-off instructions, but does not run schedules in-process. Execution path (APScheduler vs OS hand-off vs workflow_deploy integration) is deferred — see `docs/adr/009-scheduled-reports-executor.md`.
+- Gateway session ownership is now scoped by `owner_id` for TUI/API filtering, but the gateway still uses a shared bearer token rather than a true multi-account identity system.
+- `report_schedule` persists entries durably to `~/.yigthinker/scheduled_reports.json` and returns cron / Task Scheduler hand-off templates with an explicit runner placeholder, but does not run schedules in-process. Execution path (APScheduler vs OS hand-off vs workflow_deploy integration) is deferred — see `docs/adr/009-scheduled-reports-executor.md`.
 - Forecast tools only register when their scientific dependencies are installed.
-- Channel adapters: Teams is integration-validated; Feishu and Google Chat adapters ship code-complete but have not been formally round-tripped against a live tenant.
+- `/voice` configures the Whisper provider and language, but live microphone/TUI capture is not wired end-to-end yet.
+- Channel adapters: Teams is **tenant-validated** against Bot Framework + devtunnel as of 2026-04-18 (see `docs/audit/2026-04-18-teams-uat-report.md` for the full pass/fail ledger). Feishu and Google Chat adapters ship code-complete but have not been formally round-tripped against a live tenant.
+- Excel-with-embedded-chart: `excel_write` + `chart_create` deliver the xlsx and the chart PNG as **two separate artifacts** in the same card; embedding a native chart inside the xlsx is not yet supported (post-0.2.0 feature).
 - MCP server packages (`yigthinker-mcp-uipath`, `yigthinker-mcp-powerautomate`) are code-complete against API specs but have not been validated against live Automation Cloud / Power Automate tenants — treat as beta until a round-trip UAT is recorded.
 - `spawn_agent` background mode merges DataFrames back only for sessions that are still alive at completion; parent eviction skips the merge with a warning (by design).
 - SQL queries pass LLM-generated SQL directly; use read-only database users for safety.
