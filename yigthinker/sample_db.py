@@ -94,6 +94,59 @@ def _populate(conn: sqlite3.Connection) -> None:
         ap_data,
     )
 
+    # Accounts receivable — realistic open invoices spanning all four
+    # aging buckets (0-30 / 31-60 / 61-90 / 90+) so /ar-aging, the
+    # ar_aging.py.j2 workflow, and the recurring_aging_report pattern
+    # seed all have meaningful out-of-the-box data on day one.
+    cur.execute("""
+        CREATE TABLE accounts_receivable (
+            id INTEGER PRIMARY KEY,
+            customer_id TEXT NOT NULL,
+            customer_name TEXT NOT NULL,
+            invoice_id TEXT NOT NULL UNIQUE,
+            amount_due REAL NOT NULL,
+            due_date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            currency TEXT DEFAULT 'EUR'
+        )
+    """)
+    # Realistic spread of open invoices with due dates in the past and
+    # near-future relative to 2026-04-18 (the ADR-011 authoring date).
+    # Totals ~€860K with meaningful 90+ concentration so the aging
+    # report has something to flag.
+    ar_data = [
+        # 0-30 days (current + just-barely-past-due)
+        ("ACME-01", "ACME Industrial GmbH", "INV-2026-0412", 24_800.00, "2026-04-05", "open"),
+        ("BRGT-02", "Bright Systems SA", "INV-2026-0413", 18_300.00, "2026-04-12", "open"),
+        ("MTSU-03", "Matsu Trading KK", "INV-2026-0414", 52_100.00, "2026-03-28", "open"),
+        ("VLDT-04", "Veldt Commerce Ltd", "INV-2026-0415", 9_650.00, "2026-04-01", "open"),
+        ("ZEPH-05", "Zephyr Logistics B.V.", "INV-2026-0416", 31_200.00, "2026-04-10", "open"),
+        # 31-60 days past due
+        ("ACME-01", "ACME Industrial GmbH", "INV-2026-0311", 44_900.00, "2026-03-10", "open"),
+        ("HLCN-06", "Halcyon Ventures LLC", "INV-2026-0312", 72_400.00, "2026-02-28", "open"),
+        ("QRTZ-07", "Quartzline Oy", "INV-2026-0313", 12_850.00, "2026-03-05", "open"),
+        ("RIDG-08", "Ridgeline Partners", "INV-2026-0314", 28_700.00, "2026-02-20", "open"),
+        # 61-90 days past due
+        ("HLCN-06", "Halcyon Ventures LLC", "INV-2026-0215", 58_300.00, "2026-02-05", "open"),
+        ("OBLQ-09", "Oblique Metals Srl", "INV-2026-0216", 95_100.00, "2026-01-28", "open"),
+        ("SRCL-10", "Sorcel Media Pty", "INV-2026-0217", 19_600.00, "2026-02-10", "open"),
+        # 90+ days past due — the problematic accounts the AR team needs to chase
+        ("OBLQ-09", "Oblique Metals Srl", "INV-2026-0118", 115_400.00, "2026-01-05", "open"),
+        ("THUN-11", "Thundra Biotech Oü", "INV-2025-1219", 68_500.00, "2025-12-18", "open"),
+        ("THUN-11", "Thundra Biotech Oü", "INV-2025-1120", 44_200.00, "2025-11-22", "open"),
+        ("VCRT-12", "Vectorcraft Analytics", "INV-2025-1021", 87_300.00, "2025-10-15", "open"),
+        ("VCRT-12", "Vectorcraft Analytics", "INV-2025-0922", 62_750.00, "2025-09-20", "open"),
+        # A couple of closed invoices to make sure filter-by-status works
+        ("NWLD-13", "Newland Foods Co", "INV-2026-0401", 14_200.00, "2026-04-01", "paid"),
+        ("NWLD-13", "Newland Foods Co", "INV-2026-0302", 21_900.00, "2026-03-05", "paid"),
+    ]
+    cur.executemany(
+        "INSERT INTO accounts_receivable "
+        "(customer_id, customer_name, invoice_id, amount_due, due_date, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ar_data,
+    )
+
     # Monthly expenses for forecasting
     cur.execute("""
         CREATE TABLE expenses (
