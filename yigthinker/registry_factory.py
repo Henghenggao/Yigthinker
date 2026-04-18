@@ -104,7 +104,13 @@ def build_tool_registry(
     registry.register(ChartRecommendTool())
     registry.register(ReportGenerateTool())
     registry.register(ReportTemplateTool())
-    registry.register(ReportScheduleTool())
+    # 2026-04-17: wire the file-backed ScheduleRegistry so report_schedule
+    # entries survive restart. The registry creates ~/.yigthinker/ on first
+    # use, matching the WorkflowRegistry pattern. Tool still supports a
+    # None-registry ctor for callers that want session-only registration.
+    from yigthinker.tools.reports.report_schedule import ScheduleRegistry
+    schedule_registry = ScheduleRegistry()
+    registry.register(ReportScheduleTool(registry=schedule_registry))
 
     _register_forecast_tools(registry)
 
