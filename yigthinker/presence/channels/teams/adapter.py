@@ -281,6 +281,15 @@ class TeamsAdapter:
         Feishu and Google Chat adapters behave the same way pending an agreed
         cross-channel card footer for the DataFrame registry snapshot.
         """
+        # 2026-04-18 Yigfinance slice-1 UAT: markdown-table stripping was
+        # previously applied inside `_append_text_to_card` only. Text-only
+        # replies (no artifact) took the `render_text` fast-path below and
+        # bypassed the strip — so LLM-emitted pipe tables leaked in Probe 1
+        # and Probe 2. Move the strip up here so ALL text-carrying paths
+        # (artifact cards AND text-only cards) get it uniformly.
+        if text:
+            text = _strip_markdown_tables(text)
+
         if error:
             card = self._renderer.render_error(error)
         elif artifact is not None:

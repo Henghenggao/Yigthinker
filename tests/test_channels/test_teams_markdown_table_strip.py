@@ -245,3 +245,76 @@ def test_append_text_to_card_still_preserves_pure_prose():
     text = "The NPV is $17.63, which is positive and worth pursuing."
     result = adapter._append_text_to_card(card_plain, text)
     assert result["body"][-1]["text"] == text
+
+
+# ---------------------------------------------------------------------------
+# Send-response end-to-end: strip must apply on ALL text-carrying paths
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_send_response_strips_markdown_on_text_only_path():
+    """2026-04-18 slice-1 UAT regression: Probe 1 and Probe 2 both hit the
+    text-only path (no artifact) which previously BYPASSED the strip.
+    LLM's markdown tables in reply text leaked into the Adaptive Card
+    as literal pipes. Strip must apply BEFORE the no-artifact branch
+    in send_response so text-only replies are also clean."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from yigthinker.presence.channels.teams.adapter import TeamsAdapter
+
+    adapter = TeamsAdapter({
+        "tenant_id": "tenant-1",
+        "client_id": "client-1",
+        "client_secret": "secret-1",
+        "webhook_secret": "secret",
+    })
+    # Same pattern as test_teams_structured_cards.py: stub the MSAL
+    # token + gateway reference so the HTTP path is exercisable.
+    adapter._acquire_token = MagicMock(return_value="fake-token")  # type: ignore[method-assign]
+    adapter._gateway = SimpleNamespace(
+        _settings={"gateway": {"host": "gw.local", "port": 8766}}
+    )
+    # Stub out the outbound HTTP layer so we can capture the card that
+    # would have been sent.
+    posted: list[dict] = []
+
+    class _FakeClient:
+        def __init__(self, *_, **__): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return None
+        async def post(self, url, json, headers):
+            posted.append(json)
+            resp = MagicMock()
+            resp.status_code = 200
+            return resp
+
+    event = {
+        "serviceUrl": "https://smba.trafficmanager.net/amer/",
+        "conversation": {"id": "c1"},
+    }
+    text_with_inline_table = (
+        "Here are 6 opportunities. "
+        "| # | Opportunity | Cadence | Deploy | "
+        "|---|---|---|---| "
+        "| 1 | Year-End Close | Annual | Local | "
+        "| 2 | Monthly Close | Monthly | Local | "
+        "| 3 | Budget Review | Quarterly | Local | "
+        "Which would you like?"
+    )
+    with patch(
+        "yigthinker.presence.channels.teams.adapter.httpx.AsyncClient",
+        _FakeClient,
+    ):
+        # artifact=None so we exercise the text-only path
+        await adapter.send_response(event, text_with_inline_table, artifact=None)
+
+    assert posted, "no payload captured"
+    card = posted[0]["attachments"][0]["content"]
+    # Find the TextBlock(s) the card actually sent
+    texts = [b.get("text", "") for b in card["body"] if b.get("type") == "TextBlock"]
+    combined = " ".join(texts)
+    # The prose around the table must survive
+    assert "Here are 6 opportunities" in combined
+    assert "Which would you like?" in combined
+    # But the table itself must be gone — no leaked pipes
+    assert "|" not in combined, f"pipes leaked into Teams TextBlock: {combined!r}"
