@@ -5,6 +5,7 @@ import pandas as pd
 from pydantic import BaseModel
 from yigthinker.types import DryRunReceipt, ToolResult
 from yigthinker.session import SessionContext
+from yigthinker.tools._file_undo import snapshot_before_write
 
 ReportFormat = Literal["excel", "pdf", "csv", "docx", "pptx"]
 
@@ -87,6 +88,20 @@ class ReportGenerateTool:
         if err:
             return ToolResult(tool_use_id="", content=err, is_error=True)
         path.parent.mkdir(parents=True, exist_ok=True)
+
+        # P1-3: snapshot BEFORE writing so /undo can roll back this file.
+        # Placed at the dispatch site (not inside each _write_*) so every
+        # format path is covered by a single hook. Runs under the same try
+        # block so any filesystem error is surfaced as a tool error with
+        # consistent shape.
+        try:
+            snapshot_before_write(ctx, self.name, path)
+        except Exception as exc:
+            return ToolResult(
+                tool_use_id="",
+                content=f"undo-snapshot failed before write: {exc}",
+                is_error=True,
+            )
 
         try:
             if input.format == "excel":

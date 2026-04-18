@@ -27,6 +27,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from yigthinker.session import SessionContext
+from yigthinker.tools._file_undo import snapshot_before_write
 from yigthinker.tools.workflow.registry import WorkflowRegistry
 from yigthinker.tools.workflow.template_engine import TemplateEngine
 from yigthinker.types import DryRunReceipt, ToolResult
@@ -376,14 +377,14 @@ class WorkflowDeployTool:
 
         # 6. Dispatch by mode
         if input.deploy_mode == "local":
-            return self._deploy_local(input, version, version_dir, schedule)
+            return self._deploy_local(input, version, version_dir, schedule, ctx)
         if input.deploy_mode == "guided":
             return self._dispatch_guided(
-                input, version, version_dir, schedule,
+                input, version, version_dir, schedule, ctx,
             )
         if input.deploy_mode == "auto":
             return await self._dispatch_auto(
-                input, version, version_dir, schedule,
+                input, version, version_dir, schedule, ctx,
             )
 
         # Unreachable - Pydantic Literal validation guards the schema,
@@ -400,6 +401,7 @@ class WorkflowDeployTool:
         version: int,
         version_dir: Path,
         schedule: str,
+        ctx: SessionContext,
     ) -> ToolResult:
         local_dir = version_dir / "local_guided"
         local_dir.mkdir(parents=True, exist_ok=True)
@@ -449,9 +451,18 @@ class WorkflowDeployTool:
             "local/setup_guide.md.j2", guide_ctx,
         )
 
-        (local_dir / "task_scheduler.xml").write_text(xml_rendered, encoding="utf-8")
-        (local_dir / "crontab.txt").write_text(cron_rendered, encoding="utf-8")
-        (local_dir / "setup_guide.md").write_text(guide_rendered, encoding="utf-8")
+        # P1-3: snapshot each artifact before write so /undo can restore.
+        # External side effects (registry writes, cron install) are NOT undoable
+        # per spec; only these local files are.
+        xml_path = local_dir / "task_scheduler.xml"
+        cron_path = local_dir / "crontab.txt"
+        guide_path = local_dir / "setup_guide.md"
+        snapshot_before_write(ctx, self.name, xml_path)
+        snapshot_before_write(ctx, self.name, cron_path)
+        snapshot_before_write(ctx, self.name, guide_path)
+        xml_path.write_text(xml_rendered, encoding="utf-8")
+        cron_path.write_text(cron_rendered, encoding="utf-8")
+        guide_path.write_text(guide_rendered, encoding="utf-8")
 
         # Registry + manifest write-back (D-14)
         deploy_id = _make_deploy_id(input.workflow_name, version, "local")
@@ -520,6 +531,7 @@ class WorkflowDeployTool:
         version: int,
         version_dir: Path,
         schedule: str,
+        ctx: SessionContext,
     ) -> ToolResult:
         """Render a paste-ready bundle ZIP for a PA or UiPath target.
 
@@ -614,6 +626,8 @@ class WorkflowDeployTool:
             needs_manual_review = False
 
         setup_path = output_dir / "setup_guide.md"
+        # P1-3: snapshot before write so /undo can restore.
+        snapshot_before_write(ctx, self.name, setup_path)
         setup_path.write_text(setup_guide, encoding="utf-8")
 
         # Registry writeback (D-11 / D-14)
@@ -674,6 +688,7 @@ class WorkflowDeployTool:
         version: int,
         version_dir: Path,
         schedule: str,
+        ctx: SessionContext,
     ) -> ToolResult:
         """Inspect MCP installation and return instructional next_steps.
 
@@ -719,7 +734,7 @@ class WorkflowDeployTool:
         # also writes the guided entry to the registry; we flip it to
         # auto/pending_auto_deploy immediately after.
         guided_result = self._dispatch_guided(
-            input, version, version_dir, schedule,
+            input, version, version_dir, schedule, ctx,
         )
         if guided_result.is_error:
             return guided_result
