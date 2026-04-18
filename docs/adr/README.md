@@ -21,3 +21,4 @@ Each file in this directory records a single architectural decision.
 | 007 | Plugin and skill distribution | Yigcore ADR-014 + ADR-015 |
 | 008 | Persona as data | Yigcore PersonaCard 收敛 spec (2026-02-18) |
 | 009 | Scheduled reports executor — workflow_deploy sugar + OS hand-off, no in-process scheduler | TODOs.md §"Durable scheduled reports — EXECUTOR" (2026-04-17) |
+| 010 | Settings merge precedence — split by semantic class, not by source | 2026-04-18 Teams UAT §UX-2 |
