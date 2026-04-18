@@ -107,9 +107,11 @@ class SuggestAutomationTool:
 
             suggestions: list[dict[str, Any]] = []
             for entry in active:
+                pid = entry.get("pattern_id") or ""
+                is_seed = str(pid).startswith("finance_seed:")
                 suggestions.append(
                     {
-                        "pattern_id": entry.get("pattern_id"),
+                        "pattern_id": pid,
                         "description": entry.get("description"),
                         "tool_sequence": entry.get("tool_sequence", []),
                         "frequency": entry.get("frequency", 0),
@@ -119,29 +121,66 @@ class SuggestAutomationTool:
                         "required_connections": entry.get("required_connections", []),
                         "last_seen": entry.get("last_seen"),
                         "can_deploy_to": list(deploy_targets),
+                        # 2026-04-18 ADR-011 Track D: mark seeds so the LLM
+                        # can narrate honestly (seeds are shipped baseline
+                        # rituals, not patterns observed in the user's
+                        # sessions).
+                        "is_seed": is_seed,
                     }
                 )
 
-            # Sort by biggest expected win: time_saved * frequency, descending
-            suggestions.sort(
-                key=lambda s: (
-                    s["estimated_time_saved_minutes"] * s["frequency"]
-                ),
-                reverse=True,
-            )
+            # Sort: detected patterns (by biggest expected win)
+            # first, then seeds (by standalone estimated_time_saved).
+            # This matches user intent: "what have YOU seen me do that
+            # I could automate" before "what CANONICAL rituals do you
+            # ship." Detected patterns are higher signal.
+            def _sort_key(s: dict[str, Any]) -> tuple:
+                # Tuple sorts: non-seed first (False < True), then by
+                # expected win descending (negate for descending).
+                expected_win = (
+                    s["estimated_time_saved_minutes"] * max(s["frequency"], 1)
+                )
+                return (s["is_seed"], -expected_win)
+
+            suggestions.sort(key=_sort_key)
+
+            # Compose an honest summary that distinguishes seeds from
+            # detected patterns — no conflation, no false "N detected"
+            # claims when most entries are shipped baselines.
+            detected_count = sum(1 for s in suggestions if not s["is_seed"])
+            seed_count = sum(1 for s in suggestions if s["is_seed"])
 
             if not suggestions:
-                summary = "No automation opportunities detected yet."
-            else:
-                top = suggestions[0]
-                total_win = (
-                    top["estimated_time_saved_minutes"] * top["frequency"]
-                )
                 summary = (
-                    f"{len(suggestions)} automation opportunities found. "
-                    f"Biggest win: {top['pattern_id']} "
-                    f"(~{total_win} min saved across its observed runs)."
+                    "No automation opportunities available: no baseline "
+                    "rituals are seeded and no repeat patterns have been "
+                    "detected from your sessions yet."
                 )
+            else:
+                parts: list[str] = []
+                if detected_count:
+                    top_detected = next(
+                        s for s in suggestions if not s["is_seed"]
+                    )
+                    win = (
+                        top_detected["estimated_time_saved_minutes"]
+                        * top_detected["frequency"]
+                    )
+                    parts.append(
+                        f"{detected_count} pattern"
+                        f"{'s' if detected_count != 1 else ''} "
+                        f"detected from your sessions "
+                        f"(biggest: {top_detected['pattern_id']}, "
+                        f"~{win} min saved)"
+                    )
+                if seed_count:
+                    parts.append(
+                        f"{seed_count} baseline finance ritual"
+                        f"{'s' if seed_count != 1 else ''} "
+                        f"shipped by Yigfinance (available as "
+                        f"seed suggestions regardless of observation count)"
+                    )
+                summary = ". ".join(parts) + "."
 
             return ToolResult(
                 tool_use_id="",

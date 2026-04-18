@@ -161,14 +161,21 @@ class PatternStore:
         """Return a filtered list of pattern entries for the suggest_automation tool.
 
         - Lazily prunes expired suppressions (CORR-04a)
-        - Filters out patterns with `frequency < min_frequency`
+        - Filters out patterns with `frequency < min_frequency` **except**
+          shipped baseline seeds (pattern_id prefix ``finance_seed:``),
+          which bypass the frequency threshold — seeds are canonical
+          rituals Yigfinance ships, not AutoDream-detected frequency
+          patterns, so the threshold doesn't apply to them semantically.
+          See ADR-011 Track D + 2026-04-18 slice-1 UAT.
         - Filters out suppressed patterns unless `include_suppressed=True`
+          (this DOES apply to seeds — user can dismiss unwanted seeds)
         - Returns a NEW list of dict copies (mutation-safe for callers)
         """
         data = self.list_patterns(prune=True)
         out: list[dict[str, Any]] = []
-        for _pid, entry in data.get("patterns", {}).items():
-            if entry.get("frequency", 0) < min_frequency:
+        for pid, entry in data.get("patterns", {}).items():
+            is_seed = str(pid).startswith("finance_seed:")
+            if not is_seed and entry.get("frequency", 0) < min_frequency:
                 continue
             if entry.get("suppressed") and not include_suppressed:
                 continue
