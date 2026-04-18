@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "yigthinker-mcp-powerautomate"
-version = "0.1.0"
+version = "0.1.0a1"
 description = "MCP server exposing Microsoft Power Automate Flow Management as 5 tools for Yigthinker and any other MCP-compatible LLM agent"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -4,6 +4,28 @@ All notable changes to Yigthinker are documented in this file.
 
 ## [Unreleased]
 
+(No changes yet — 0.2.0 just released 2026-04-18.)
+
+## [0.2.0] - 2026-04-18
+
+First PyPI release of the core `yigthinker` package. Two MCP server packages
+(`yigthinker-mcp-uipath`, `yigthinker-mcp-powerautomate`) publish as `0.1.0a1`
+alpha name-reservations pending live-tenant UAT — do NOT depend on them for
+production until a `0.2.0` release is cut after successful round-trip against
+real Automation Cloud / Power Automate tenants.
+
+Highlights of what landed since 0.1.0 was drafted but never published:
+
+- **Teams channel: tenant-validated** against real Bot Framework + devtunnel on 2026-04-18 (see `docs/audit/2026-04-18-teams-uat-report.md` locally). 6 bugs caught and fixed in the same UAT session.
+- **`excel_write` can now embed native openpyxl charts** via `embed_chart=<chart_name>` (bar / line / pie), closing the "give me an Excel with the chart embedded" UX gap.
+- **post-v1.1 P1 arch gaps (all 6)** shipped inline with Phase 1b / quick tasks: streaming tool feedback, session branching + checkpoints, file undo, richer hook responses, sub-agent isolation, MCP resources.
+- **Voice provider**: real OpenAI Whisper wiring + loud-failure semantics (no more silent empty-string on unconfigured API key).
+- **Gateway**: per-session PermissionSystem overrides now cleaned up on session removal (hibernate / evict / shutdown / remove).
+- **Scheduled reports**: durable file-backed registry at `~/.yigthinker/scheduled_reports.json`.
+- **Open-source hygiene**: SECURITY.md + CONTRIBUTING.md added; PyPI metadata complete across all three packages; `twine check` passes clean.
+
+See the sections below for the full granular change set. All items inherited from the pre-0.2.0 `[Unreleased]` draft are grouped under this release.
+
 ### Reports — durable scheduled reports (persistence layer, 2026-04-17)
 
 - New `ScheduleRegistry` file-backed store at `~/.yigthinker/scheduled_reports.json`. Atomic writes via filelock + `os.replace` (same pattern as `WorkflowRegistry`). Versioned on-disk format.

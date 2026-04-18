@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "yigthinker"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI-powered financial and data analysis agent — headless, CLI/TUI/IM-accessible, with workflow automation and RPA bridges"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -144,6 +144,14 @@ markers = [
     "slow: tests that may take >5 seconds or hang on CI (skip with -m 'not slow')",
 ]
 addopts = "-m 'not slow'"
+# Narrow test-only filters for known third-party noise:
+# `lark-oapi` still references deprecated `websockets` aliases / legacy APIs
+# under websockets>=14. We keep the warnings visible outside pytest so the
+# dependency issue remains discoverable in development/runtime contexts.
+filterwarnings = [
+    "ignore::DeprecationWarning:lark_oapi\\.ws\\.client",
+    "ignore::DeprecationWarning:websockets\\.legacy",
+]
 # Hard per-test wall-clock limit so a single hung test cannot burn the CI slot.
 # Uses the ``thread`` method so it works on Windows (signal.SIGALRM is POSIX-only).
 timeout = 60
