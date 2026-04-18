@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "yigthinker"
-version = "0.2.0"
+version = "0.2.0.dev0"
 description = "AI-powered financial and data analysis agent — headless, CLI/TUI/IM-accessible, with workflow automation and RPA bridges"
 readme = "README.md"
 requires-python = ">=3.11"
