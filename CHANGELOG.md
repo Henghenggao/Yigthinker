@@ -4,6 +4,14 @@ All notable changes to Yigthinker are documented in this file.
 
 ## [Unreleased]
 
+### Gateway — permission override cleanup on session eviction (2026-04-17)
+
+- `SessionRegistry` now exposes `add_session_removed_callback(cb)`; callbacks fire with `session.ctx.session_id` (UUID, not the registry key) when a session is removed via `hibernate` / `evict_idle` / `shutdown` / `_evict_lru` / `remove`.
+- Errors from individual callbacks are logged and swallowed — no callback can block session lifecycle progression.
+- `build_app()` now exposes `AppContext.permissions` so `GatewayServer.start()` can register `PermissionSystem.clear_session` as a callback automatically.
+- Closes TODOs.md item: long-running gateways were previously leaking `PermissionSystem._session_overrides` entries across every hibernation.
+- 7 regression tests in `tests/test_gateway/test_session_removal_callbacks.py`.
+
 ### Voice provider — loud failure + real OpenAI wiring (2026-04-17)
 
 - `WhisperProvider` now wires the OpenAI `AsyncOpenAI.audio.transcriptions.create` endpoint (replacing the `NotImplementedError` stub)
