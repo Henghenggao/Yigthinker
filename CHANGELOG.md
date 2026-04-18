@@ -4,6 +4,17 @@ All notable changes to Yigthinker are documented in this file.
 
 ## [Unreleased]
 
+### Voice provider — loud failure + real OpenAI wiring (2026-04-17)
+
+- `WhisperProvider` now wires the OpenAI `AsyncOpenAI.audio.transcriptions.create` endpoint (replacing the `NotImplementedError` stub)
+- Raises new `VoiceNotConfiguredError` (subclass of `VoiceError`) when `OPENAI_API_KEY` is absent — with an actionable message naming the env var / kwarg
+- API errors (network, rate limit, auth) propagate to the caller; silent-empty-string-on-error behavior removed
+- Empty string is reserved for the one legitimate case: Whisper reports "no speech detected"
+- API key resolved at construction from explicit `api_key=` kwarg or `OPENAI_API_KEY` env; both paths tested
+- Net +5 tests, 8 total in `tests/test_voice/test_providers.py`
+
+Rationale: TODOs.md item "Silent failure is worse than an explicit unsupported message." Now closed.
+
 ### Post-v1.1 — P1 Arch Gap Closure (shipped inline, retro-documented 2026-04-17)
 
 All 6 active items from `docs/superpowers/specs/2026-04-14-p1-arch-gaps-design.md` shipped via Phase 1b + quick tasks 260414–260416. The spec was drafted 2026-04-14 but never merged as a standalone milestone — the work was executed inline.
