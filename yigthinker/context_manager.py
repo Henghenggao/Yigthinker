@@ -178,6 +178,51 @@ class ContextManager:
 
         return f"{header}\n{names_list}{hint}"
 
+    def build_finance_commands_directive(
+        self, commands: list[Any]
+    ) -> str | None:
+        """Return a directive listing the available Yigfinance slash commands.
+
+        ADR-011 Track A: when the user types e.g. ``/ar-aging`` or
+        indicates an AR-aging intent in prose, the LLM must recognise it
+        as a first-class ritual with a committed recipe (in the command's
+        ``body``) — not a free-form prompt to improvise on.
+
+        Each command is surfaced with its name + description + argument
+        hint. The LLM is told explicitly that:
+        - Slash-prefixed user input maps to a specific recipe in this
+          list, not to free composition.
+        - At the end of every finance-command execution the LLM must
+          trigger ``suggest_automation`` so the user is offered the RPA
+          hand-off (architect-not-executor invariant).
+
+        Returns None when no commands are supplied — keeps the system
+        prompt lean for non-finance builds.
+        """
+        if not commands:
+            return None
+
+        lines: list[str] = []
+        for cmd in commands:
+            arg_hint = getattr(cmd, "argument_hint", "") or ""
+            suffix = f" {arg_hint}" if arg_hint else ""
+            desc = getattr(cmd, "description", "") or "(no description)"
+            lines.append(f"- `/{cmd.name}{suffix}` — {desc}")
+
+        body = "\n".join(lines)
+        return (
+            "**Yigfinance commands** (first-class finance rituals):\n"
+            f"{body}\n"
+            "When the user types one of these slash commands (or clearly "
+            "indicates the same intent in prose), follow the committed "
+            "recipe in the command file step by step — do NOT improvise "
+            "a free-form workflow. After the final deliverable is "
+            "produced, always call `suggest_automation` and offer to turn "
+            "the recipe into a recurring RPA workflow via "
+            "`workflow_generate` + `workflow_deploy`. This is the "
+            "architect-not-executor hand-off and must never be skipped."
+        )
+
     def build_narration_directive(self, settings: dict[str, Any]) -> str | None:
         """Return the chat-narration directive for the system prompt.
 

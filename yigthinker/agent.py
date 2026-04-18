@@ -251,6 +251,30 @@ class AgentLoop:
                         else:
                             system_prompt = connections_hint
 
+                    # Yigfinance (ADR-011 Track A): expose first-class finance
+                    # slash commands (/ar-aging, /close, /variance, /recon,
+                    # /budget-var) with their committed recipes so the LLM
+                    # recognises "/ar-aging" etc. as canned rituals — not
+                    # free-form prompts to improvise on. Injected lazily on
+                    # first iteration only so the recipe-list doesn't burn
+                    # tokens on every subsequent iteration of the same run.
+                    if iteration == 1:
+                        try:
+                            from yigthinker.commands.finance import (
+                                load_builtin_finance_commands,
+                            )
+                            finance_cmds = load_builtin_finance_commands()
+                            finance_hint = ctx.context_manager.build_finance_commands_directive(
+                                finance_cmds
+                            )
+                        except Exception:
+                            finance_hint = None
+                        if finance_hint:
+                            if system_prompt:
+                                system_prompt += f"\n\n{finance_hint}"
+                            else:
+                                system_prompt = finance_hint
+
                     # Phase 10 / BHV-02 (CORR-02): first-iteration startup alert provider.
                     # Called EXACTLY ONCE per run, gated on iteration == 1, defensively wrapped.
                     #
