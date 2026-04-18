@@ -5,13 +5,40 @@ build-backend = "hatchling.build"
 [project]
 name = "yigthinker-mcp-uipath"
 version = "0.1.0"
-description = "MCP server exposing UiPath Orchestrator tools to Yigthinker"
+description = "MCP server exposing UiPath Automation Cloud Orchestrator as 5 tools for Yigthinker and any other MCP-compatible LLM agent"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Henghenggao" },
+]
+keywords = [
+    "mcp", "uipath", "rpa", "orchestrator", "automation-cloud",
+    "llm-agent", "yigthinker",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    "Typing :: Typed",
+]
 dependencies = [
     "mcp>=1.13.0,<2",
     "httpx>=0.27.0,<1",
     "pydantic>=2.0.0,<3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Henghenggao/Yigthinker"
+Repository = "https://github.com/Henghenggao/Yigthinker"
+Issues = "https://github.com/Henghenggao/Yigthinker/issues"
 
 [project.optional-dependencies]
 test = [

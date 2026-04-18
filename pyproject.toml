@@ -5,8 +5,31 @@ build-backend = "hatchling.build"
 [project]
 name = "yigthinker"
 version = "0.1.0"
-description = "AI-powered financial and data analysis agent"
+description = "AI-powered financial and data analysis agent — headless, CLI/TUI/IM-accessible, with workflow automation and RPA bridges"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Henghenggao" },
+]
+keywords = [
+    "ai-agent", "llm", "finance", "data-analysis", "pandas",
+    "workflow-automation", "rpa", "mcp", "anthropic", "openai",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = [
     "anthropic>=0.40.0",
     "openai>=1.0.0",
@@ -104,6 +127,12 @@ all-channels = [
     "google-api-python-client>=2.130.0",
     "google-auth>=2.29.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Henghenggao/Yigthinker"
+Repository = "https://github.com/Henghenggao/Yigthinker"
+Issues = "https://github.com/Henghenggao/Yigthinker/issues"
+Changelog = "https://github.com/Henghenggao/Yigthinker/blob/master/CHANGELOG.md"
 
 [project.scripts]
 yigthinker = "yigthinker.__main__:run"
