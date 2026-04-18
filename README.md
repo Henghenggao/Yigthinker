@@ -4,7 +4,7 @@ Yigthinker is a headless AI agent for financial and data analysis. It runs as a 
 
 It combines:
 
-- An LLM-driven agent loop with 30 registered tools
+- An LLM-driven agent loop with 32 registered tools (28 core + 4 workflow optional), 3 more with the `forecast` extra
 - Session-scoped in-memory DataFrame storage (`ctx.vars`)
 - A hook system for permissions, auditing, and cross-cutting concerns
 - 4 LLM providers: Claude, OpenAI, Ollama, Azure
@@ -134,7 +134,7 @@ Ollama requires no API key — it uses the local HTTP endpoint at `http://localh
 
 ## Tool Surface
 
-### Always available (30 tools)
+### Always available (28 tools)
 
 | Category | Tools |
 |----------|-------|
@@ -142,14 +142,20 @@ Ollama requires no API key — it uses the local HTTP endpoint at `http://localh
 | DataFrame | `df_load`, `df_transform`, `df_profile`, `df_merge` |
 | Visualization | `chart_create`, `chart_modify`, `chart_recommend` |
 | Reports | `report_generate`, `report_template`, `report_schedule` |
+| File output | `artifact_write`, `excel_write` |
 | Exploration | `explore_overview`, `explore_drilldown`, `explore_anomaly` |
 | Finance | `finance_calculate`, `finance_analyze`, `finance_validate`, `finance_budget` |
-| Workflow | `workflow_generate`, `workflow_deploy`, `workflow_manage`, `suggest_automation` |
 | Agent | `spawn_agent`, `agent_status`, `agent_cancel` |
 
-### Optional (require `forecast` extra)
+### Optional (require `forecast` extra — 3 tools)
 
 `forecast_timeseries`, `forecast_regression`, `forecast_evaluate`
+
+### Optional (require `workflow` extra + Jinja2 — 4 tools)
+
+`workflow_generate`, `workflow_deploy`, `workflow_manage`, `suggest_automation`
+
+**Total:** 28 core + 3 forecast + 4 workflow = up to **32 tools** with all extras.
 
 ## Built-in Slash Commands
 
@@ -201,10 +207,11 @@ Key directories:
 | `yigthinker/agent.py` | Agent loop |
 | `yigthinker/session.py` | Session context + VarRegistry |
 | `yigthinker/providers/` | LLM provider implementations |
-| `yigthinker/tools/` | All 30 tool implementations |
-| `yigthinker/gateway/` | Gateway server, session registry, protocol |
-| `yigthinker/tui/` | Textual TUI client |
-| `yigthinker/channels/` | Feishu, Teams, Google Chat adapters |
+| `yigthinker/tools/` | All 32 tool implementations (28 core + 3 forecast + 4 workflow) |
+| `yigthinker/presence/gateway/` | Gateway server, session registry, protocol |
+| `yigthinker/presence/tui/` | Textual TUI client |
+| `yigthinker/presence/channels/` | Feishu, Teams, Google Chat adapters |
+| `yigthinker/core/` | Stable shared kernel (ChannelAdapter Protocol, build_app re-export) |
 | `yigthinker/hooks/` | Hook registry and executor |
 | `yigthinker/memory/` | Session memory and auto-dream |
 | `yigthinker/mcp/` | MCP integration |
@@ -256,7 +263,7 @@ python -m pytest tests/test_tools/ -q           # Tool tests only
 
 Current workspace status:
 
-- Core repo: **676 passed, 4 skipped**
+- Core repo: **1179 passed, 1 skipped, 1 deselected**
 - `yigthinker-mcp-uipath`: **47 passed**
 - `yigthinker-mcp-powerautomate`: **52 passed**
 
@@ -264,9 +271,11 @@ Current workspace status:
 
 - **PyPI publication is still pending.** The one-line installer and manual `uv tool install` examples currently install from the GitHub repo source.
 - The gateway runs in the foreground; no built-in daemon manager (use systemd, supervisor, or similar).
-- `report_schedule` stores schedules in session memory only; not persisted across restarts.
+- `report_schedule` persists entries durably to `~/.yigthinker/scheduled_reports.json` and returns cron / Task Scheduler hand-off instructions, but does not run schedules in-process. Execution path (APScheduler vs OS hand-off vs workflow_deploy integration) is deferred — see `docs/adr/009-scheduled-reports-executor.md`.
 - Forecast tools only register when their scientific dependencies are installed.
-- Channel adapters are functional but should be treated as integration-level features.
+- Channel adapters: Teams is integration-validated; Feishu and Google Chat adapters ship code-complete but have not been formally round-tripped against a live tenant.
+- MCP server packages (`yigthinker-mcp-uipath`, `yigthinker-mcp-powerautomate`) are code-complete against API specs but have not been validated against live Automation Cloud / Power Automate tenants — treat as beta until a round-trip UAT is recorded.
+- `spawn_agent` background mode merges DataFrames back only for sessions that are still alive at completion; parent eviction skips the merge with a warning (by design).
 - SQL queries pass LLM-generated SQL directly; use read-only database users for safety.
 
 ## License
