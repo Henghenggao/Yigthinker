@@ -233,6 +233,24 @@ class AgentLoop:
                         else:
                             system_prompt = narration
 
+                    # 2026-04-18 UAT finding: LLM would guess connection="default"
+                    # and burn a round-trip on "not configured" before retrying
+                    # with the real name. Listing configured connections + type
+                    # in the system prompt eliminates that wasted call.
+                    # Names + types only; passwords/hosts/users are stripped
+                    # in build_connections_directive for credential safety.
+                    try:
+                        connections_hint = ctx.context_manager.build_connections_directive(
+                            getattr(ctx, "settings", None) or {}
+                        )
+                    except Exception:
+                        connections_hint = None
+                    if connections_hint:
+                        if system_prompt:
+                            system_prompt += f"\n\n{connections_hint}"
+                        else:
+                            system_prompt = connections_hint
+
                     # Phase 10 / BHV-02 (CORR-02): first-iteration startup alert provider.
                     # Called EXACTLY ONCE per run, gated on iteration == 1, defensively wrapped.
                     #
@@ -817,6 +835,16 @@ class AgentLoop:
             # P1-1: cleanup progress callback
             ctx._progress_callback = None
 
+            # 2026-04-18 UAT fix: preserve the *original* tool return value
+            # for on_tool_event's `content_obj` field. The truncation below
+            # mutates `result.content` in-place to protect the LLM context
+            # budget, but channel adapters (Teams/Feishu/GChat) need the
+            # untruncated structured payload to extract chart_json /
+            # file artifacts. Before this fix, a plotly bar-chart JSON
+            # (~8400 chars serialized) got replaced by a string here and
+            # the chart artifact silently disappeared downstream.
+            raw_content_before_truncation: Any = result.content
+
             # Truncate oversized results
             result_str = _serialize_tool_content(result.content)
             if len(result_str) > MAX_RESULT_CHARS:
@@ -853,10 +881,24 @@ class AgentLoop:
 
         if on_tool_event is not None:
             serialized_content = _serialize_tool_content(result.content)
+            # Prefer the pre-truncation raw payload for content_obj so
+            # channel adapters can still extract structured artifacts
+            # (charts, files, tables). If PostToolUse hooks replaced the
+            # result, `raw_content_before_truncation` may not exist — fall
+            # back to result.content to preserve old behavior in that path.
+            try:
+                obj_for_adapter = raw_content_before_truncation
+            except NameError:
+                obj_for_adapter = result.content
+            # PostToolUse hook replacement (line 865) overrides both paths —
+            # honour it above the raw capture so suppress/replace semantics
+            # stay authoritative.
+            if post_agg.replacement is not None or getattr(result, "_suppressed", False):
+                obj_for_adapter = result.content
             on_tool_event("tool_result", {
                 "tool_id": tool_use_id,
                 "content": serialized_content,
-                "content_obj": result.content,
+                "content_obj": obj_for_adapter,
                 "is_error": result.is_error,
             })
 

@@ -68,3 +68,70 @@ def test_build_automation_directive_disabled(cm):
     directive_default = cm.build_automation_directive(settings_missing)
     assert directive_default is not None
     assert "Automation awareness" in directive_default
+
+
+# ---------------------------------------------------------------------------
+# 2026-04-18 UAT finding: LLM doesn't know configured connection names,
+# defaults to "default" which isn't in the pool → wastes a tool_call.
+# Fix: inject available-connections directive into system prompt.
+# ---------------------------------------------------------------------------
+
+def test_build_connections_directive_lists_names(cm):
+    """When connections are configured, directive must list each name + type
+    so the LLM can pick the right one without a failed probe call."""
+    settings = {
+        "connections": {
+            "sample": {"type": "sqlite", "path": "/tmp/s.db"},
+            "prod_dw": {"type": "postgresql", "host": "db.example.com"},
+        },
+    }
+    directive = cm.build_connections_directive(settings)
+    assert directive is not None
+    assert "sample" in directive
+    assert "prod_dw" in directive
+    assert "sqlite" in directive
+    assert "postgresql" in directive
+    # Directive must tell the LLM HOW to use this — naming the connection
+    # parameter on sql_query / schema_inspect is the whole point.
+    assert "connection" in directive.lower()
+
+
+def test_build_connections_directive_none_when_no_connections(cm):
+    """No configured connections → no directive (keep system prompt clean).
+    Agent will still work against file-based inputs via df_load."""
+    assert cm.build_connections_directive({}) is None
+    assert cm.build_connections_directive({"connections": {}}) is None
+
+
+def test_build_connections_directive_never_leaks_passwords(cm):
+    """Directive must NEVER include password / credential fields even if
+    they were accidentally written into settings.json in plain text.
+    We list names + types only."""
+    settings = {
+        "connections": {
+            "risky": {
+                "type": "postgresql",
+                "host": "db",
+                "user": "admin",
+                "password": "PLAIN_TEXT_SHOULD_NOT_LEAK",
+            },
+        },
+    }
+    directive = cm.build_connections_directive(settings)
+    assert directive is not None
+    assert "PLAIN_TEXT_SHOULD_NOT_LEAK" not in directive
+    assert "password" not in directive.lower()
+
+
+def test_build_connections_directive_single_connection_sets_default(cm):
+    """If there's exactly one connection, it should be highlighted as the
+    obvious default — reducing LLM choice paralysis on the first call."""
+    settings = {
+        "connections": {"only_one": {"type": "sqlite", "path": "/x.db"}},
+    }
+    directive = cm.build_connections_directive(settings)
+    assert directive is not None
+    assert "only_one" in directive
+    # Should indicate this is the single/default connection to use
+    assert any(hint in directive.lower()
+               for hint in ("only", "single", "default", "use `only_one`"))

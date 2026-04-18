@@ -4,6 +4,8 @@ from typing import Any
 import pandas as pd
 
 _SAMPLE_ROWS = 10  # rows to include in summarized result
+_MAX_PROFILED_COLUMNS = 12
+_TOP_VALUE_COUNT = 5
 
 # Patterns that look like prompt injection attempts in memory content.
 # These get stripped before memory enters the system prompt.
@@ -124,6 +126,58 @@ class ContextManager:
             "those belong in `artifact_write` or a direct reply."
         )
 
+    def build_connections_directive(
+        self, settings: dict[str, Any]
+    ) -> str | None:
+        """Return a directive listing configured database connection names.
+
+        UAT finding 2026-04-18: without this hint, the LLM's first call to
+        `sql_query` or `schema_inspect` tends to use the default parameter
+        value (``connection="default"``) which is rarely in the pool,
+        wasting a round-trip on a `Connection 'default' not configured`
+        error that the LLM must read and retry from.
+
+        Returns None when no connections are configured so the system
+        prompt stays clean (file-based data paths via ``df_load`` are
+        unaffected).
+
+        SECURITY: only connection names and types are emitted. Passwords,
+        hosts, users, and any other field in the config dict are dropped
+        to prevent credential leakage via the system prompt into LLM
+        provider logs / transcripts / replay buffers.
+        """
+        connections = (settings or {}).get("connections") or {}
+        if not connections:
+            return None
+
+        # Sort for deterministic output (test stability + easier reading).
+        lines: list[str] = []
+        for name in sorted(connections):
+            cfg = connections[name] or {}
+            conn_type = cfg.get("type", "sqlite") if isinstance(cfg, dict) else "unknown"
+            # Strictly: name + type only. Never host/user/password/path.
+            lines.append(f"- `{name}` ({conn_type})")
+
+        names_list = "\n".join(lines)
+        header = (
+            "**Available database connections** (pass as the `connection` "
+            "parameter to `sql_query` / `schema_inspect` / `sql_explain`):"
+        )
+
+        if len(connections) == 1:
+            only_name = next(iter(connections))
+            hint = (
+                f"\nOnly one connection is configured — use "
+                f"`connection=\"{only_name}\"` by default."
+            )
+        else:
+            hint = (
+                "\nChoose the one that matches the user's intent. If ambiguous, "
+                "ask the user which connection to use rather than guessing."
+            )
+
+        return f"{header}\n{names_list}{hint}"
+
     def build_narration_directive(self, settings: dict[str, Any]) -> str | None:
         """Return the chat-narration directive for the system prompt.
 
@@ -165,9 +219,62 @@ class ContextManager:
             "total_rows": len(df),
             "columns": list(df.columns),
             "sample": df.head(_SAMPLE_ROWS).to_dict(orient="records"),
-            "stats": df.describe(include="all").to_dict(),
+            "stats": self.build_dataframe_stats(df),
             "note": (
                 f"Full dataset ({len(df):,} rows) stored in variable registry. "
                 f"Showing first {_SAMPLE_ROWS} rows + statistical summary."
             ),
+        }
+
+    def build_dataframe_stats(self, df: pd.DataFrame) -> dict[str, Any]:
+        """Return a lightweight statistical summary for large DataFrames.
+
+        `describe(include="all")` scales poorly on wide/high-cardinality data.
+        This helper profiles a capped subset of columns and keeps categorical
+        summaries intentionally shallow so chat responses stay fast and small.
+        """
+        numeric_cols = list(df.select_dtypes(include="number").columns)
+        other_cols = [col for col in df.columns if col not in numeric_cols]
+
+        profiled_numeric = numeric_cols[:_MAX_PROFILED_COLUMNS]
+        remaining_slots = max(0, _MAX_PROFILED_COLUMNS - len(profiled_numeric))
+        profiled_other = other_cols[:remaining_slots]
+
+        numeric_stats: dict[str, Any] = {}
+        for col in profiled_numeric:
+            series = df[col].dropna()
+            if series.empty:
+                numeric_stats[col] = {"non_null": 0}
+                continue
+            numeric_stats[col] = {
+                "non_null": int(series.shape[0]),
+                "mean": float(series.mean()),
+                "std": float(series.std()) if series.shape[0] > 1 else 0.0,
+                "min": float(series.min()),
+                "p50": float(series.median()),
+                "max": float(series.max()),
+            }
+
+        categorical_stats: dict[str, Any] = {}
+        for col in profiled_other:
+            series = df[col].dropna()
+            top_values = (
+                series.astype(str)
+                .value_counts(dropna=True)
+                .head(_TOP_VALUE_COUNT)
+                .to_dict()
+            )
+            categorical_stats[col] = {
+                "non_null": int(series.shape[0]),
+                "unique": int(series.nunique(dropna=True)),
+                "top_values": top_values,
+            }
+
+        omitted_columns = max(0, len(df.columns) - len(profiled_numeric) - len(profiled_other))
+        return {
+            "profiled_columns": len(profiled_numeric) + len(profiled_other),
+            "total_columns": len(df.columns),
+            "numeric": numeric_stats,
+            "categorical": categorical_stats,
+            "omitted_columns": omitted_columns,
         }

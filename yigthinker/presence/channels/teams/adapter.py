@@ -48,6 +48,94 @@ _DELIVERABLE_MIME_PREFIXES = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Markdown-table stripping for Adaptive Card TextBlocks.
+# ---------------------------------------------------------------------------
+#
+# Adaptive Cards v1.5 supports a subset of markdown (bold, italic, lists,
+# links) but NOT tables. When an LLM response contains a markdown table and
+# the card ALSO renders a native Table element from the tool_result (the
+# common case after sql_query → DataPreview), the markdown pipes leak
+# through as raw `|` characters and look like broken output to the user.
+#
+# We strip ONLY when a native render already shows the data — see
+# _has_native_render gating in _append_text_to_card. Pure text cards keep
+# their markdown tables in case the user actually wanted them.
+#
+# Regex design:
+#   - Match 2+ consecutive lines whose stripped form starts with '|' and
+#     contains at least 2 '|' characters total (header + separator +
+#     data rows all look like this).
+#   - Also catch the "collapsed" one-line variant some LLMs produce when
+#     Teams / IM clients flatten newlines: long run of `| foo | bar |` with
+#     at least one `|------|` separator sequence on the same line.
+#   - Preserve inline code (backtick-wrapped) so `grep 'a\|b'` survives.
+
+_MARKDOWN_TABLE_BLOCK_RE = re.compile(
+    r"(?:^[ \t]*\|[^\n]*\|[ \t]*\r?\n){2,}",
+    re.MULTILINE,
+)
+_INLINE_TABLE_DUMP_RE = re.compile(
+    # Header row + separator + at least one data row, optionally collapsed
+    # onto a single logical line (some Teams renderers eat newlines).
+    r"\|[^`\n]{0,400}?\|[ \t]*\|\s*-{2,}[^\n]{0,400}?(?:\n|\|\s*)\|[^`\n]{0,400}?\|",
+)
+_CODE_FENCE_RE = re.compile(r"`[^`\n]+`")
+_MULTI_BLANK_LINE_RE = re.compile(r"\n{3,}")
+
+
+def _strip_markdown_tables(text: str) -> str:
+    """Remove markdown-table blocks from text; keep surrounding prose.
+
+    Handles the two shapes the LLM tends to produce after a sql_query:
+
+    1. Multi-line ``| col | val |\\n|---|---|\\n| a | 1 |`` blocks
+    2. Single-line collapsed variant with inline ``|-----|`` separator
+
+    Inline code spans like `grep 'a\\|b'` are preserved (their pipes are
+    escaped via the backtick mask).
+    """
+    # Shield inline code from the table regex by temporarily replacing
+    # backticked spans with opaque placeholders.
+    code_spans: list[str] = []
+
+    def _mask(match: re.Match) -> str:
+        code_spans.append(match.group(0))
+        return f"\x00CODE{len(code_spans) - 1}\x00"
+
+    masked = _CODE_FENCE_RE.sub(_mask, text)
+
+    # Strip multi-line markdown tables.
+    stripped = _MARKDOWN_TABLE_BLOCK_RE.sub("\n", masked)
+    # Strip collapsed one-line dumps too.
+    stripped = _INLINE_TABLE_DUMP_RE.sub(" ", stripped)
+
+    # Restore code spans.
+    for i, span in enumerate(code_spans):
+        stripped = stripped.replace(f"\x00CODE{i}\x00", span)
+
+    # Tidy: collapse any 3+ consecutive blank lines we created.
+    stripped = _MULTI_BLANK_LINE_RE.sub("\n\n", stripped)
+    return stripped.strip("\n")
+
+
+def _has_native_render(card: dict[str, Any]) -> bool:
+    """Return True if the card already contains a native visual element
+    (Table, Image, or ImageSet) whose data a markdown table in the
+    appended text would redundantly restate."""
+    if not isinstance(card, dict):
+        return False
+    body = card.get("body")
+    if not isinstance(body, list):
+        return False
+    for item in body:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") in ("Table", "Image", "ImageSet"):
+            return True
+    return False
+
+
 def _sanitize_attachment_name(name: str) -> str:
     candidate = str(name).strip()
     basename = PureWindowsPath(PurePosixPath(candidate).name).name
@@ -290,10 +378,60 @@ class TeamsAdapter:
         await self.send_response(event, "", artifact=artifact)
 
     def _gateway_base_url(self) -> str:
-        gw_cfg = getattr(self._gateway, "_settings", {}).get("gateway", {})
+        """Resolve the public base URL used to embed images / file tokens
+        in Adaptive Cards sent to Teams.
+
+        Two URLs are involved in the Teams integration and must NOT be
+        conflated:
+
+        - ``channels.teams.service_url``: the OUTBOUND Bot Framework
+          service URL (where we POST replies to). Normally empty so we
+          fall back to the ``serviceUrl`` in each inbound Activity, which
+          Microsoft populates with ``https://smba.trafficmanager.net/.../``.
+          Only override for on-prem Teams deployments.
+
+        - ``gateway.public_base_url``: the public URL of OUR gateway
+          (devtunnel, ngrok, real DNS). Used to embed image + file links
+          that Teams' cloud fetches server-side when rendering a card.
+
+        Resolution order (for THIS method — the public-asset URL):
+
+        1. ``settings.gateway.public_base_url`` — explicit config.
+        2. Loopback fallback (``http://127.0.0.1:<port>``) with a one-shot
+           warning. Teams cannot actually reach this from the cloud, so
+           charts + file downloads won't render — but at least the rest of
+           the chat works and the ops issue is discoverable via the log.
+
+        Historical note (2026-04-18 UAT): an earlier attempt derived the
+        public asset URL from ``channels.teams.service_url`` on the theory
+        that devtunnel users already put the tunnel URL there. WRONG —
+        that setting is the OUTBOUND service URL and overriding it to the
+        devtunnel broke every Bot Framework reply with 404s. The two URLs
+        are orthogonal and must be configured separately.
+        """
+        settings = getattr(self._gateway, "_settings", {})
+        gw_cfg = settings.get("gateway", {})
+
+        # (1) explicit public_base_url
         public_base_url = gw_cfg.get("public_base_url", "")
         if public_base_url:
             return public_base_url.rstrip("/")
+
+        # (2) final fallback: loopback. Warn once per adapter instance so
+        # ops can correlate "my chart image didn't render" with "we're on
+        # loopback base URL".
+        if not getattr(self, "_warned_loopback_base_url", False):
+            logger.warning(
+                "Teams adapter falling back to loopback base URL — "
+                "outbound chart images and file download buttons will NOT "
+                "render in the Teams client because Microsoft's backend "
+                "cannot reach loopback. Set gateway.public_base_url to "
+                "your public HTTPS tunnel URL (devtunnel / ngrok / real "
+                "DNS) to fix this. Note: do NOT set channels.teams."
+                "service_url for this — that is the OUTBOUND Bot "
+                "Framework service URL and is a different thing."
+            )
+            self._warned_loopback_base_url = True
 
         host = gw_cfg.get("host", "127.0.0.1")
         if host in {"", "0.0.0.0", "::"}:
@@ -335,10 +473,26 @@ class TeamsAdapter:
         return lower.startswith(("http://", "https://"))
 
     def _append_text_to_card(self, card: dict[str, Any], text: str) -> dict[str, Any]:
-        if text.strip():
-            card.setdefault("body", []).append(
-                {"type": "TextBlock", "text": text, "wrap": True}
-            )
+        if not text.strip():
+            return card
+        # 2026-04-18 UAT: Adaptive Cards v1.5 do NOT render markdown tables
+        # under any circumstance — pipe-delimited rows always show up as
+        # literal `|` characters, which always looks like a bug to the
+        # user. Strip markdown tables UNCONDITIONALLY in Teams.
+        #
+        # Earlier revision (same day) conditionally stripped only when the
+        # card had a native Table/Image element, on the theory that
+        # markdown-only cards might have user-intended pipes. UAT Step 3.6
+        # (Excel delivery) disproved this: the LLM produced a file card
+        # with a duplicate markdown table, rendering garbage pipes. The
+        # `_has_native_render` gating is retained as an internal helper
+        # for future use but no longer gates this call.
+        text = _strip_markdown_tables(text)
+        if not text.strip():
+            return card
+        card.setdefault("body", []).append(
+            {"type": "TextBlock", "text": text, "wrap": True}
+        )
         return card
 
     def _build_chart_card(self, artifact: dict[str, Any]) -> dict[str, Any]:
@@ -492,7 +646,10 @@ class TeamsAdapter:
                 try:
                     active_key = self._gateway.registry.get_active_key(session_key)
                     managed = await self._gateway.registry.get_or_restore(
-                        active_key, self._gateway._settings, "teams"
+                        active_key,
+                        self._gateway._settings,
+                        "teams",
+                        owner_id=session_key,
                     )
                     ctx_for_registration = managed.ctx
                 except Exception:
@@ -544,6 +701,7 @@ class TeamsAdapter:
 
             result = await self._gateway.handle_message(
                 session_key, text, channel="teams",
+                owner_id=session_key,
                 on_tool_event=_on_teams_tool_event,
                 quoted_messages=quoted or None,
             )

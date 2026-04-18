@@ -187,10 +187,28 @@ def quickstart(
     console.print("\n[bold]Step 2/3[/] — Creating sample finance database")
     from yigthinker.sample_db import ensure_sample_db
     sample_path = ensure_sample_db()
-    # Register sample DB as a named connection so sql_query can reach it
+    # Register sample DB as a named connection so sql_query can reach it.
+    # ConnectionPool (yigthinker/tools/sql/connection.py:26) reads the sqlite
+    # file location from the "path" key, NOT "database" — before 2026-04-18
+    # this line used "database" and silently fell back to :memory:, so no
+    # persisted sample DB was ever actually reachable after gateway restart.
     connections = settings.setdefault("connections", {})
     if "sample" not in connections:
-        connections["sample"] = {"type": "sqlite", "database": str(sample_path)}
+        connections["sample"] = {"type": "sqlite", "path": str(sample_path)}
+    # Persist the patched settings so a later `yigthinker gateway` session
+    # picks the connection up — quickstart previously mutated in-memory
+    # only, which worked for the single-process launch it does below but
+    # lost the registration on restart.
+    import json as _json
+    from yigthinker.presence.cli.setup_wizard import _user_settings_path
+    try:
+        sp = _user_settings_path()
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        sp.write_text(_json.dumps(settings, indent=2), encoding="utf-8")
+    except Exception:
+        # If we can't persist, fall back to in-memory-only (matches previous
+        # behaviour). The gateway launched below still sees the connection.
+        pass
     console.print(f"  [green]OK[/] Sample data at [cyan]{sample_path}[/]")
     console.print("  [dim]3 tables: revenue (18 rows), accounts_payable (18 rows), expenses (300 rows)[/]")
     console.print("  [dim]Connection registered as [bold]sample[/] — use /connect sample[/]")
