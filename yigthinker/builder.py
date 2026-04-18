@@ -53,6 +53,10 @@ class AppContext:
     # has already resolved the LLM provider.
     rpa_state: "Any | None" = None
     workflow_registry: "Any | None" = None
+    # 2026-04-17: expose PermissionSystem so the gateway can register a
+    # session-removal callback for PermissionSystem.clear_session — closes
+    # the per-session override leak fixed in the same audit pass.
+    permissions: "Any | None" = None
 
 
 async def build_app(
@@ -304,4 +308,5 @@ async def build_app(
         pattern_store=pattern_store,
         rpa_state=rpa_state,
         workflow_registry=workflow_registry,
+        permissions=permissions,
     )

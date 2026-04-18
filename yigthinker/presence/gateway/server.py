@@ -167,6 +167,13 @@ class GatewayServer:
         app_ctx = await build_app(self._settings, ask_fn=None)
         self._agent_loop = app_ctx.agent_loop
         self._pool = app_ctx.pool
+        # 2026-04-17: wire PermissionSystem cleanup to session removal so
+        # per-session overrides don't accumulate across hibernations.
+        # Long-running gateways otherwise leak memory + carry stale state.
+        if app_ctx.permissions is not None:
+            self._registry.add_session_removed_callback(
+                app_ctx.permissions.clear_session
+            )
         # Phase 10 / 10-01: build RPAController now that build_app has
         # resolved the provider. Route closures read self._rpa_controller
         # lazily at request time.

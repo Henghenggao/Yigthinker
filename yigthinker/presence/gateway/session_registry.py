@@ -7,7 +7,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from yigthinker.core.session import SessionContext
 
@@ -67,6 +67,37 @@ class SessionRegistry:
         self._max_sessions = max_sessions
         self._hibernate_dir = _resolve_hibernate_dir(hibernate_dir)
         self._active_keys: dict[str, str] = {}  # sender_key -> active_session_key
+        # Callbacks fired when a session is removed (hibernate / shutdown /
+        # LRU eviction). Consumers register cleanup for resources keyed by
+        # session_id — PermissionSystem._session_overrides is the original
+        # motivation (2026-04-17). Callback receives the session_id (UUID),
+        # NOT the registry key. Errors are logged and swallowed so a bad
+        # callback can't block session finalization.
+        self._session_removed_callbacks: list[Callable[[str], None]] = []
+
+    def add_session_removed_callback(
+        self, callback: Callable[[str], None],
+    ) -> None:
+        """Register a callback fired once per session when it's removed
+        from the in-memory registry.
+
+        Called with ``session_id`` (the UUID on ``ctx.session_id``), not
+        the registry key. Errors from callbacks are logged and swallowed.
+        """
+        self._session_removed_callbacks.append(callback)
+
+    def _notify_session_removed(self, session: ManagedSession) -> None:
+        """Fire all registered callbacks. Swallow and log individual errors
+        so one bad callback doesn't block lifecycle progression."""
+        session_id = session.ctx.session_id
+        for cb in self._session_removed_callbacks:
+            try:
+                cb(session_id)
+            except Exception:
+                logger.exception(
+                    "session-removed callback raised for session %s",
+                    session_id,
+                )
 
     def get_or_create(
         self,
@@ -124,6 +155,10 @@ class SessionRegistry:
         if session:
             logger.info("Removed session %s", key)
             self._purge_active_key(key)
+            # Fire removal callbacks so resources keyed by session_id (e.g.
+            # PermissionSystem overrides) are released — otherwise long-
+            # running gateways leak state. Matches hibernate() behavior.
+            self._notify_session_removed(session)
         return session
 
     def _purge_active_key(self, key: str) -> None:
@@ -184,6 +219,10 @@ class SessionRegistry:
             await hibernator.save(session)
             self._sessions.pop(key, None)
             self._purge_active_key(key)
+            # Fire removal callbacks AFTER pop so callback failures can't
+            # leave a stale in-memory entry. Callbacks receive session_id
+            # (UUID) not the registry key.
+            self._notify_session_removed(session)
             logger.info("Hibernated session %s", key)
             return True
         except Exception:
@@ -251,6 +290,11 @@ class SessionRegistry:
         self._sessions.pop(lru_key, None)
         self._purge_active_key(lru_key)
         self._schedule_hibernate(lru_session)
+        # Fire removal callbacks synchronously even though the actual
+        # hibernation save is async — the session is already removed from
+        # the in-memory registry and any session_id-keyed state is now
+        # stale, so cleanup should happen now, not wait for the save.
+        self._notify_session_removed(lru_session)
         logger.warning("LRU-evicted session %s (at capacity %d)", lru_key, self._max_sessions)
 
     def _schedule_hibernate(self, session: ManagedSession) -> None:
