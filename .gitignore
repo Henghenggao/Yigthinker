@@ -57,6 +57,11 @@ logs/
 
 # Local dev scripts
 run_dashboard.py
+# Local scratch / P&L generation scripts (user-specific, not shipped)
+PL_temp.xlsx
+scripts/build_pl.py
+scripts/build_pl_sheet.py
+scripts/build_pl_sheet_final.py
 
 # Environment / secrets
 .env
