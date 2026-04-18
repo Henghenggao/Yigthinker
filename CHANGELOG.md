@@ -4,6 +4,15 @@ All notable changes to Yigthinker are documented in this file.
 
 ## [Unreleased]
 
+### Reports — durable scheduled reports (persistence layer, 2026-04-17)
+
+- New `ScheduleRegistry` file-backed store at `~/.yigthinker/scheduled_reports.json`. Atomic writes via filelock + `os.replace` (same pattern as `WorkflowRegistry`). Versioned on-disk format.
+- `ReportScheduleTool` constructor now accepts `registry: ScheduleRegistry | None = None`. With a registry, entries persist across restarts; without, tool runs session-only for backward compat.
+- `registry_factory.build_tool_registry()` wires a default `ScheduleRegistry()` so production gets durability by default.
+- Tool result now includes architect-not-executor `next_steps`: POSIX cron line, Windows Task Scheduler hint, and a pointer to `workflow_deploy` for richer hand-offs. The tool itself never executes schedules — no silent success.
+- Dry-run path: no disk writes, no session-settings writes. Matches other file-producing tools.
+- Follow-up tracked in TODOs.md: decide executor path (in-process APScheduler vs OS hand-off vs workflow_deploy integration).
+
 ### Gateway — permission override cleanup on session eviction (2026-04-17)
 
 - `SessionRegistry` now exposes `add_session_removed_callback(cb)`; callbacks fire with `session.ctx.session_id` (UUID, not the registry key) when a session is removed via `hibernate` / `evict_idle` / `shutdown` / `_evict_lru` / `remove`.
