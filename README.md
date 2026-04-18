@@ -276,7 +276,7 @@ Current workspace status:
 - Forecast tools only register when their scientific dependencies are installed.
 - `/voice` configures the Whisper provider and language, but live microphone/TUI capture is not wired end-to-end yet.
 - Channel adapters: Teams is **tenant-validated** against Bot Framework + devtunnel as of 2026-04-18 (see `docs/audit/2026-04-18-teams-uat-report.md` for the full pass/fail ledger). Feishu and Google Chat adapters ship code-complete but have not been formally round-tripped against a live tenant.
-- Excel-with-embedded-chart: `excel_write` + `chart_create` deliver the xlsx and the chart PNG as **two separate artifacts** in the same card; embedding a native chart inside the xlsx is not yet supported (post-0.2.0 feature).
+- Excel-with-embedded-chart: `excel_write` now accepts `embed_chart=<chart_name>` to embed an openpyxl native chart (bar / line / pie) from a `chart_create` output into the produced xlsx. Unsupported chart types (heatmap / 3D scatter) skip the embed cleanly with `embed_chart_skipped=true` in the result — the xlsx is still produced.
 - MCP server packages (`yigthinker-mcp-uipath`, `yigthinker-mcp-powerautomate`) are code-complete against API specs but have not been validated against live Automation Cloud / Power Automate tenants — treat as beta until a round-trip UAT is recorded.
 - `spawn_agent` background mode merges DataFrames back only for sessions that are still alive at completion; parent eviction skips the merge with a warning (by design).
 - SQL queries pass LLM-generated SQL directly; use read-only database users for safety.

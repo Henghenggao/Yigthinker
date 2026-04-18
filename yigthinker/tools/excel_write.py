@@ -1,5 +1,6 @@
 """excel_write — produce a formatted ``.xlsx`` file from a registered DataFrame,
-with optional base-file modify mode and minimal named styles.
+with optional base-file modify mode, minimal named styles, and optional
+native chart embedding.
 
 This closes a gap observed in quick-260416-kyn: when the user asks for a
 formatted P&L / report spreadsheet with section headers, subtotals, frozen
@@ -30,6 +31,8 @@ both read from and serve the produced file.
 """
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +40,205 @@ from pydantic import BaseModel, Field, field_validator
 
 from yigthinker.session import SessionContext
 from yigthinker.types import DryRunReceipt, ToolResult
+
+logger = logging.getLogger(__name__)
+
+
+# ── Plotly → openpyxl chart bridge ───────────────────────────────────────
+#
+# Translate the subset of Plotly chart types that openpyxl can natively
+# render. openpyxl supports bar / line / pie / scatter / area out of the
+# box; Plotly Express produces JSON whose x/y columns live in the axis
+# titles (``layout.xaxis.title.text``), which is what we need to build a
+# ``Reference`` into the already-written data range.
+#
+# Unsupported types (heatmap, scatter_3d, waterfall — the last NOT to be
+# confused with openpyxl's line chart) return None so excel_write can
+# skip the embed without erroring. Honesty over silent garbage: the tool
+# surfaces ``embed_chart_skipped=True`` in its result so the LLM can
+# narrate the degradation.
+
+_PLOTLY_TO_OPENPYXL_CHART_KIND: dict[str, str] = {
+    "bar": "bar",
+    "line": "line",
+    "scatter": "line",  # scatter-with-lines → openpyxl line
+    "pie": "pie",
+    "area": "line",     # approximate — openpyxl has no dedicated area chart
+}
+
+
+def _chart_spec_from_plotly_json(plotly_json: str) -> dict[str, Any] | None:
+    """Extract a renderable chart spec from a Plotly figure JSON.
+
+    Returns a dict with keys ``kind``, ``x_col``, ``y_col``, ``title`` if
+    the chart is a type openpyxl can render. Returns ``None`` for
+    unsupported types (heatmap, 3D scatter, etc.) or malformed JSON so
+    callers can skip the embed cleanly.
+
+    Column names come from the Plotly layout's axis-title ``text`` field,
+    which Plotly Express populates automatically from the DataFrame
+    column names (our ``chart_create`` tool always uses Plotly Express).
+    """
+    try:
+        fig = json.loads(plotly_json)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(fig, dict):
+        return None
+
+    data = fig.get("data") or []
+    if not isinstance(data, list) or not data:
+        return None
+    trace = data[0]
+    if not isinstance(trace, dict):
+        return None
+
+    trace_type = (trace.get("type") or "").lower()
+    kind = _PLOTLY_TO_OPENPYXL_CHART_KIND.get(trace_type)
+    if kind is None:
+        return None
+
+    layout = fig.get("layout") or {}
+
+    # Title: can be a string or a dict with "text"
+    title = ""
+    layout_title = layout.get("title")
+    if isinstance(layout_title, dict):
+        title = str(layout_title.get("text") or "")
+    elif isinstance(layout_title, str):
+        title = layout_title
+
+    # Pie: use labels + values (different Plotly field names)
+    if kind == "pie":
+        x_col = _extract_pie_label_col(trace, layout)
+        y_col = _extract_pie_value_col(trace, layout)
+    else:
+        x_col = _extract_axis_title(layout, "xaxis") or trace.get("xaxis_title")
+        y_col = _extract_axis_title(layout, "yaxis") or trace.get("yaxis_title")
+
+    if not x_col or not y_col:
+        return None
+
+    return {
+        "kind": kind,
+        "x_col": str(x_col),
+        "y_col": str(y_col),
+        "title": title,
+    }
+
+
+def _extract_axis_title(layout: dict[str, Any], axis_key: str) -> str | None:
+    axis = layout.get(axis_key) or {}
+    if not isinstance(axis, dict):
+        return None
+    title = axis.get("title")
+    if isinstance(title, dict):
+        return str(title.get("text") or "") or None
+    if isinstance(title, str):
+        return title or None
+    return None
+
+
+def _extract_pie_label_col(trace: dict[str, Any], layout: dict[str, Any]) -> str | None:
+    """Pie's category column — Plotly Express stores it in the trace
+    hovertemplate as ``%{label}=...`` and in legend title."""
+    # Easiest reliable source: Plotly Express puts the column name in
+    # ``legendgroup`` or ``legend_title.text`` on the layout. As a final
+    # fallback, we pull from the hovertemplate regex.
+    legend = layout.get("legend") or {}
+    if isinstance(legend, dict):
+        lt = legend.get("title")
+        if isinstance(lt, dict):
+            txt = lt.get("text")
+            if isinstance(txt, str) and txt:
+                return txt
+    # Parse from hovertemplate: "label=%{label}<br>..."  → the prefix before
+    # "=" is often the column name.
+    tpl = trace.get("hovertemplate") or ""
+    if isinstance(tpl, str) and "=" in tpl:
+        prefix = tpl.split("=", 1)[0].strip()
+        if prefix and prefix.isidentifier():
+            return prefix
+    return None
+
+
+def _extract_pie_value_col(trace: dict[str, Any], layout: dict[str, Any]) -> str | None:
+    """Pie's numeric column — similar to label extraction but second
+    occurrence in hovertemplate."""
+    tpl = trace.get("hovertemplate") or ""
+    if isinstance(tpl, str):
+        # After the first "=%{...}", Plotly Express appends
+        # "<br>value=%{value}". Pull the text between <br> and =.
+        import re
+        m = re.search(r"<br>([A-Za-z_][A-Za-z0-9_]*)=", tpl)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _embed_native_chart(
+    ws: Any,
+    spec: dict[str, Any],
+    df_headers: list[str],
+    df_rows: int,
+) -> bool:
+    """Embed an openpyxl native chart into the given worksheet.
+
+    The data is assumed to already be written: headers on row 1, data in
+    rows 2..(df_rows+1), columns 1..len(df_headers). The chart is anchored
+    two columns to the right of the last data column.
+
+    Returns True on success, False if the chart spec's x_col / y_col
+    aren't present in ``df_headers`` (schema mismatch). Caller decides
+    whether to surface this as a skip in the tool result.
+    """
+    from openpyxl.chart import BarChart, LineChart, PieChart, Reference
+
+    kind = spec["kind"]
+    x_col = spec["x_col"]
+    y_col = spec["y_col"]
+
+    if x_col not in df_headers or y_col not in df_headers:
+        return False
+
+    x_idx = df_headers.index(x_col) + 1   # 1-based Excel column
+    y_idx = df_headers.index(y_col) + 1
+    data_start_row = 1          # header row
+    data_end_row = df_rows + 1  # last data row (inclusive)
+
+    # y-data range includes the header so the chart's legend auto-picks up
+    # the column name. openpyxl then uses titles_from_data=True.
+    data_ref = Reference(
+        ws,
+        min_col=y_idx, max_col=y_idx,
+        min_row=data_start_row, max_row=data_end_row,
+    )
+    cats_ref = Reference(
+        ws,
+        min_col=x_idx, max_col=x_idx,
+        min_row=data_start_row + 1, max_row=data_end_row,
+    )
+
+    if kind == "bar":
+        chart = BarChart()
+        chart.type = "col"  # vertical bars (most common for finance)
+    elif kind == "line":
+        chart = LineChart()
+    elif kind == "pie":
+        chart = PieChart()
+    else:  # pragma: no cover — map above should prevent this
+        return False
+
+    chart.add_data(data_ref, titles_from_data=True)
+    chart.set_categories(cats_ref)
+    if spec.get("title"):
+        chart.title = spec["title"]
+
+    # Anchor two columns to the right of the data, top-aligned with header
+    from openpyxl.utils import get_column_letter
+    anchor_col_letter = get_column_letter(len(df_headers) + 2)
+    ws.add_chart(chart, f"{anchor_col_letter}1")
+    return True
 
 # ── Named-style registry ─────────────────────────────────────────────────
 #
@@ -120,6 +322,20 @@ class ExcelWriteInput(BaseModel):
     summary: str | None = Field(
         default=None,
         description="Optional one-liner shown on the IM card.",
+    )
+    embed_chart: str | None = Field(
+        default=None,
+        description=(
+            "Optional: name of a chart variable in ``ctx.vars`` (produced by "
+            "chart_create) to embed as an openpyxl native chart in the "
+            "output workbook. Supported chart types: bar, line, pie. The "
+            "chart's x and y columns must match columns in the DataFrame "
+            "being written. Anchored two columns right of the data. If the "
+            "chart is an unsupported type (heatmap / scatter_3d / "
+            "waterfall) or its columns don't match the data schema, the "
+            "embed is skipped with ``embed_chart_skipped=True`` in the "
+            "result — the xlsx is still produced, just without the chart."
+        ),
     )
 
     @field_validator("sheet_name")
@@ -348,6 +564,66 @@ class ExcelWriteTool:
         if input.freeze_pane:
             ws.freeze_panes = input.freeze_pane
 
+        # ── 9b. Embed native chart (optional, 2026-04-18 UAT follow-up) ─
+        embed_chart_skipped = False
+        embed_chart_skip_reason: str | None = None
+        if input.embed_chart:
+            chart_json_str = None
+            try:
+                raw = ctx.vars.get(input.embed_chart)
+            except KeyError:
+                # List available charts so the LLM can self-correct
+                available_charts = sorted(
+                    info.name
+                    for info in ctx.vars.list()
+                    if getattr(info, "var_type", "") == "chart"
+                )
+                charts_listing = (
+                    ", ".join(available_charts)
+                    if available_charts
+                    else "(none — call chart_create first)"
+                )
+                return ToolResult(
+                    tool_use_id="",
+                    content=(
+                        f"embed_chart: chart '{input.embed_chart}' not found in "
+                        f"ctx.vars. Available chart names: {charts_listing}"
+                    ),
+                    is_error=True,
+                )
+            if isinstance(raw, str):
+                chart_json_str = raw
+            else:
+                embed_chart_skipped = True
+                embed_chart_skip_reason = (
+                    f"registered variable '{input.embed_chart}' is a "
+                    f"{type(raw).__name__}, not a chart JSON string. "
+                    f"Expected output of chart_create."
+                )
+            if chart_json_str is not None:
+                spec = _chart_spec_from_plotly_json(chart_json_str)
+                if spec is None:
+                    embed_chart_skipped = True
+                    embed_chart_skip_reason = (
+                        "chart type is not supported for native openpyxl "
+                        "embedding (supported: bar, line, pie, area, "
+                        "scatter). The xlsx was still produced without "
+                        "the chart."
+                    )
+                else:
+                    ok = _embed_native_chart(
+                        ws, spec, headers, df_rows=len(df.index),
+                    )
+                    if not ok:
+                        embed_chart_skipped = True
+                        embed_chart_skip_reason = (
+                            f"chart columns (x='{spec['x_col']}', "
+                            f"y='{spec['y_col']}') do not match any columns "
+                            f"in the DataFrame being written (columns: "
+                            f"{headers}). Re-run chart_create on the same "
+                            f"DataFrame to produce a matching chart."
+                        )
+
         # ── 10. Save ─────────────────────────────────────────────────
         try:
             wb.save(str(out_path))
@@ -378,19 +654,28 @@ class ExcelWriteTool:
         # Register so IM adapters can surface / serve the file.
         ctx.attachments.add(out_path)
 
+        content: dict[str, Any] = {
+            "kind": "file",
+            "path": str(out_path),
+            "filename": out_path.name,
+            "bytes": size_bytes,
+            "summary": input.summary,
+            "mime_type": (
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            ),
+        }
+        # Honest degradation flag so the LLM can narrate "Excel was saved
+        # but the chart embed was skipped because <reason>" rather than
+        # silently implying the chart is in the xlsx.
+        if input.embed_chart is not None:
+            content["embed_chart"] = input.embed_chart
+            content["embed_chart_skipped"] = embed_chart_skipped
+            if embed_chart_skip_reason is not None:
+                content["embed_chart_skip_reason"] = embed_chart_skip_reason
         return ToolResult(
             tool_use_id="",
-            content={
-                "kind": "file",
-                "path": str(out_path),
-                "filename": out_path.name,
-                "bytes": size_bytes,
-                "summary": input.summary,
-                "mime_type": (
-                    "application/vnd.openxmlformats-officedocument"
-                    ".spreadsheetml.sheet"
-                ),
-            },
+            content=content,
         )
 
 
