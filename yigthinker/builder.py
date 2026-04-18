@@ -40,6 +40,54 @@ def build_memory_provider(settings: dict[str, Any]) -> "Any | None":
     raise ValueError(f"unknown memory provider: {kind!r}")
 
 
+def _make_advisor_hook(
+    settings: dict[str, Any],
+    provider_builder: Callable[[dict[str, Any]], "LLMProvider"],
+):
+    """Build a lazy advisor hook wired to the live settings dict.
+
+    The hook is always registered, but it no-ops until `settings["advisor"]`
+    is enabled. Because sessions share the same settings mapping, runtime
+    `/advisor ...` changes are picked up on the next tool call.
+    """
+    from yigthinker.advisor.advisor import AdvisorConfig, AdvisorHook
+    from yigthinker.types import HookAction, HookResult
+
+    cache: dict[str, Any] = {"model": "", "provider": None}
+
+    async def _advisor_hook(event):
+        advisor_cfg = settings.get("advisor", {}) or {}
+        if not advisor_cfg.get("enabled", False):
+            return HookResult.ALLOW
+
+        model = (
+            advisor_cfg.get("model")
+            or settings.get("fallback_model")
+            or settings.get("model")
+            or AdvisorConfig.model
+        )
+        matcher = advisor_cfg.get("matcher", AdvisorConfig.matcher)
+
+        if cache["provider"] is None or cache["model"] != model:
+            advisor_settings = {**settings, "model": model}
+            try:
+                cache["provider"] = provider_builder(advisor_settings)
+            except Exception as exc:
+                return HookResult(
+                    action=HookAction.BLOCK,
+                    message=f"Advisor model '{model}' could not be initialized: {exc}",
+                )
+            cache["model"] = model
+
+        hook = AdvisorHook(
+            config=AdvisorConfig(enabled=True, model=model, matcher=matcher),
+            provider=cache["provider"],
+        )
+        return await hook.run(event)
+
+    return _advisor_hook
+
+
 @dataclass
 class AppContext:
     """Shared application state built once at startup."""
@@ -107,6 +155,26 @@ async def build_app(
     if gate("behavior", settings=settings):
         from yigthinker.memory.patterns import PatternStore
         pattern_store = PatternStore()
+        # Yigfinance Track D (ADR-011): seed the 6 canonical finance
+        # patterns on every boot. Idempotent — adds 0 on re-runs, never
+        # overwrites existing entries, preserves user suppressions. This
+        # is what makes suggest_automation meaningful on day-one
+        # installs instead of staying empty until AutoDream has
+        # accumulated cross-session history.
+        try:
+            from yigthinker.memory.finance_pattern_seeds import (
+                seed_finance_patterns,
+            )
+            seed_finance_patterns(pattern_store)
+        except Exception:
+            # Seeding failure must never block gateway startup. If the
+            # seeds file is malformed or disk is unwritable, the user
+            # just loses day-one automation suggestions — an acceptable
+            # degradation, not a startup blocker.
+            import logging
+            logging.getLogger(__name__).exception(
+                "Finance pattern seeding failed — continuing without seeds"
+            )
 
     # --- RPA state (Phase 10 / 10-01) ---
     rpa_state: Any | None = None
@@ -160,6 +228,15 @@ async def build_app(
     perm_mode = perm_settings.get("mode", "default")
     permissions = PermissionSystem(perm_settings, mode=perm_mode)
     provider = provider_from_settings(settings)
+
+    # Advisor is a true runtime hook now. It reads the shared settings dict on
+    # each invocation so `/advisor ...` updates take effect without rebuilding
+    # the app object graph.
+    hook_registry.register(
+        "PreToolUse",
+        "*",
+        _make_advisor_hook(settings, provider_from_settings),
+    )
 
     fallback_provider: LLMProvider | None = None
     fallback_model = settings.get("fallback_model")
